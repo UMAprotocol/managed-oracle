@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import {AddressWhitelistInterface} from "@uma/contracts/common/interfaces/AddressWhitelistInterface.sol";
+import {AddressWhitelistInterface} from "../interfaces/AddressWhitelistInterface.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Lockable} from "@uma/contracts/common/implementation/Lockable.sol";
 
