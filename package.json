@@ -1,0 +1,9 @@
+{
+  "name": "managed-oracle",
+  "version": "1.0.0",
+  "license": "AGPL-3.0-or-later",
+  "description": "Managed Oracle for UMA Protocol",
+  "devDependencies": {
+    "@openzeppelin/upgrades-core": "^1.44.1"
+  }
+}
