@@ -128,7 +128,7 @@ contract ManagedOptimisticOracleV2 is
      * @dev Only callable by the owner (checked in grantRole of AccessControl).
      * @param requestManager address of the request manager to set.
      */
-    function addRequestManager(address requestManager) external nonReentrant {
+    function addRequestManager(address requestManager) external nonReentrant onlyOwner {
         grantRole(REQUEST_MANAGER, requestManager);
         emit RequestManagerAdded(requestManager);
     }
@@ -138,7 +138,7 @@ contract ManagedOptimisticOracleV2 is
      * @dev Only callable by the owner (checked in revokeRole of AccessControl).
      * @param requestManager address of the request manager to remove.
      */
-    function removeRequestManager(address requestManager) external nonReentrant {
+    function removeRequestManager(address requestManager) external nonReentrant onlyOwner {
         revokeRole(REQUEST_MANAGER, requestManager);
         emit RequestManagerRemoved(requestManager);
     }
