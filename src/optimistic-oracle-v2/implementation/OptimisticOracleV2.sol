@@ -125,7 +125,7 @@ contract OptimisticOracleV2 is OptimisticOracleV2Interface, UUPSUpgradeable, Tes
      * @notice Authorizes UUPS upgrade.
      * @dev This contract does not support upgrades as it is not ownable, but children can override this method.
      */
-    function _authorizeUpgrade(address) internal override virtual {
+    function _authorizeUpgrade(address) internal virtual override {
         revert("Upgrade not supported");
     }
 
