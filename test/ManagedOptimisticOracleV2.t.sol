@@ -48,12 +48,12 @@ contract ManagedOptimisticOracleV2Test is Test {
     bytes32 constant IDENTIFIER = keccak256("test identifier");
     bytes constant ANCILLARY_DATA = "test data";
 
-    // Test addresses
-    address constant admin = address(0x1);
-    address constant requester = address(0x3); // RIPEMD-160
-    address constant proposer = address(0x4); // Identity
-    address constant requestManager = address(0x2); // SHA-256
-    address constant disputer = address(0x6); // ECAdd
+    // Test addresses (avoiding precompiled contract addresses 0x1-0x9)
+    address constant admin = address(0x1001);
+    address constant requester = address(0x1002);
+    address constant proposer = address(0x1003);
+    address constant requestManager = address(0x1004);
+    address constant disputer = address(0x1005);
 
     bytes32 public constant REQUEST_MANAGER_ROLE = keccak256("REQUEST_MANAGER");
     bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
@@ -97,8 +97,8 @@ contract ManagedOptimisticOracleV2Test is Test {
         finder.setImplementationAddress(bytes32("CollateralWhitelist"), address(collateralWhitelist));
 
         // Setup whitelists
-        defaultProposerWhitelist.addToWhitelist(address(0x4)); // Identity
-        requesterWhitelist.addToWhitelist(address(0x3)); // RIPEMD-160
+        defaultProposerWhitelist.addToWhitelist(proposer);
+        requesterWhitelist.addToWhitelist(requester);
 
         // Add currency to collateral whitelist
         collateralWhitelist.addToWhitelist(address(currency));
@@ -132,20 +132,20 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         // Grant request manager role to test address
         vm.startPrank(admin);
-        oracle.grantRole(oracle.REQUEST_MANAGER(), address(0x2)); // SHA-256
+        oracle.grantRole(oracle.REQUEST_MANAGER(), requestManager);
         vm.stopPrank();
 
         // Mint tokens to test addresses
-        currency.mint(address(0x3), 1000000e18); // RIPEMD-160
-        currency.mint(address(0x4), 1000000e18); // Identity
-        currency.mint(address(0x6), 1000000e18); // ECAdd
+        currency.mint(requester, 1000000e18);
+        currency.mint(proposer, 1000000e18);
+        currency.mint(disputer, 1000000e18);
 
         // Approve tokens for the oracle
-        vm.prank(address(0x3));
+        vm.prank(requester);
         currency.approve(address(oracle), type(uint256).max);
-        vm.prank(address(0x4));
+        vm.prank(proposer);
         currency.approve(address(oracle), type(uint256).max);
-        vm.prank(address(0x6));
+        vm.prank(disputer);
         currency.approve(address(oracle), type(uint256).max);
     }
 
@@ -207,7 +207,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     // ============ Access Control Tests ============
 
     function test_AddRequestManager() public {
-        address newRequestManager = address(0x6);
+        address newRequestManager = address(0x1006);
 
         vm.expectEmit(true, false, false, false);
         emit RequestManagerAdded(newRequestManager);
@@ -219,7 +219,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function test_AddRequestManager_RevertIfNotAdmin() public {
-        address newRequestManager = address(0x6);
+        address newRequestManager = address(0x1006);
 
         vm.expectRevert();
         vm.prank(requestManager);
@@ -359,7 +359,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function test_RequestPrice_RevertIfRequesterNotWhitelisted() public {
-        address nonWhitelistedRequester = address(0x7); // Use a different address not in whitelist
+        address nonWhitelistedRequester = address(0x1007); // Use a different address not in whitelist
 
         // Give tokens to non-whitelisted requester
         currency.mint(nonWhitelistedRequester, 10000e18);
@@ -507,7 +507,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     function test_GetProposerWhitelistWithEnforcementStatus_CustomWhitelist() public {
         bytes memory ancillaryData = "test data";
         DisableableAddressWhitelist customWhitelist = new DisableableAddressWhitelist();
-        address customProposer = address(0x7);
+        address customProposer = address(0x1007);
         customWhitelist.addToWhitelist(customProposer);
         customWhitelist.setWhitelistEnforcement(true); // Enable enforcement
 
@@ -556,7 +556,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_ProposePriceFor_RevertIfProposerNotWhitelisted() public {
         bytes memory ancillaryData = "test data";
-        address nonWhitelistedProposer = address(0x7); // Use a different address not in whitelist
+        address nonWhitelistedProposer = address(0x1007); // Use a different address not in whitelist
 
         // First request a price
         vm.prank(requester);
@@ -571,7 +571,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_ProposePriceFor_RevertIfSenderNotWhitelisted() public {
         bytes memory ancillaryData = "test data";
-        address nonWhitelistedSender = address(0x7); // Use a different address not in whitelist
+        address nonWhitelistedSender = address(0x1007); // Use a different address not in whitelist
 
         // First request a price
         vm.prank(requester);
@@ -630,7 +630,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         bytes[] memory calls = new bytes[](2);
 
         // Call 1: Add request manager
-        calls[0] = abi.encodeWithSelector(oracle.addRequestManager.selector, address(0x8));
+        calls[0] = abi.encodeWithSelector(oracle.addRequestManager.selector, address(0x1008));
 
         // Call 2: Set maximum bond
         calls[1] = abi.encodeWithSelector(oracle.setMaximumBond.selector, currency, 1500e18);
@@ -639,7 +639,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         bytes[] memory results = oracle.multicall(calls);
 
         // Verify results
-        assertTrue(oracle.hasRole(REQUEST_MANAGER_ROLE, address(0x8)));
+        assertTrue(oracle.hasRole(REQUEST_MANAGER_ROLE, address(0x1008)));
         assertEq(oracle.maximumBonds(currency), 1500e18);
     }
 

@@ -46,12 +46,12 @@ contract ManagedOptimisticOracleV2IntegrationTest is Test {
     bytes32 constant IDENTIFIER = keccak256("integration test identifier");
     bytes constant ANCILLARY_DATA = "integration test data";
 
-    // Test addresses
-    address constant admin = address(0x1);
-    address constant requester = address(0x4); // Identity
-    address constant proposer = address(0x6); // ECAdd
-    address constant requestManager = address(0x2); // SHA-256
-    address constant disputer = address(0x8); // Blake2F
+    // Test addresses (avoiding precompiled contract addresses 0x1-0x9)
+    address constant admin = address(0x1001);
+    address constant requester = address(0x1002);
+    address constant proposer = address(0x1003);
+    address constant requestManager = address(0x1004);
+    address constant disputer = address(0x1005);
 
     function setUp() public {
         // Deploy mock contracts
@@ -225,7 +225,7 @@ contract ManagedOptimisticOracleV2IntegrationTest is Test {
         // Test 2: Disable default whitelist (should work for any proposer)
         defaultProposerWhitelist.setWhitelistEnforcement(false);
 
-        address nonWhitelistedProposer = address(0x9);
+        address nonWhitelistedProposer = address(0x1009);
         currency1.mint(nonWhitelistedProposer, 10000e18);
         vm.prank(nonWhitelistedProposer);
         currency1.approve(address(oracle), type(uint256).max);
