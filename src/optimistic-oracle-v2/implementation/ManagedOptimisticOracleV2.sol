@@ -3,6 +3,8 @@ pragma solidity ^0.8.0;
 
 import {AccessControlDefaultAdminRulesUpgradeable} from
     "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -40,11 +42,24 @@ contract ManagedOptimisticOracleV2 is
     ManagedOptimisticOracleV2Events,
     OptimisticOracleV2,
     AccessControlDefaultAdminRulesUpgradeable,
+    Ownable2StepUpgradeable,
     MultiCaller
 {
     struct Bond {
         IERC20 currency;
         uint256 amount;
+    }
+
+    struct InitializeParams {
+        uint256 liveness; // default liveness applied to each price request.
+        address finderAddress; // finder to use to get addresses of DVM contracts.
+        address timerAddress; // address of the timer contract. Should be 0x0 in prod.
+        address defaultProposerWhitelist; // address of the default whitelist.
+        address requesterWhitelist; // address of the requester whitelist.
+        Bond[] maximumBonds; // array of maximum bonds for different currencies.
+        uint256 minimumLiveness; // minimum liveness that can be overridden for a request.
+        address admin; // address of the admin, which is used for managing contract parameters.
+        address owner; // address of the owner of the contract, which is used for contract upgrades.
     }
 
     bytes32 public constant REQUEST_MANAGER = keccak256("REQUEST_MANAGER");
@@ -55,7 +70,7 @@ contract ManagedOptimisticOracleV2 is
 
     mapping(bytes32 => DisableableAddressWhitelistInterface) public customProposerWhitelists;
 
-    // Owner controlled bounds limiting the changes that can be made by request managers.
+    // Admin controlled bounds limiting the changes that can be made by request managers.
     mapping(IERC20 => uint256) public maximumBonds; // Maximum bonds for a given currency.
     uint256 public minimumLiveness;
 
@@ -66,40 +81,26 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Initializer.
-     * @param _liveness default liveness applied to each price request.
-     * @param _finderAddress finder to use to get addresses of DVM contracts.
-     * @param _timerAddress address of the timer contract. Should be 0x0 in prod.
-     * @param _defaultProposerWhitelist address of the default whitelist.
-     * @param _requesterWhitelist address of the requester whitelist.
-     * @param _maximumBonds array of maximum bonds for different currencies.
-     * @param _minimumLiveness minimum liveness that can be overridden for a request.
-     * @param _admin address of the admin.
+     * @param params Initialization parameters, see InitializeParams struct for details.
+     * @dev Struct parameter is used to overcome the stack too deep limitations in Solidity.
      */
-    function initialize(
-        uint256 _liveness,
-        address _finderAddress,
-        address _timerAddress,
-        address _defaultProposerWhitelist,
-        address _requesterWhitelist,
-        Bond[] memory _maximumBonds,
-        uint256 _minimumLiveness,
-        address _admin
-    ) external initializer {
-        __OptimisticOracleV2_init(_liveness, _finderAddress, _timerAddress);
-        __AccessControlDefaultAdminRules_init(3 days, _admin);
+    function initialize(InitializeParams calldata params) external initializer {
+        __OptimisticOracleV2_init(params.liveness, params.finderAddress, params.timerAddress);
+        __AccessControlDefaultAdminRules_init(3 days, params.admin);
+        __Ownable_init(params.owner);
 
-        _setDefaultProposerWhitelist(_defaultProposerWhitelist);
-        _setRequesterWhitelist(_requesterWhitelist);
-        for (uint256 i = 0; i < _maximumBonds.length; i++) {
-            _setMaximumBond(_maximumBonds[i].currency, _maximumBonds[i].amount);
+        _setDefaultProposerWhitelist(params.defaultProposerWhitelist);
+        _setRequesterWhitelist(params.requesterWhitelist);
+        for (uint256 i = 0; i < params.maximumBonds.length; i++) {
+            _setMaximumBond(params.maximumBonds[i].currency, params.maximumBonds[i].amount);
         }
-        _setMinimumLiveness(_minimumLiveness);
+        _setMinimumLiveness(params.minimumLiveness);
     }
 
     /**
-     * @dev Throws if called by any account other than the owner.
+     * @dev Throws if called by any account other than the admin.
      */
-    modifier onlyOwner() {
+    modifier onlyAdmin() {
         _checkRole(DEFAULT_ADMIN_ROLE);
         _;
     }
@@ -110,6 +111,21 @@ contract ManagedOptimisticOracleV2 is
     modifier onlyRequestManager() {
         _checkRole(REQUEST_MANAGER);
         _;
+    }
+
+    /**
+     * @notice Returns the owner of the contract that is used for upgrades.
+     * @dev Since multiple base contracts implement the owner() function, we override from the OwnableUpgradeable
+     * that is used to hold contract ownership exclusively used for contract upgrades.
+     * @return address of the owner with contract upgrade permissions.
+     */
+    function owner()
+        public
+        view
+        override(OwnableUpgradeable, AccessControlDefaultAdminRulesUpgradeable)
+        returns (address)
+    {
+        return OwnableUpgradeable.owner();
     }
 
     /**
@@ -125,7 +141,7 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Adds a request manager.
-     * @dev Only callable by the owner (checked in grantRole of AccessControl).
+     * @dev Only callable by the admin (checked in grantRole of AccessControl).
      * @param requestManager address of the request manager to set.
      */
     function addRequestManager(address requestManager) external nonReentrant {
@@ -135,7 +151,7 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Removes a request manager.
-     * @dev Only callable by the owner (checked in revokeRole of AccessControl).
+     * @dev Only callable by the admin (checked in revokeRole of AccessControl).
      * @param requestManager address of the request manager to remove.
      */
     function removeRequestManager(address requestManager) external nonReentrant {
@@ -145,38 +161,38 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Sets the maximum bond that can be set for a request.
-     * @dev This can be used to limit the bond amount that can be set by request managers, callable by the owner.
+     * @dev This can be used to limit the bond amount that can be set by request managers, callable by the admin.
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param maximumBond new maximum bond amount.
      */
-    function setMaximumBond(IERC20 currency, uint256 maximumBond) external nonReentrant onlyOwner {
+    function setMaximumBond(IERC20 currency, uint256 maximumBond) external nonReentrant onlyAdmin {
         _setMaximumBond(currency, maximumBond);
     }
 
     /**
      * @notice Sets the minimum liveness that can be set for a request.
-     * @dev This can be used to limit the liveness period that can be set by request managers, callable by the owner.
+     * @dev This can be used to limit the liveness period that can be set by request managers, callable by the admin.
      * @param _minimumLiveness new minimum liveness period.
      */
-    function setMinimumLiveness(uint256 _minimumLiveness) external nonReentrant onlyOwner {
+    function setMinimumLiveness(uint256 _minimumLiveness) external nonReentrant onlyAdmin {
         _setMinimumLiveness(_minimumLiveness);
     }
 
     /**
      * @notice Sets the default proposer whitelist.
-     * @dev Only callable by the owner.
+     * @dev Only callable by the admin.
      * @param whitelist address of the whitelist to set.
      */
-    function setDefaultProposerWhitelist(address whitelist) external nonReentrant onlyOwner {
+    function setDefaultProposerWhitelist(address whitelist) external nonReentrant onlyAdmin {
         _setDefaultProposerWhitelist(whitelist);
     }
 
     /**
      * @notice Sets the requester whitelist.
-     * @dev Only callable by the owner.
+     * @dev Only callable by the admin.
      * @param whitelist address of the whitelist to set.
      */
-    function setRequesterWhitelist(address whitelist) external nonReentrant onlyOwner {
+    function setRequesterWhitelist(address whitelist) external nonReentrant onlyAdmin {
         _setRequesterWhitelist(whitelist);
     }
 
@@ -402,7 +418,7 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Validates the bond amount.
-     * @dev Reverts if the bond exceeds the maximum bond amount (controllable by the owner).
+     * @dev Reverts if the bond exceeds the maximum bond amount (controllable by the admin).
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param bond the bond amount to validate.
      */
@@ -412,7 +428,7 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Validates the liveness period.
-     * @dev Reverts if the liveness period is less than the minimum liveness (controllable by the owner) or above the
+     * @dev Reverts if the liveness period is less than the minimum liveness (controllable by the admin) or above the
      * maximum liveness (which is set in the parent contract).
      * @param liveness the liveness period to validate.
      */
