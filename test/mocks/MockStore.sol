@@ -38,11 +38,12 @@ contract MockStore is StoreInterface {
      * @return regularFee amount owed for the duration from start to end time for the given pfc.
      * @return latePenalty for paying the fee after the deadline.
      */
-    function computeRegularFee(
-        uint256 startTime,
-        uint256 endTime,
-        FixedPoint.Unsigned calldata pfc
-    ) external pure override returns (FixedPoint.Unsigned memory regularFee, FixedPoint.Unsigned memory latePenalty) {
+    function computeRegularFee(uint256 startTime, uint256 endTime, FixedPoint.Unsigned calldata pfc)
+        external
+        pure
+        override
+        returns (FixedPoint.Unsigned memory regularFee, FixedPoint.Unsigned memory latePenalty)
+    {
         // Mock implementation - return fixed fees
         regularFee = FixedPoint.fromUnscaledUint(100e18); // 100 tokens
         latePenalty = FixedPoint.fromUnscaledUint(0);
@@ -57,4 +58,4 @@ contract MockStore is StoreInterface {
         // Mock implementation - return fixed final fee of 100 tokens
         return FixedPoint.Unsigned(100e18);
     }
-} 
+}

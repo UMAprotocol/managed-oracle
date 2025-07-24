@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import {OracleAncillaryInterface} from "@uma/contracts/data-verification-mechanism/interfaces/OracleAncillaryInterface.sol";
+import {OracleAncillaryInterface} from
+    "@uma/contracts/data-verification-mechanism/interfaces/OracleAncillaryInterface.sol";
 
 /**
  * @title Mock Oracle contract for testing.
@@ -18,7 +19,9 @@ contract MockOracle is OracleAncillaryInterface {
      * @param ancillaryData The ancillary data.
      * @param priceExists Whether the price exists.
      */
-    function setHasPrice(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData, bool priceExists) external {
+    function setHasPrice(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData, bool priceExists)
+        external
+    {
         hasPriceMap[identifier][timestamp][ancillaryData] = priceExists;
     }
 
@@ -51,7 +54,12 @@ contract MockOracle is OracleAncillaryInterface {
      * @param ancillaryData The ancillary data.
      * @return True if the price exists, false otherwise.
      */
-    function hasPrice(bytes32 identifier, uint256 time, bytes memory ancillaryData) public view override returns (bool) {
+    function hasPrice(bytes32 identifier, uint256 time, bytes memory ancillaryData)
+        public
+        view
+        override
+        returns (bool)
+    {
         return hasPriceMap[identifier][time][ancillaryData];
     }
 
@@ -62,8 +70,13 @@ contract MockOracle is OracleAncillaryInterface {
      * @param ancillaryData The ancillary data.
      * @return The price value.
      */
-    function getPrice(bytes32 identifier, uint256 time, bytes memory ancillaryData) public view override returns (int256) {
+    function getPrice(bytes32 identifier, uint256 time, bytes memory ancillaryData)
+        public
+        view
+        override
+        returns (int256)
+    {
         require(hasPriceMap[identifier][time][ancillaryData], "Price not available");
         return priceMap[identifier][time][ancillaryData];
     }
-} 
+}

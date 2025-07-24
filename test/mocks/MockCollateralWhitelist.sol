@@ -8,6 +8,6 @@ import {AddressWhitelist} from "../../src/common/implementation/AddressWhitelist
  * @notice Extends AddressWhitelist for testing the ManagedOptimisticOracleV2 contract.
  */
 contract MockCollateralWhitelist is AddressWhitelist {
-    // Inherits all functionality from AddressWhitelist
-    // This is just a wrapper to make the testing setup clearer
-} 
+// Inherits all functionality from AddressWhitelist
+// This is just a wrapper to make the testing setup clearer
+}

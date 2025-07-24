@@ -36,4 +36,4 @@ contract MockFinder is FinderInterface {
     function changeImplementationAddress(bytes32 interfaceName, address implementationAddress) external override {
         implementationAddresses[interfaceName] = implementationAddress;
     }
-} 
+}

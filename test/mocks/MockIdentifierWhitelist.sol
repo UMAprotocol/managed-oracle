@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import {IdentifierWhitelistInterface} from "@uma/contracts/data-verification-mechanism/interfaces/IdentifierWhitelistInterface.sol";
+import {IdentifierWhitelistInterface} from
+    "@uma/contracts/data-verification-mechanism/interfaces/IdentifierWhitelistInterface.sol";
 
 /**
  * @title Mock Identifier Whitelist contract for testing.
@@ -68,4 +69,4 @@ contract MockIdentifierWhitelist is IdentifierWhitelistInterface {
         // Mock implementation - return empty array
         return new bytes32[](0);
     }
-} 
+}

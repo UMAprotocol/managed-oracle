@@ -21,19 +21,19 @@ contract ManagedOptimisticOracleV2Test is Test {
     ManagedOptimisticOracleV2 public oracle;
     ManagedOptimisticOracleV2 public implementation;
     ERC1967Proxy public proxy;
-    
+
     DisableableAddressWhitelist public defaultProposerWhitelist;
     DisableableAddressWhitelist public requesterWhitelist;
-    
+
     MockFinder public finder;
     MockStore public store;
     MockOracle public mockOracle;
     MockIdentifierWhitelist public identifierWhitelist;
     MockCollateralWhitelist public collateralWhitelist;
     Timer public timer;
-    
+
     ERC20Mock public currency;
-    
+
     // Test constants
     uint256 constant DEFAULT_LIVENESS = 7200;
     uint256 constant MINIMUM_LIVENESS = 3600;
@@ -44,20 +44,20 @@ contract ManagedOptimisticOracleV2Test is Test {
     uint256 constant TOTAL_BOND = FINAL_FEE * 2; // 200e18 (finalFee * 2 as per contract)
     uint256 constant CUSTOM_BOND = 500e18;
     uint256 constant CUSTOM_TOTAL_BOND = FINAL_FEE + CUSTOM_BOND; // 600e18
-    
+
     bytes32 constant IDENTIFIER = keccak256("test identifier");
     bytes constant ANCILLARY_DATA = "test data";
-    
+
     // Test addresses
     address constant admin = address(0x1);
     address constant requester = address(0x3); // RIPEMD-160
     address constant proposer = address(0x4); // Identity
     address constant requestManager = address(0x2); // SHA-256
     address constant disputer = address(0x6); // ECAdd
-    
+
     bytes32 public constant REQUEST_MANAGER_ROLE = keccak256("REQUEST_MANAGER");
     bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
-    
+
     event RequestManagerAdded(address indexed requestManager);
     event RequestManagerRemoved(address indexed requestManager);
     event MaximumBondUpdated(IERC20 indexed currency, uint256 newMaximumBond);
@@ -81,40 +81,37 @@ contract ManagedOptimisticOracleV2Test is Test {
         collateralWhitelist = new MockCollateralWhitelist();
         timer = new Timer();
         currency = new ERC20Mock();
-        
+
         // Deploy whitelists
         defaultProposerWhitelist = new DisableableAddressWhitelist();
         requesterWhitelist = new DisableableAddressWhitelist();
-        
+
         // Enable whitelist enforcement
         defaultProposerWhitelist.setWhitelistEnforcement(true);
         requesterWhitelist.setWhitelistEnforcement(true);
-        
+
         // Setup finder mappings
         finder.setImplementationAddress(bytes32("Oracle"), address(mockOracle));
         finder.setImplementationAddress(bytes32("Store"), address(store));
         finder.setImplementationAddress(bytes32("IdentifierWhitelist"), address(identifierWhitelist));
         finder.setImplementationAddress(bytes32("CollateralWhitelist"), address(collateralWhitelist));
-        
+
         // Setup whitelists
         defaultProposerWhitelist.addToWhitelist(address(0x4)); // Identity
         requesterWhitelist.addToWhitelist(address(0x3)); // RIPEMD-160
-        
+
         // Add currency to collateral whitelist
         collateralWhitelist.addToWhitelist(address(currency));
-        
+
         // Add identifier to identifier whitelist
         identifierWhitelist.addToWhitelist(IDENTIFIER);
-        
+
         // Deploy the oracle implementation
         oracle = new ManagedOptimisticOracleV2();
-        
+
         // Deploy the proxy
         ManagedOptimisticOracleV2.Bond[] memory bonds = new ManagedOptimisticOracleV2.Bond[](1);
-        bonds[0] = ManagedOptimisticOracleV2.Bond({
-            currency: currency,
-            amount: MAXIMUM_BOND
-        });
+        bonds[0] = ManagedOptimisticOracleV2.Bond({currency: currency, amount: MAXIMUM_BOND});
         proxy = new ERC1967Proxy(
             address(oracle),
             abi.encodeWithSelector(
@@ -129,20 +126,20 @@ contract ManagedOptimisticOracleV2Test is Test {
                 admin
             )
         );
-        
+
         // Cast the proxy to the oracle interface
         oracle = ManagedOptimisticOracleV2(address(proxy));
-        
+
         // Grant request manager role to test address
         vm.startPrank(admin);
         oracle.grantRole(oracle.REQUEST_MANAGER(), address(0x2)); // SHA-256
         vm.stopPrank();
-        
+
         // Mint tokens to test addresses
         currency.mint(address(0x3), 1000000e18); // RIPEMD-160
         currency.mint(address(0x4), 1000000e18); // Identity
         currency.mint(address(0x6), 1000000e18); // ECAdd
-        
+
         // Approve tokens for the oracle
         vm.prank(address(0x3));
         currency.approve(address(oracle), type(uint256).max);
@@ -166,11 +163,8 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_Initialize_RevertIfAlreadyInitialized() public {
         ManagedOptimisticOracleV2.Bond[] memory maximumBonds = new ManagedOptimisticOracleV2.Bond[](1);
-        maximumBonds[0] = ManagedOptimisticOracleV2.Bond({
-            currency: currency,
-            amount: MAXIMUM_BOND
-        });
-        
+        maximumBonds[0] = ManagedOptimisticOracleV2.Bond({currency: currency, amount: MAXIMUM_BOND});
+
         bytes memory initData = abi.encodeWithSelector(
             ManagedOptimisticOracleV2.initialize.selector,
             DEFAULT_LIVENESS,
@@ -182,7 +176,7 @@ contract ManagedOptimisticOracleV2Test is Test {
             MINIMUM_LIVENESS,
             admin
         );
-        
+
         // Try to initialize the already initialized oracle - should fail
         vm.expectRevert("Initializable: contract is already initialized");
         address(oracle).call(initData);
@@ -190,13 +184,10 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_Initialize_RevertIfZeroWhitelist() public {
         ManagedOptimisticOracleV2 newImplementation = new ManagedOptimisticOracleV2();
-        
+
         ManagedOptimisticOracleV2.Bond[] memory maximumBonds = new ManagedOptimisticOracleV2.Bond[](1);
-        maximumBonds[0] = ManagedOptimisticOracleV2.Bond({
-            currency: currency,
-            amount: MAXIMUM_BOND
-        });
-        
+        maximumBonds[0] = ManagedOptimisticOracleV2.Bond({currency: currency, amount: MAXIMUM_BOND});
+
         bytes memory initData = abi.encodeWithSelector(
             ManagedOptimisticOracleV2.initialize.selector,
             DEFAULT_LIVENESS,
@@ -208,7 +199,7 @@ contract ManagedOptimisticOracleV2Test is Test {
             MINIMUM_LIVENESS,
             admin
         );
-        
+
         vm.expectRevert("Whitelist cannot be zero address");
         new ERC1967Proxy(address(newImplementation), initData);
     }
@@ -217,19 +208,19 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_AddRequestManager() public {
         address newRequestManager = address(0x6);
-        
+
         vm.expectEmit(true, false, false, false);
         emit RequestManagerAdded(newRequestManager);
-        
+
         vm.prank(admin);
         oracle.addRequestManager(newRequestManager);
-        
+
         assertTrue(oracle.hasRole(REQUEST_MANAGER_ROLE, newRequestManager));
     }
 
     function test_AddRequestManager_RevertIfNotAdmin() public {
         address newRequestManager = address(0x6);
-        
+
         vm.expectRevert();
         vm.prank(requestManager);
         oracle.addRequestManager(newRequestManager);
@@ -238,10 +229,10 @@ contract ManagedOptimisticOracleV2Test is Test {
     function test_RemoveRequestManager() public {
         vm.expectEmit(true, false, false, false);
         emit RequestManagerRemoved(requestManager);
-        
+
         vm.prank(admin);
         oracle.removeRequestManager(requestManager);
-        
+
         assertFalse(oracle.hasRole(REQUEST_MANAGER_ROLE, requestManager));
     }
 
@@ -255,13 +246,13 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_SetMaximumBond() public {
         uint256 newMaxBond = 2000e18;
-        
+
         vm.expectEmit(true, false, false, false);
         emit MaximumBondUpdated(currency, newMaxBond);
-        
+
         vm.prank(admin);
         oracle.setMaximumBond(currency, newMaxBond);
-        
+
         assertEq(oracle.maximumBonds(currency), newMaxBond);
     }
 
@@ -273,7 +264,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_SetMaximumBond_RevertIfUnsupportedCurrency() public {
         ERC20Mock unsupportedCurrency = new ERC20Mock();
-        
+
         vm.expectRevert("Unsupported currency");
         vm.prank(admin);
         oracle.setMaximumBond(unsupportedCurrency, 2000e18);
@@ -283,13 +274,13 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_SetMinimumLiveness() public {
         uint256 newMinLiveness = 1800; // 30 minutes
-        
+
         vm.expectEmit(false, false, false, false);
         emit MinimumLivenessUpdated(newMinLiveness);
-        
+
         vm.prank(admin);
         oracle.setMinimumLiveness(newMinLiveness);
-        
+
         assertEq(oracle.minimumLiveness(), newMinLiveness);
     }
 
@@ -303,19 +294,19 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_SetDefaultProposerWhitelist() public {
         DisableableAddressWhitelist newWhitelist = new DisableableAddressWhitelist();
-        
+
         vm.expectEmit(true, false, false, false);
         emit DefaultProposerWhitelistUpdated(address(newWhitelist));
-        
+
         vm.prank(admin);
         oracle.setDefaultProposerWhitelist(address(newWhitelist));
-        
+
         assertEq(address(oracle.defaultProposerWhitelist()), address(newWhitelist));
     }
 
     function test_SetDefaultProposerWhitelist_RevertIfNotAdmin() public {
         DisableableAddressWhitelist newWhitelist = new DisableableAddressWhitelist();
-        
+
         vm.expectRevert();
         vm.prank(requestManager);
         oracle.setDefaultProposerWhitelist(address(newWhitelist));
@@ -329,19 +320,19 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_SetRequesterWhitelist() public {
         DisableableAddressWhitelist newWhitelist = new DisableableAddressWhitelist();
-        
+
         vm.expectEmit(true, false, false, false);
         emit RequesterWhitelistUpdated(address(newWhitelist));
-        
+
         vm.prank(admin);
         oracle.setRequesterWhitelist(address(newWhitelist));
-        
+
         assertEq(address(oracle.requesterWhitelist()), address(newWhitelist));
     }
 
     function test_SetRequesterWhitelist_RevertIfNotAdmin() public {
         DisableableAddressWhitelist newWhitelist = new DisableableAddressWhitelist();
-        
+
         vm.expectRevert();
         vm.prank(requestManager);
         oracle.setRequesterWhitelist(address(newWhitelist));
@@ -357,191 +348,114 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_RequestPrice() public {
         bytes memory ancillaryData = "test data";
-        
+
         vm.prank(requester);
-        uint256 totalBond = oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        uint256 totalBond = oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         assertEq(totalBond, TOTAL_BOND);
-        
+
         // Check request state
         assertEq(uint256(oracle.getState(requester, IDENTIFIER, block.timestamp, ancillaryData)), 1); // Requested
     }
 
     function test_RequestPrice_RevertIfRequesterNotWhitelisted() public {
         address nonWhitelistedRequester = address(0x7); // Use a different address not in whitelist
-        
+
         // Give tokens to non-whitelisted requester
         currency.mint(nonWhitelistedRequester, 10000e18);
         vm.prank(nonWhitelistedRequester);
         currency.approve(address(oracle), type(uint256).max);
-        
+
         bytes memory ancillaryData = "test data";
-        
+
         vm.expectRevert("Requester not whitelisted");
         vm.prank(nonWhitelistedRequester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
     }
 
     // ============ Request Manager Bond Tests ============
 
     function test_RequestManagerSetBond() public {
         bytes memory ancillaryData = "test data";
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         uint256 customBond = 500e18;
-        
+
         vm.prank(requestManager);
-        uint256 totalBond = oracle.requestManagerSetBond(
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            customBond
-        );
-        
+        uint256 totalBond =
+            oracle.requestManagerSetBond(requester, IDENTIFIER, block.timestamp, ancillaryData, customBond);
+
         assertEq(totalBond, CUSTOM_TOTAL_BOND);
     }
 
     function test_RequestManagerSetBond_RevertIfNotRequestManager() public {
         bytes memory ancillaryData = "test data";
-        
+
         vm.expectRevert();
         vm.prank(requester);
-        oracle.requestManagerSetBond(
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            500e18
-        );
+        oracle.requestManagerSetBond(requester, IDENTIFIER, block.timestamp, ancillaryData, 500e18);
     }
 
     function test_RequestManagerSetBond_RevertIfBondExceedsMaximum() public {
         bytes memory ancillaryData = "test data";
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         uint256 excessiveBond = MAXIMUM_BOND + 1;
-        
+
         vm.expectRevert("Bond exceeds maximum bond");
         vm.prank(requestManager);
-        oracle.requestManagerSetBond(
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            excessiveBond
-        );
+        oracle.requestManagerSetBond(requester, IDENTIFIER, block.timestamp, ancillaryData, excessiveBond);
     }
 
     function test_RequestManagerSetBond_RevertIfRequestNotInRequestedState() public {
         bytes memory ancillaryData = "test data";
-        
+
         vm.expectRevert("setBond: Requested");
         vm.prank(requestManager);
-        oracle.requestManagerSetBond(
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            500e18
-        );
+        oracle.requestManagerSetBond(requester, IDENTIFIER, block.timestamp, ancillaryData, 500e18);
     }
 
     // ============ Request Manager Liveness Tests ============
 
     function test_RequestManagerSetCustomLiveness() public {
         bytes memory ancillaryData = "test data";
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         uint256 customLiveness = 5400; // 1.5 hours
-        
+
         vm.prank(requestManager);
-        oracle.requestManagerSetCustomLiveness(
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            customLiveness
-        );
+        oracle.requestManagerSetCustomLiveness(requester, IDENTIFIER, block.timestamp, ancillaryData, customLiveness);
     }
 
     function test_RequestManagerSetCustomLiveness_RevertIfNotRequestManager() public {
         bytes memory ancillaryData = "test data";
-        
+
         vm.expectRevert();
         vm.prank(requester);
-        oracle.requestManagerSetCustomLiveness(
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            5400
-        );
+        oracle.requestManagerSetCustomLiveness(requester, IDENTIFIER, block.timestamp, ancillaryData, 5400);
     }
 
     function test_RequestManagerSetCustomLiveness_RevertIfLivenessBelowMinimum() public {
         bytes memory ancillaryData = "test data";
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         uint256 lowLiveness = MINIMUM_LIVENESS - 1;
-        
+
         vm.expectRevert("Liveness is less than minimum");
         vm.prank(requestManager);
-        oracle.requestManagerSetCustomLiveness(
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            lowLiveness
-        );
+        oracle.requestManagerSetCustomLiveness(requester, IDENTIFIER, block.timestamp, ancillaryData, lowLiveness);
     }
 
     // ============ Custom Proposer Whitelist Tests ============
@@ -550,7 +464,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         bytes memory ancillaryData = "test data";
         DisableableAddressWhitelist customWhitelist = new DisableableAddressWhitelist();
         customWhitelist.addToWhitelist(proposer);
-        
+
         vm.expectEmit(true, true, false, true);
         emit CustomProposerWhitelistSet(
             oracle.getInternalRequestId(requester, IDENTIFIER, ancillaryData),
@@ -559,46 +473,32 @@ contract ManagedOptimisticOracleV2Test is Test {
             ancillaryData,
             address(customWhitelist)
         );
-        
+
         vm.prank(requestManager);
-        oracle.requestManagerSetProposerWhitelist(
-            requester,
-            IDENTIFIER,
-            ancillaryData,
-            address(customWhitelist)
-        );
-        
+        oracle.requestManagerSetProposerWhitelist(requester, IDENTIFIER, ancillaryData, address(customWhitelist));
+
         assertEq(
-            address(oracle.getCustomProposerWhitelist(requester, IDENTIFIER, ancillaryData)),
-            address(customWhitelist)
+            address(oracle.getCustomProposerWhitelist(requester, IDENTIFIER, ancillaryData)), address(customWhitelist)
         );
     }
 
     function test_RequestManagerSetProposerWhitelist_RevertIfNotRequestManager() public {
         bytes memory ancillaryData = "test data";
         DisableableAddressWhitelist customWhitelist = new DisableableAddressWhitelist();
-        
+
         vm.expectRevert();
         vm.prank(requester);
-        oracle.requestManagerSetProposerWhitelist(
-            requester,
-            IDENTIFIER,
-            ancillaryData,
-            address(customWhitelist)
-        );
+        oracle.requestManagerSetProposerWhitelist(requester, IDENTIFIER, ancillaryData, address(customWhitelist));
     }
 
     // ============ Proposer Whitelist Tests ============
 
     function test_GetProposerWhitelistWithEnforcementStatus_DefaultWhitelist() public {
         bytes memory ancillaryData = "test data";
-        
-        (address[] memory allowedProposers, bool isEnforced) = oracle.getProposerWhitelistWithEnforcementStatus(
-            requester,
-            IDENTIFIER,
-            ancillaryData
-        );
-        
+
+        (address[] memory allowedProposers, bool isEnforced) =
+            oracle.getProposerWhitelistWithEnforcementStatus(requester, IDENTIFIER, ancillaryData);
+
         assertEq(allowedProposers.length, 1);
         assertEq(allowedProposers[0], proposer);
         assertTrue(isEnforced);
@@ -610,21 +510,13 @@ contract ManagedOptimisticOracleV2Test is Test {
         address customProposer = address(0x7);
         customWhitelist.addToWhitelist(customProposer);
         customWhitelist.setWhitelistEnforcement(true); // Enable enforcement
-        
+
         vm.prank(requestManager);
-        oracle.requestManagerSetProposerWhitelist(
-            requester,
-            IDENTIFIER,
-            ancillaryData,
-            address(customWhitelist)
-        );
-        
-        (address[] memory allowedProposers, bool isEnforced) = oracle.getProposerWhitelistWithEnforcementStatus(
-            requester,
-            IDENTIFIER,
-            ancillaryData
-        );
-        
+        oracle.requestManagerSetProposerWhitelist(requester, IDENTIFIER, ancillaryData, address(customWhitelist));
+
+        (address[] memory allowedProposers, bool isEnforced) =
+            oracle.getProposerWhitelistWithEnforcementStatus(requester, IDENTIFIER, ancillaryData);
+
         assertEq(allowedProposers.length, 1);
         assertEq(allowedProposers[0], customProposer);
         assertTrue(isEnforced);
@@ -633,15 +525,12 @@ contract ManagedOptimisticOracleV2Test is Test {
     function test_GetProposerWhitelistWithEnforcementStatus_DisabledWhitelist() public {
         // Disable the default whitelist
         defaultProposerWhitelist.setWhitelistEnforcement(false);
-        
+
         bytes memory ancillaryData = "test data";
-        
-        (address[] memory allowedProposers, bool isEnforced) = oracle.getProposerWhitelistWithEnforcementStatus(
-            requester,
-            IDENTIFIER,
-            ancillaryData
-        );
-        
+
+        (address[] memory allowedProposers, bool isEnforced) =
+            oracle.getProposerWhitelistWithEnforcementStatus(requester, IDENTIFIER, ancillaryData);
+
         assertEq(allowedProposers.length, 0);
         assertFalse(isEnforced);
     }
@@ -650,29 +539,17 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_ProposePriceFor() public {
         bytes memory ancillaryData = "test data";
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         vm.prank(proposer);
-        uint256 totalBond = oracle.proposePriceFor(
-            proposer,
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            PROPOSED_PRICE
-        );
-        
+        uint256 totalBond =
+            oracle.proposePriceFor(proposer, requester, IDENTIFIER, block.timestamp, ancillaryData, PROPOSED_PRICE);
+
         assertEq(totalBond, TOTAL_BOND);
-        
+
         // Check proposal state
         assertEq(uint256(oracle.getState(requester, IDENTIFIER, block.timestamp, ancillaryData)), 2); // Proposed
     }
@@ -680,65 +557,41 @@ contract ManagedOptimisticOracleV2Test is Test {
     function test_ProposePriceFor_RevertIfProposerNotWhitelisted() public {
         bytes memory ancillaryData = "test data";
         address nonWhitelistedProposer = address(0x7); // Use a different address not in whitelist
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         vm.expectRevert("Proposer not whitelisted");
         vm.prank(proposer);
         oracle.proposePriceFor(
-            nonWhitelistedProposer,
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            PROPOSED_PRICE
+            nonWhitelistedProposer, requester, IDENTIFIER, block.timestamp, ancillaryData, PROPOSED_PRICE
         );
     }
 
     function test_ProposePriceFor_RevertIfSenderNotWhitelisted() public {
         bytes memory ancillaryData = "test data";
         address nonWhitelistedSender = address(0x7); // Use a different address not in whitelist
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         vm.expectRevert("Sender not whitelisted");
         vm.prank(nonWhitelistedSender);
-        oracle.proposePriceFor(
-            proposer,
-            requester,
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            PROPOSED_PRICE
-        );
+        oracle.proposePriceFor(proposer, requester, IDENTIFIER, block.timestamp, ancillaryData, PROPOSED_PRICE);
     }
 
     // ============ Utility Function Tests ============
 
     function test_GetInternalRequestId() public {
         bytes memory ancillaryData = "test data";
-        
+
         bytes32 requestId = oracle.getInternalRequestId(requester, IDENTIFIER, ancillaryData);
-        
+
         // Should be deterministic and not zero
         assertTrue(requestId != bytes32(0));
-        
+
         // Should be the same when called twice
         bytes32 requestId2 = oracle.getInternalRequestId(requester, IDENTIFIER, ancillaryData);
         assertEq(requestId, requestId2);
@@ -748,33 +601,25 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_AuthorizeUpgrade_RevertIfNotOwner() public {
         ManagedOptimisticOracleV2 newImplementation = new ManagedOptimisticOracleV2();
-        
+
         vm.expectRevert(); // Expect any revert
         vm.prank(requestManager);
         // Try to call upgradeToAndCall through the proxy (this will trigger _authorizeUpgrade)
         address(oracle).call(
-            abi.encodeWithSelector(
-                bytes4(keccak256("upgradeToAndCall(address,bytes)")),
-                address(newImplementation),
-                ""
-            )
+            abi.encodeWithSelector(bytes4(keccak256("upgradeToAndCall(address,bytes)")), address(newImplementation), "")
         );
     }
 
     function test_AuthorizeUpgrade_Success() public {
         ManagedOptimisticOracleV2 newImplementation = new ManagedOptimisticOracleV2();
-        
+
         vm.prank(admin);
         // Call upgradeToAndCall through the proxy (this will trigger _authorizeUpgrade)
         (bool success,) = address(oracle).call(
-            abi.encodeWithSelector(
-                bytes4(keccak256("upgradeToAndCall(address,bytes)")),
-                address(newImplementation),
-                ""
-            )
+            abi.encodeWithSelector(bytes4(keccak256("upgradeToAndCall(address,bytes)")), address(newImplementation), "")
         );
         require(success, "Upgrade should succeed");
-        
+
         // Verify the upgrade was successful by checking that the contract still works
         assertEq(oracle.defaultLiveness(), DEFAULT_LIVENESS);
     }
@@ -783,23 +628,16 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_Multicall() public {
         bytes[] memory calls = new bytes[](2);
-        
+
         // Call 1: Add request manager
-        calls[0] = abi.encodeWithSelector(
-            oracle.addRequestManager.selector,
-            address(0x8)
-        );
-        
+        calls[0] = abi.encodeWithSelector(oracle.addRequestManager.selector, address(0x8));
+
         // Call 2: Set maximum bond
-        calls[1] = abi.encodeWithSelector(
-            oracle.setMaximumBond.selector,
-            currency,
-            1500e18
-        );
-        
+        calls[1] = abi.encodeWithSelector(oracle.setMaximumBond.selector, currency, 1500e18);
+
         vm.prank(admin);
         bytes[] memory results = oracle.multicall(calls);
-        
+
         // Verify results
         assertTrue(oracle.hasRole(REQUEST_MANAGER_ROLE, address(0x8)));
         assertEq(oracle.maximumBonds(currency), 1500e18);
@@ -809,7 +647,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_RequestPriceWithZeroReward() public {
         bytes memory ancillaryData = "test data";
-        
+
         vm.prank(requester);
         uint256 totalBond = oracle.requestPrice(
             IDENTIFIER,
@@ -818,23 +656,17 @@ contract ManagedOptimisticOracleV2Test is Test {
             currency,
             0 // Zero reward
         );
-        
+
         assertEq(totalBond, TOTAL_BOND);
     }
 
     function test_RequestManagerSetBondWithZeroBond() public {
         bytes memory ancillaryData = "test data";
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         vm.prank(requestManager);
         uint256 totalBond = oracle.requestManagerSetBond(
             requester,
@@ -843,23 +675,17 @@ contract ManagedOptimisticOracleV2Test is Test {
             ancillaryData,
             0 // Zero bond
         );
-        
+
         assertEq(totalBond, FINAL_FEE);
     }
 
     function test_RequestManagerSetCustomLivenessEqualToMinimum() public {
         bytes memory ancillaryData = "test data";
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         vm.prank(requestManager);
         oracle.requestManagerSetCustomLiveness(
             requester,
@@ -874,27 +700,15 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function test_GasOptimization_RepeatedCalls() public {
         bytes memory ancillaryData = "test data";
-        
+
         // First request a price
         vm.prank(requester);
-        oracle.requestPrice(
-            IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            currency,
-            REWARD
-        );
-        
+        oracle.requestPrice(IDENTIFIER, block.timestamp, ancillaryData, currency, REWARD);
+
         // Multiple bond updates should be efficient
         for (uint256 i = 0; i < 5; i++) {
             vm.prank(requestManager);
-            oracle.requestManagerSetBond(
-                requester,
-                IDENTIFIER,
-                block.timestamp,
-                ancillaryData,
-                100e18 + i * 50e18
-            );
+            oracle.requestManagerSetBond(requester, IDENTIFIER, block.timestamp, ancillaryData, 100e18 + i * 50e18);
         }
     }
-} 
+}
