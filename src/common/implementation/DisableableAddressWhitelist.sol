@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import { AddressWhitelistInterface } from "../interfaces/AddressWhitelistInterface.sol";
-import { DisableableAddressWhitelistInterface } from "../interfaces/DisableableAddressWhitelistInterface.sol";
-import { AddressWhitelist } from "./AddressWhitelist.sol";
+import {AddressWhitelistInterface} from "../interfaces/AddressWhitelistInterface.sol";
+import {DisableableAddressWhitelistInterface} from "../interfaces/DisableableAddressWhitelistInterface.sol";
+import {AddressWhitelist} from "./AddressWhitelist.sol";
 
 /**
  * @title A contract to track a whitelist of addresses with ability to toggle its enforcement.
@@ -17,7 +17,7 @@ contract DisableableAddressWhitelist is AddressWhitelist, DisableableAddressWhit
      * @notice Disables or enables the whitelist restrictions.
      * @param enforced True to enforce the whitelist, False to disable it.
      */
-    function setWhitelistEnforcement(bool enforced) external nonReentrant() onlyOwner() {
+    function setWhitelistEnforcement(bool enforced) external nonReentrant onlyOwner {
         isEnforced = enforced;
         emit WhitelistEnforcementSet(enforced);
     }
@@ -31,7 +31,7 @@ contract DisableableAddressWhitelist is AddressWhitelist, DisableableAddressWhit
         public
         view
         override(AddressWhitelist, AddressWhitelistInterface)
-        nonReentrantView()
+        nonReentrantView
         returns (bool)
     {
         return !isEnforced || super.isOnWhitelist(elementToCheck);
