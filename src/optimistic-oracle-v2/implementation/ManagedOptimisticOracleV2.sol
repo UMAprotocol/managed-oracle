@@ -3,8 +3,6 @@ pragma solidity ^0.8.0;
 
 import {AccessControlDefaultAdminRulesUpgradeable} from
     "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -42,7 +40,6 @@ contract ManagedOptimisticOracleV2 is
     ManagedOptimisticOracleV2Events,
     OptimisticOracleV2,
     AccessControlDefaultAdminRulesUpgradeable,
-    Ownable2StepUpgradeable,
     MultiCaller
 {
     struct Bond {
@@ -58,10 +55,14 @@ contract ManagedOptimisticOracleV2 is
         address requesterWhitelist; // address of the requester whitelist.
         Bond[] maximumBonds; // array of maximum bonds for different currencies.
         uint256 minimumLiveness; // minimum liveness that can be overridden for a request.
-        address admin; // address of the admin, which is used for managing contract parameters.
-        address owner; // address of the owner of the contract, which is used for contract upgrades.
+        address regularAdmin; // regular admin, which is used for managing request managers and contract parameters.
+        address upgradeAdmin; // contract upgrade admin, which is also used for managing the regular admin role.
     }
 
+    // Regular admin role is used to manage request managers and set other default parameters.
+    bytes32 public constant REGULAR_ADMIN = keccak256("REGULAR_ADMIN");
+
+    // Request manager role is used to manage proposer whitelists, bonds, and liveness for individual requests.
     bytes32 public constant REQUEST_MANAGER = keccak256("REQUEST_MANAGER");
 
     // Default whitelist for proposers.
@@ -86,8 +87,12 @@ contract ManagedOptimisticOracleV2 is
      */
     function initialize(InitializeParams calldata params) external initializer {
         __OptimisticOracleV2_init(params.liveness, params.finderAddress, params.timerAddress);
-        __AccessControlDefaultAdminRules_init(3 days, params.admin);
-        __Ownable_init(params.owner);
+        __AccessControlDefaultAdminRules_init(3 days, params.upgradeAdmin);
+
+        // Regular admin is managing the request manager role.
+        // Contract upgrade admin retains the default admin role that can also manage the regular admin role.
+        _grantRole(REGULAR_ADMIN, params.regularAdmin);
+        _setRoleAdmin(REQUEST_MANAGER, REGULAR_ADMIN);
 
         _setDefaultProposerWhitelist(params.defaultProposerWhitelist);
         _setRequesterWhitelist(params.requesterWhitelist);
@@ -98,10 +103,18 @@ contract ManagedOptimisticOracleV2 is
     }
 
     /**
-     * @dev Throws if called by any account other than the admin.
+     * @dev Throws if called by any account other than the upgrade admin.
      */
-    modifier onlyAdmin() {
+    modifier onlyUpgradeAdmin() {
         _checkRole(DEFAULT_ADMIN_ROLE);
+        _;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the regular admin.
+     */
+    modifier onlyRegularAdmin() {
+        _checkRole(REGULAR_ADMIN);
         _;
     }
 
@@ -114,34 +127,19 @@ contract ManagedOptimisticOracleV2 is
     }
 
     /**
-     * @notice Returns the owner of the contract that is used for upgrades.
-     * @dev Since multiple base contracts implement the owner() function, we override from the OwnableUpgradeable
-     * that is used to hold contract ownership exclusively used for contract upgrades.
-     * @return address of the owner with contract upgrade permissions.
-     */
-    function owner()
-        public
-        view
-        override(OwnableUpgradeable, AccessControlDefaultAdminRulesUpgradeable)
-        returns (address)
-    {
-        return OwnableUpgradeable.owner();
-    }
-
-    /**
      * @notice Authorizes the upgrade of the contract.
-     * @dev This is required for UUPSUpgradeable. Only the owner can authorize upgrades.
+     * @dev This is required for UUPSUpgradeable. Only the upgrade admin can authorize upgrades.
      * @param newImplementation address of the new implementation to upgrade to.
      */
     function _authorizeUpgrade(address newImplementation)
         internal
         override(OptimisticOracleV2, UUPSUpgradeable)
-        onlyOwner
+        onlyUpgradeAdmin
     {}
 
     /**
      * @notice Adds a request manager.
-     * @dev Only callable by the admin (checked in grantRole of AccessControl).
+     * @dev Only callable by the regular admin (checked in grantRole of AccessControlUpgradeable).
      * @param requestManager address of the request manager to set.
      */
     function addRequestManager(address requestManager) external nonReentrant {
@@ -151,7 +149,7 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Removes a request manager.
-     * @dev Only callable by the admin (checked in revokeRole of AccessControl).
+     * @dev Only callable by the regular admin (checked in revokeRole of AccessControlUpgradeable).
      * @param requestManager address of the request manager to remove.
      */
     function removeRequestManager(address requestManager) external nonReentrant {
@@ -161,38 +159,38 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Sets the maximum bond that can be set for a request.
-     * @dev This can be used to limit the bond amount that can be set by request managers, callable by the admin.
+     * @dev This can be used to limit the bond amount that can be set by request managers, callable by the regular admin.
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param maximumBond new maximum bond amount.
      */
-    function setMaximumBond(IERC20 currency, uint256 maximumBond) external nonReentrant onlyAdmin {
+    function setMaximumBond(IERC20 currency, uint256 maximumBond) external nonReentrant onlyRegularAdmin {
         _setMaximumBond(currency, maximumBond);
     }
 
     /**
      * @notice Sets the minimum liveness that can be set for a request.
-     * @dev This can be used to limit the liveness period that can be set by request managers, callable by the admin.
+     * @dev This can be used to limit the liveness period that can be set by request managers, callable by the regular admin.
      * @param _minimumLiveness new minimum liveness period.
      */
-    function setMinimumLiveness(uint256 _minimumLiveness) external nonReentrant onlyAdmin {
+    function setMinimumLiveness(uint256 _minimumLiveness) external nonReentrant onlyRegularAdmin {
         _setMinimumLiveness(_minimumLiveness);
     }
 
     /**
      * @notice Sets the default proposer whitelist.
-     * @dev Only callable by the admin.
+     * @dev Only callable by the regular admin.
      * @param whitelist address of the whitelist to set.
      */
-    function setDefaultProposerWhitelist(address whitelist) external nonReentrant onlyAdmin {
+    function setDefaultProposerWhitelist(address whitelist) external nonReentrant onlyRegularAdmin {
         _setDefaultProposerWhitelist(whitelist);
     }
 
     /**
      * @notice Sets the requester whitelist.
-     * @dev Only callable by the admin.
+     * @dev Only callable by the regular admin.
      * @param whitelist address of the whitelist to set.
      */
-    function setRequesterWhitelist(address whitelist) external nonReentrant onlyAdmin {
+    function setRequesterWhitelist(address whitelist) external nonReentrant onlyRegularAdmin {
         _setRequesterWhitelist(whitelist);
     }
 
