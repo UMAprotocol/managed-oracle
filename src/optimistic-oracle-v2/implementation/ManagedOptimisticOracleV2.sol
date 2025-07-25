@@ -416,7 +416,7 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Validates the bond amount.
-     * @dev Reverts if the bond exceeds the maximum bond amount (controllable by the admin).
+     * @dev Reverts if the bond exceeds the maximum bond amount (controllable by the regular admin).
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param bond the bond amount to validate.
      */
@@ -426,8 +426,8 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Validates the liveness period.
-     * @dev Reverts if the liveness period is less than the minimum liveness (controllable by the admin) or above the
-     * maximum liveness (which is set in the parent contract).
+     * @dev Reverts if the liveness period is less than the minimum liveness (controllable by the regular admin) or
+     * above the maximum liveness (which is set in the parent contract).
      * @param liveness the liveness period to validate.
      */
     function _validateLiveness(uint256 liveness) internal view override {
