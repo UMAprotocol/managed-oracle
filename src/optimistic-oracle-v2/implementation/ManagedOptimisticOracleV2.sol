@@ -56,7 +56,7 @@ contract ManagedOptimisticOracleV2 is
         Bond[] maximumBonds; // array of maximum bonds for different currencies.
         uint256 minimumLiveness; // minimum liveness that can be overridden for a request.
         address regularAdmin; // regular admin, which is used for managing request managers and contract parameters.
-        address upgradeAdmin; // contract upgrade admin, which is also used for managing the regular admin role.
+        address upgradeAdmin; // contract upgrade admin, which also can manage the regular admin role.
     }
 
     // Regular admin role is used to manage request managers and set other default parameters.
