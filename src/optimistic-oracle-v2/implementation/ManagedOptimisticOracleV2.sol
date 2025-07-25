@@ -87,7 +87,7 @@ contract ManagedOptimisticOracleV2 is
      */
     function initialize(InitializeParams calldata params) external initializer {
         __OptimisticOracleV2_init(params.liveness, params.finderAddress, params.timerAddress);
-        __AccessControlDefaultAdminRules_init(3 days, params.upgradeAdmin);
+        __AccessControlDefaultAdminRules_init(3 days, params.upgradeAdmin); // Initialize DEFAULT_ADMIN_ROLE
 
         // Regular admin is managing the request manager role.
         // Contract upgrade admin retains the default admin role that can also manage the regular admin role.
