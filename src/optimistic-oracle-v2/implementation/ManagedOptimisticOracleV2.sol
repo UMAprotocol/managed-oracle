@@ -22,8 +22,23 @@ abstract contract ManagedOptimisticOracleV2Events {
     event MinimumLivenessUpdated(uint256 newMinimumLiveness);
     event DefaultProposerWhitelistUpdated(address indexed newWhitelist);
     event RequesterWhitelistUpdated(address indexed newWhitelist);
+    event CustomBondSet(
+        bytes32 indexed managedRequestId,
+        address requester,
+        bytes32 indexed identifier,
+        bytes ancillaryData,
+        IERC20 indexed currency,
+        uint256 bond
+    );
+    event CustomLivenessSet(
+        bytes32 indexed managedRequestId,
+        address indexed requester,
+        bytes32 indexed identifier,
+        bytes ancillaryData,
+        uint256 customLiveness
+    );
     event CustomProposerWhitelistSet(
-        bytes32 indexed requestId,
+        bytes32 indexed managedRequestId,
         address requester,
         bytes32 indexed identifier,
         bytes ancillaryData,
@@ -47,12 +62,29 @@ contract ManagedOptimisticOracleV2 is
         uint256 amount;
     }
 
+    struct CustomBond {
+        uint256 amount;
+        bool isSet;
+    }
+
+    struct CustomLiveness {
+        uint256 liveness;
+        bool isSet;
+    }
+
     bytes32 public constant REQUEST_MANAGER = keccak256("REQUEST_MANAGER");
 
     // Default whitelist for proposers.
     DisableableAddressWhitelistInterface public defaultProposerWhitelist;
     DisableableAddressWhitelistInterface public requesterWhitelist;
 
+    // Custom bonds set by request managers for specific request and currency combinations.
+    mapping(bytes32 => mapping(IERC20 => CustomBond)) public customBonds;
+
+    // Custom liveness values set by request managers for specific requests.
+    mapping(bytes32 => CustomLiveness) public customLivenessValues;
+
+    // Custom proposer whitelists set by request managers for specific requests.
     mapping(bytes32 => DisableableAddressWhitelistInterface) public customProposerWhitelists;
 
     // Owner controlled bounds limiting the changes that can be made by request managers.
@@ -205,52 +237,46 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Set the proposal bond associated with a price request.
+     * @dev This would also override any subsequent calls to setBond() by the requester.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
-     * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
+     * @param currency ERC20 token used for payment of rewards and fees. Must be approved for use with the DVM.
      * @param bond custom bond amount to set.
-     * @return totalBond new bond + final fee that the proposer and disputer will be required to pay. This can be
-     * changed again with a subsequent call to setBond().
      */
     function requestManagerSetBond(
         address requester,
         bytes32 identifier,
-        uint256 timestamp,
         bytes memory ancillaryData,
+        IERC20 currency,
         uint256 bond
-    ) external nonReentrant onlyRequestManager returns (uint256 totalBond) {
-        require(_getState(requester, identifier, timestamp, ancillaryData) == State.Requested, "setBond: Requested");
-        Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
-        _validateBond(request.currency, bond);
-        request.requestSettings.bond = bond;
-
-        // Total bond is the final fee + the newly set bond.
-        return bond + request.finalFee;
+    ) external nonReentrant onlyRequestManager {
+        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
+        _validateBond(currency, bond);
+        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        customBonds[managedRequestId][currency] = CustomBond({amount: bond, isSet: true});
+        emit CustomBondSet(managedRequestId, requester, identifier, ancillaryData, currency, bond);
     }
 
     /**
      * @notice Sets a custom liveness value for the request. Liveness is the amount of time a proposal must wait before
      * being auto-resolved.
+     * @dev This would also override any subsequent calls to setLiveness() by the requester.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
-     * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
      * @param customLiveness new custom liveness.
      */
     function requestManagerSetCustomLiveness(
         address requester,
         bytes32 identifier,
-        uint256 timestamp,
         bytes memory ancillaryData,
         uint256 customLiveness
     ) external nonReentrant onlyRequestManager {
-        require(
-            _getState(requester, identifier, timestamp, ancillaryData) == State.Requested,
-            "setCustomLiveness: Requested"
-        );
         _validateLiveness(customLiveness);
-        _getRequest(requester, identifier, timestamp, ancillaryData).requestSettings.customLiveness = customLiveness;
+        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        customLivenessValues[managedRequestId] = CustomLiveness({liveness: customLiveness, isSet: true});
+        emit CustomLivenessSet(managedRequestId, requester, identifier, ancillaryData, customLiveness);
     }
 
     /**
@@ -267,15 +293,14 @@ contract ManagedOptimisticOracleV2 is
         bytes memory ancillaryData,
         address whitelist
     ) external nonReentrant onlyRequestManager {
-        bytes32 requestId = _getId(requester, identifier, 0, ancillaryData);
-        customProposerWhitelists[requestId] = DisableableAddressWhitelistInterface(whitelist);
-        emit CustomProposerWhitelistSet(requestId, requester, identifier, ancillaryData, whitelist);
+        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        customProposerWhitelists[managedRequestId] = DisableableAddressWhitelistInterface(whitelist);
+        emit CustomProposerWhitelistSet(managedRequestId, requester, identifier, ancillaryData, whitelist);
     }
 
     /**
      * @notice Proposes a price value on another address' behalf. Note: this address will receive any rewards that come
      * from this proposal. However, any bonds are pulled from the caller.
-     * @dev Timestamp is omitted from the whitelist key derivation, so it would also apply for repeated requests.
      * @param proposer address to set as the proposer.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
@@ -293,6 +318,16 @@ contract ManagedOptimisticOracleV2 is
         bytes memory ancillaryData,
         int256 proposedPrice
     ) public override returns (uint256 totalBond) {
+        // Apply the custom bond and liveness overrides if set.
+        Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
+        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        if (customBonds[managedRequestId][request.currency].isSet) {
+            request.requestSettings.bond = customBonds[managedRequestId][request.currency].amount;
+        }
+        if (customLivenessValues[managedRequestId].isSet) {
+            request.requestSettings.customLiveness = customLivenessValues[managedRequestId].liveness;
+        }
+
         DisableableAddressWhitelistInterface whitelist =
             _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
 
@@ -315,7 +350,7 @@ contract ManagedOptimisticOracleV2 is
         view
         returns (DisableableAddressWhitelistInterface)
     {
-        return customProposerWhitelists[_getId(requester, identifier, 0, ancillaryData)];
+        return customProposerWhitelists[_getManagedRequestId(requester, identifier, ancillaryData)];
     }
 
     /**
@@ -342,20 +377,20 @@ contract ManagedOptimisticOracleV2 is
     }
 
     /**
-     * @notice Gets the internal request ID for a price request (without timestamp).
+     * @notice Gets the managed request ID for a price request (without timestamp).
      * @dev This is just a helper function that offchain systems can use for tracking the indexed
      * CustomProposerWhitelistSet events.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
-     * @return bytes32 the request ID for the advance request.
+     * @return bytes32 the request ID for the managed request.
      */
-    function getInternalRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
+    function getManagedRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
         external
         pure
         returns (bytes32)
     {
-        return _getId(requester, identifier, 0, ancillaryData);
+        return _getManagedRequestId(requester, identifier, ancillaryData);
     }
 
     /**
@@ -401,6 +436,22 @@ contract ManagedOptimisticOracleV2 is
     }
 
     /**
+     * @notice Gets the ID for a managed request.
+     * @dev This omits the timestamp from the key derivation, so it can be used for managed requests in advance.
+     * @param requester sender of the initial price request.
+     * @param identifier price identifier to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return bytes32 the ID for the managed request.
+     */
+    function _getManagedRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked(requester, identifier, ancillaryData));
+    }
+
+    /**
      * @notice Validates the bond amount.
      * @dev Reverts if the bond exceeds the maximum bond amount (controllable by the owner).
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
@@ -435,7 +486,7 @@ contract ManagedOptimisticOracleV2 is
         view
         returns (DisableableAddressWhitelistInterface whitelist)
     {
-        whitelist = customProposerWhitelists[_getId(requester, identifier, 0, ancillaryData)];
+        whitelist = customProposerWhitelists[_getManagedRequestId(requester, identifier, ancillaryData)];
         if (address(whitelist) == address(0)) {
             whitelist = defaultProposerWhitelist;
         }
