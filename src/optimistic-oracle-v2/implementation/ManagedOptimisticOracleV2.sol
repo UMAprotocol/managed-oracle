@@ -245,7 +245,7 @@ contract ManagedOptimisticOracleV2 is
         IERC20 currency,
         uint256 reward
     ) public override returns (uint256 totalBond) {
-        require(requesterWhitelist.isOnWhitelist(address(msg.sender)), "Requester not whitelisted");
+        require(requesterWhitelist.isOnWhitelist(msg.sender), "Requester not whitelisted");
         return super.requestPrice(identifier, timestamp, ancillaryData, currency, reward);
     }
 
