@@ -267,7 +267,7 @@ contract ManagedOptimisticOracleV2 is
     ) external nonReentrant onlyRequestManager {
         require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
         _validateBond(currency, bond);
-        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         customBonds[managedRequestId][currency] = CustomBond({amount: bond, isSet: true});
         emit CustomBondSet(managedRequestId, requester, identifier, ancillaryData, currency, bond);
     }
@@ -288,7 +288,7 @@ contract ManagedOptimisticOracleV2 is
         uint256 customLiveness
     ) external nonReentrant onlyRequestManager {
         _validateLiveness(customLiveness);
-        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         customLivenessValues[managedRequestId] = CustomLiveness({liveness: customLiveness, isSet: true});
         emit CustomLivenessSet(managedRequestId, requester, identifier, ancillaryData, customLiveness);
     }
@@ -307,7 +307,7 @@ contract ManagedOptimisticOracleV2 is
         bytes memory ancillaryData,
         address whitelist
     ) external nonReentrant onlyRequestManager {
-        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         customProposerWhitelists[managedRequestId] = DisableableAddressWhitelistInterface(whitelist);
         emit CustomProposerWhitelistSet(managedRequestId, requester, identifier, ancillaryData, whitelist);
     }
@@ -334,7 +334,7 @@ contract ManagedOptimisticOracleV2 is
     ) public override returns (uint256 totalBond) {
         // Apply the custom bond and liveness overrides if set.
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
-        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         if (customBonds[managedRequestId][request.currency].isSet) {
             request.requestSettings.bond = customBonds[managedRequestId][request.currency].amount;
         }
@@ -364,7 +364,7 @@ contract ManagedOptimisticOracleV2 is
         view
         returns (DisableableAddressWhitelistInterface)
     {
-        return customProposerWhitelists[_getManagedRequestId(requester, identifier, ancillaryData)];
+        return customProposerWhitelists[getManagedRequestId(requester, identifier, ancillaryData)];
     }
 
     /**
@@ -398,7 +398,7 @@ contract ManagedOptimisticOracleV2 is
      * @param ancillaryData ancillary data of the price being requested.
      * @return bytes32 the ID for the managed request.
      */
-    function _getManagedRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
+    function getManagedRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
         public
         pure
         returns (bytes32)
@@ -483,7 +483,7 @@ contract ManagedOptimisticOracleV2 is
         view
         returns (DisableableAddressWhitelistInterface whitelist)
     {
-        whitelist = customProposerWhitelists[_getManagedRequestId(requester, identifier, ancillaryData)];
+        whitelist = customProposerWhitelists[getManagedRequestId(requester, identifier, ancillaryData)];
         if (address(whitelist) == address(0)) {
             whitelist = defaultProposerWhitelist;
         }
