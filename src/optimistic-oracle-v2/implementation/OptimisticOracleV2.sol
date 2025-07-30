@@ -16,7 +16,7 @@ import {IdentifierWhitelistInterface} from
 import {OracleInterfaces} from "@uma/contracts/data-verification-mechanism/implementation/Constants.sol";
 
 import {OptimisticOracleV2Interface} from
-    "@uma/contracts/optimistic-oracle-v2/interfaces/OptimisticOracleV2Interface.sol"; // "../interfaces/OptimisticOracleV2Interface.sol";
+    "@uma/contracts/optimistic-oracle-v2/interfaces/OptimisticOracleV2Interface.sol";
 
 import {Testable} from "../../common/implementation/Testable.sol";
 import {Lockable} from "../../common/implementation/Lockable.sol";
