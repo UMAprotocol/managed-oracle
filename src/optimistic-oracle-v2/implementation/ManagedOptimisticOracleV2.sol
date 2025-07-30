@@ -46,6 +46,7 @@ abstract contract ManagedOptimisticOracleV2Events {
 /**
  * @title Managed Optimistic Oracle V2.
  * @notice Pre-DVM escalation contract that allows faster settlement and management of price requests.
+ * @custom:security-contact bugs@umaproject.org
  */
 contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, OptimisticOracleV2, MultiCaller {
     struct MaximumBond {
