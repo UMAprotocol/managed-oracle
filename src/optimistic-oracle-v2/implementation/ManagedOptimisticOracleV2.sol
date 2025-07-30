@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.26;
 
 import {AccessControlDefaultAdminRulesUpgradeable} from
     "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
@@ -12,10 +12,26 @@ import {MultiCaller} from "../../common/implementation/MultiCaller.sol";
 import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
 
 /**
- * @title Events emitted by the ManagedOptimisticOracleV2 contract.
- * @notice Contains events for request manager management, bond and liveness updates, and whitelists.
+ * @title Events and Errors for the ManagedOptimisticOracleV2 contract.
+ * @notice Contains events for request manager management, bond and liveness updates, and whitelists,
+ * and custom errors for various conditions.
  */
-abstract contract ManagedOptimisticOracleV2Events {
+interface IManagedOptimisticOracleV2 {
+    /// @notice Thrown when a requester is not on the requester whitelist.
+    error RequesterNotWhitelisted();
+    /// @notice Thrown when a currency is not on the collateral whitelist.
+    error UnsupportedCurrency();
+    /// @notice Thrown when a whitelist address is set to the zero address.
+    error WhitelistCannotBeZeroAddress();
+    /// @notice Thrown when a bond is set higher than the maximum allowed bond.
+    error BondExceedsMaximumBond();
+    /// @notice Thrown when a liveness is set lower than the minimum allowed liveness.
+    error LivenessTooLow();
+    /// @notice Thrown when a proposer is not on the effective proposer whitelist.
+    error ProposerNotWhitelisted();
+    /// @notice Thrown when the message sender is not on the effective proposer whitelist for a proposal.
+    error SenderNotWhitelisted();
+
     event RequestManagerAdded(address indexed requestManager);
     event RequestManagerRemoved(address indexed requestManager);
     event MaximumBondUpdated(IERC20 indexed currency, uint256 newMaximumBond);
@@ -52,7 +68,7 @@ abstract contract ManagedOptimisticOracleV2Events {
  */
 contract ManagedOptimisticOracleV2 is
     UUPSUpgradeable,
-    ManagedOptimisticOracleV2Events,
+    IManagedOptimisticOracleV2,
     OptimisticOracleV2,
     AccessControlDefaultAdminRulesUpgradeable,
     MultiCaller
@@ -245,7 +261,7 @@ contract ManagedOptimisticOracleV2 is
         IERC20 currency,
         uint256 reward
     ) public override returns (uint256 totalBond) {
-        require(requesterWhitelist.isOnWhitelist(address(msg.sender)), "Requester not whitelisted");
+        require(requesterWhitelist.isOnWhitelist(msg.sender), RequesterNotWhitelisted());
         return super.requestPrice(identifier, timestamp, ancillaryData, currency, reward);
     }
 
@@ -265,7 +281,7 @@ contract ManagedOptimisticOracleV2 is
         IERC20 currency,
         uint256 bond
     ) external nonReentrant onlyRequestManager {
-        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
+        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), UnsupportedCurrency());
         _validateBond(currency, bond);
         bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
         customBonds[managedRequestId][currency] = CustomBond({amount: bond, isSet: true});
@@ -345,8 +361,8 @@ contract ManagedOptimisticOracleV2 is
         DisableableAddressWhitelistInterface whitelist =
             _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
 
-        require(whitelist.isOnWhitelist(proposer), "Proposer not whitelisted");
-        require(whitelist.isOnWhitelist(msg.sender), "Sender not whitelisted");
+        require(whitelist.isOnWhitelist(proposer), ProposerNotWhitelisted());
+        require(whitelist.isOnWhitelist(msg.sender), SenderNotWhitelisted());
         return super.proposePriceFor(proposer, requester, identifier, timestamp, ancillaryData, proposedPrice);
     }
 
@@ -414,7 +430,7 @@ contract ManagedOptimisticOracleV2 is
      * @param maximumBond new maximum bond amount for the given currency.
      */
     function _setMaximumBond(IERC20 currency, uint256 maximumBond) internal {
-        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
+        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), UnsupportedCurrency());
         maximumBonds[currency] = maximumBond;
         emit MaximumBondUpdated(currency, maximumBond);
     }
@@ -434,7 +450,7 @@ contract ManagedOptimisticOracleV2 is
      * @param whitelist address of the whitelist to set.
      */
     function _setDefaultProposerWhitelist(address whitelist) internal {
-        require(whitelist != address(0), "Whitelist cannot be zero address");
+        require(whitelist != address(0), WhitelistCannotBeZeroAddress());
         defaultProposerWhitelist = DisableableAddressWhitelistInterface(whitelist);
         emit DefaultProposerWhitelistUpdated(whitelist);
     }
@@ -444,7 +460,7 @@ contract ManagedOptimisticOracleV2 is
      * @param whitelist address of the whitelist to set.
      */
     function _setRequesterWhitelist(address whitelist) internal {
-        require(whitelist != address(0), "Whitelist cannot be zero address");
+        require(whitelist != address(0), WhitelistCannotBeZeroAddress());
         requesterWhitelist = DisableableAddressWhitelistInterface(whitelist);
         emit RequesterWhitelistUpdated(whitelist);
     }
@@ -472,7 +488,7 @@ contract ManagedOptimisticOracleV2 is
      * @param bond the bond amount to validate.
      */
     function _validateBond(IERC20 currency, uint256 bond) internal view {
-        require(bond <= maximumBonds[currency], "Bond exceeds maximum bond");
+        require(bond <= maximumBonds[currency], BondExceedsMaximumBond());
     }
 
     /**
@@ -482,7 +498,7 @@ contract ManagedOptimisticOracleV2 is
      * @param liveness the liveness period to validate.
      */
     function _validateLiveness(uint256 liveness) internal view override {
-        require(liveness >= minimumLiveness, "Liveness is less than minimum");
+        require(liveness >= minimumLiveness, LivenessTooLow());
         super._validateLiveness(liveness);
     }
 
