@@ -391,20 +391,19 @@ contract ManagedOptimisticOracleV2 is
     }
 
     /**
-     * @notice Gets the managed request ID for a price request (without timestamp).
-     * @dev This is just a helper function that offchain systems can use for tracking the indexed
-     * CustomProposerWhitelistSet events.
+     * @notice Gets the ID for a managed request.
+     * @dev This omits the timestamp from the key derivation, so it can be used for managed requests in advance.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
-     * @return bytes32 the request ID for the managed request.
+     * @return bytes32 the ID for the managed request.
      */
-    function getManagedRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
-        external
+    function _getManagedRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
+        public
         pure
         returns (bytes32)
     {
-        return _getManagedRequestId(requester, identifier, ancillaryData);
+        return keccak256(abi.encodePacked(requester, identifier, ancillaryData));
     }
 
     /**
@@ -447,22 +446,6 @@ contract ManagedOptimisticOracleV2 is
         require(whitelist != address(0), "Whitelist cannot be zero address");
         requesterWhitelist = DisableableAddressWhitelistInterface(whitelist);
         emit RequesterWhitelistUpdated(whitelist);
-    }
-
-    /**
-     * @notice Gets the ID for a managed request.
-     * @dev This omits the timestamp from the key derivation, so it can be used for managed requests in advance.
-     * @param requester sender of the initial price request.
-     * @param identifier price identifier to identify the existing request.
-     * @param ancillaryData ancillary data of the price being requested.
-     * @return bytes32 the ID for the managed request.
-     */
-    function _getManagedRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
-        internal
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encodePacked(requester, identifier, ancillaryData));
     }
 
     /**
