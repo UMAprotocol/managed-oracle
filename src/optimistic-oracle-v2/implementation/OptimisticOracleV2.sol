@@ -3,25 +3,25 @@ pragma solidity ^0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AddressLegacy} from "../../common/implementation/AddressLegacy.sol";
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {StoreInterface} from "../../data-verification-mechanism/interfaces/StoreInterface.sol";
-import {OracleAncillaryInterface} from
-    "@uma/contracts/data-verification-mechanism/interfaces/OracleAncillaryInterface.sol";
+import {AncillaryData} from "@uma/contracts/common/implementation/AncillaryData.sol";
 import {FinderInterface} from "@uma/contracts/data-verification-mechanism/interfaces/FinderInterface.sol";
 import {IdentifierWhitelistInterface} from
     "@uma/contracts/data-verification-mechanism/interfaces/IdentifierWhitelistInterface.sol";
+import {OracleAncillaryInterface} from
+    "@uma/contracts/data-verification-mechanism/interfaces/OracleAncillaryInterface.sol";
 import {OracleInterfaces} from "@uma/contracts/data-verification-mechanism/implementation/Constants.sol";
 
 import {OptimisticOracleV2Interface} from "../interfaces/OptimisticOracleV2Interface.sol";
 
-import {Testable} from "../../common/implementation/Testable.sol";
-import {Lockable} from "../../common/implementation/Lockable.sol";
-import {FixedPoint} from "../../common/implementation/FixedPoint.sol";
-import {AncillaryData} from "@uma/contracts/common/implementation/AncillaryData.sol";
+import {AddressLegacy} from "../../common/implementation/AddressLegacy.sol";
 import {AddressWhitelist} from "../../common/implementation/AddressWhitelist.sol";
+import {FixedPoint} from "../../common/implementation/FixedPoint.sol";
+import {Lockable} from "../../common/implementation/Lockable.sol";
+import {Testable} from "../../common/implementation/Testable.sol";
+import {StoreInterface} from "../../data-verification-mechanism/interfaces/StoreInterface.sol";
 
 /**
  * @title Optimistic Requester.

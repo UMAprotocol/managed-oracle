@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import {AccessControlDefaultAdminRulesUpgradeable} from
     "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
+import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
 
 import {DisableableAddressWhitelistInterface} from "../../common/interfaces/DisableableAddressWhitelistInterface.sol";
 import {MultiCaller} from "../../common/implementation/MultiCaller.sol";
-
-import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
 
 /**
  * @title Events emitted by the ManagedOptimisticOracleV2 contract.
