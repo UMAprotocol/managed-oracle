@@ -17,11 +17,6 @@ IS_ENFORCED="true"  # Optional
 NEW_OWNER="0x1234567890123456789012345678901234567890"  # Optional
 ```
 
-3. **Deploy** using the command line:
-```bash
-forge script script/DeployDisableableAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
-```
-
 ## DisableableAddressWhitelist Deployment
 
 The `DeployDisableableAddressWhitelist.s.sol` script deploys the `DisableableAddressWhitelist` contract with optional configuration.

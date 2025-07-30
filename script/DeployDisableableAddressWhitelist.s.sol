@@ -11,7 +11,6 @@ import {DisableableAddressWhitelist} from "../src/common/implementation/Disablea
  *
  * Environment variables:
  * - MNEMONIC: Required. The mnemonic phrase for the deployer wallet
- * - ETH_RPC_NODE: Required. The RPC endpoint for deployment
  * - IS_ENFORCED: Optional. If set to "true", enables whitelist enforcement
  * - NEW_OWNER: Optional. If set, transfers ownership to this address
  */
@@ -28,15 +27,8 @@ contract DeployDisableableAddressWhitelist is Script {
         address deployer = vm.addr(deployerPrivateKey);
 
         // Handle optional environment variables
-        bool isEnforced = false;
-        try vm.envBool("IS_ENFORCED") returns (bool enforced) {
-            isEnforced = enforced;
-        } catch {}
-
-        address newOwner = address(0);
-        try vm.envAddress("NEW_OWNER") returns (address owner) {
-            newOwner = owner;
-        } catch {}
+        bool isEnforced = vm.envOr("IS_ENFORCED", false);
+        address newOwner = vm.envOr("NEW_OWNER", address(0));
 
         // Start broadcasting transactions with the derived private key
         vm.startBroadcast(deployerPrivateKey);
@@ -66,9 +58,7 @@ contract DeployDisableableAddressWhitelist is Script {
         console.log("\n=== Deployment Summary ===");
         console.log("Contract:", address(whitelist));
         console.log("Enforcement enabled:", isEnforced);
-        if (newOwner != address(0)) {
-            console.log("New owner:", newOwner);
-        }
+        console.log("Owner:", newOwner == address(0) ? deployer : newOwner);
         console.log("Chain ID:", block.chainid);
         console.log("Deployer:", deployer);
     }
