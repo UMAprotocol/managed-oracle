@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Ported from https://github.com/UMAprotocol/protocol/blob/%40uma/core%402.62.0/packages/core/contracts/common/implementation/AddressWhitelist.sol
-// to be compatible with OpenZeppelin's Ownable v5.x. This also uses named imports and linting from Foundry.
+// Based on https://github.com/UMAprotocol/protocol/blob/%40uma/core%402.62.0/packages/core/contracts/common/implementation/AddressWhitelist.sol
+// adding the functionality to check if the whitelist is enabled and to be compatible with OpenZeppelin v5.x. This also
+// uses named imports and linting from Foundry.
 
 pragma solidity ^0.8.0;
 
