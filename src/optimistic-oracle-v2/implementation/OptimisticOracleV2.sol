@@ -171,14 +171,14 @@ contract OptimisticOracleV2 is
         IERC20 currency,
         uint256 reward
     ) public virtual override nonReentrant returns (uint256 totalBond) {
-        require(_getState(msg.sender, identifier, timestamp, ancillaryData) == State.Invalid, "requestPrice: Invalid");
-        require(_getIdentifierWhitelist().isIdentifierSupported(identifier), "Unsupported identifier");
-        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
-        require(timestamp <= getCurrentTime(), "Timestamp in future");
+        require(_getState(msg.sender, identifier, timestamp, ancillaryData) == State.Invalid, RequestStateNotInvalid());
+        require(_getIdentifierWhitelist().isIdentifierSupported(identifier), UnsupportedIdentifier());
+        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), UnsupportedCurrency());
+        require(timestamp <= getCurrentTime(), TimestampInFuture());
 
         // This ensures that the ancillary data is <= the OO limit, which is lower than the DVM limit because the
         // OO adds some data before sending to the DVM.
-        require(ancillaryData.length <= OO_ANCILLARY_DATA_LIMIT, "Ancillary Data too long");
+        require(ancillaryData.length <= OO_ANCILLARY_DATA_LIMIT, AncillaryDataTooLong());
 
         uint256 finalFee = _getStore().computeFinalFee(address(currency)).rawValue;
         requests[_getId(msg.sender, identifier, timestamp, ancillaryData)] = Request({
@@ -228,7 +228,9 @@ contract OptimisticOracleV2 is
         nonReentrant
         returns (uint256 totalBond)
     {
-        require(_getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, "setBond: Requested");
+        require(
+            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
+        );
         Request storage request = _getRequest(msg.sender, identifier, timestamp, ancillaryData);
         request.requestSettings.bond = bond;
 
@@ -250,8 +252,7 @@ contract OptimisticOracleV2 is
         nonReentrant
     {
         require(
-            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested,
-            "setRefundOnDispute: Requested"
+            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
         );
         _getRequest(msg.sender, identifier, timestamp, ancillaryData).requestSettings.refundOnDispute = true;
     }
@@ -271,8 +272,7 @@ contract OptimisticOracleV2 is
         uint256 customLiveness
     ) external override nonReentrant {
         require(
-            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested,
-            "setCustomLiveness: Requested"
+            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
         );
         _validateLiveness(customLiveness);
         _getRequest(msg.sender, identifier, timestamp, ancillaryData).requestSettings.customLiveness = customLiveness;
@@ -301,7 +301,7 @@ contract OptimisticOracleV2 is
         nonReentrant
     {
         require(
-            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, "setEventBased: Requested"
+            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
         );
         Request storage request = _getRequest(msg.sender, identifier, timestamp, ancillaryData);
         request.requestSettings.eventBased = true;
@@ -326,7 +326,7 @@ contract OptimisticOracleV2 is
         bool callbackOnPriceSettled
     ) external override nonReentrant {
         require(
-            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, "setCallbacks: Requested"
+            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
         );
         Request storage request = _getRequest(msg.sender, identifier, timestamp, ancillaryData);
         request.requestSettings.callbackOnPriceProposed = callbackOnPriceProposed;
@@ -354,13 +354,13 @@ contract OptimisticOracleV2 is
         bytes memory ancillaryData,
         int256 proposedPrice
     ) public virtual override nonReentrant returns (uint256 totalBond) {
-        require(proposer != address(0), "proposer address must be non 0");
+        require(proposer != address(0), ProposerAddressCannotBeZero());
         require(
-            _getState(requester, identifier, timestamp, ancillaryData) == State.Requested, "proposePriceFor: Requested"
+            _getState(requester, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
         );
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
         if (request.requestSettings.eventBased) {
-            require(proposedPrice != TOO_EARLY_RESPONSE, "Cannot propose 'too early'");
+            require(proposedPrice != TOO_EARLY_RESPONSE, CannotProposeTooEarly());
         }
         request.proposer = proposer;
         request.proposedPrice = proposedPrice;
@@ -431,10 +431,8 @@ contract OptimisticOracleV2 is
         uint256 timestamp,
         bytes memory ancillaryData
     ) public override nonReentrant returns (uint256 totalBond) {
-        require(disputer != address(0), "disputer address must be non 0");
-        require(
-            _getState(requester, identifier, timestamp, ancillaryData) == State.Proposed, "disputePriceFor: Proposed"
-        );
+        require(disputer != address(0), DisputerAddressCannotBeZero());
+        require(_getState(requester, identifier, timestamp, ancillaryData) == State.Proposed, RequestStateNotProposed());
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
         request.disputer = disputer;
 
@@ -655,7 +653,7 @@ contract OptimisticOracleV2 is
             payout = bond + unburnedBond + request.finalFee + request.reward;
             request.currency.safeTransfer(disputeSuccess ? request.disputer : request.proposer, payout);
         } else {
-            revert("_settle: not settleable");
+            revert RequestNotSettleable();
         }
 
         emit Settle(
@@ -692,8 +690,8 @@ contract OptimisticOracleV2 is
     }
 
     function _validateLiveness(uint256 _liveness) internal view virtual {
-        require(_liveness < 5200 weeks, "Liveness too large");
-        require(_liveness > 0, "Liveness cannot be 0");
+        require(_liveness < 5200 weeks, LivenessTooLarge());
+        require(_liveness > 0, LivenessCannotBeZero());
     }
 
     function _getState(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)

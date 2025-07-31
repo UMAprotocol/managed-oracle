@@ -9,6 +9,33 @@ import {FinderInterface} from "@uma/contracts/data-verification-mechanism/interf
  * @dev Interface used by financial contracts to interact with the Oracle. Voters will use a different interface.
  */
 abstract contract OptimisticOracleV2Interface {
+    /// @notice Thrown when a request is not in the expected Invalid state.
+    error RequestStateNotInvalid();
+    /// @notice Thrown when a request is not in the expected Requested state.
+    error RequestStateNotRequested();
+    /// @notice Thrown when a request is not in the expected Proposed state.
+    error RequestStateNotProposed();
+    /// @notice Thrown when an identifier is not supported by the identifier whitelist.
+    error UnsupportedIdentifier();
+    /// @notice Thrown when a currency is not supported by the collateral whitelist.
+    error UnsupportedCurrency();
+    /// @notice Thrown when a timestamp is in the future.
+    error TimestampInFuture();
+    /// @notice Thrown when ancillary data exceeds the allowed limit.
+    error AncillaryDataTooLong();
+    /// @notice Thrown when a proposer address is zero.
+    error ProposerAddressCannotBeZero();
+    /// @notice Thrown when trying to propose the "too early" response for event-based requests.
+    error CannotProposeTooEarly();
+    /// @notice Thrown when a disputer address is zero.
+    error DisputerAddressCannotBeZero();
+    /// @notice Thrown when liveness period is too large.
+    error LivenessTooLarge();
+    /// @notice Thrown when liveness period cannot be zero.
+    error LivenessCannotBeZero();
+    /// @notice Thrown when trying to settle a request that is not settleable.
+    error RequestNotSettleable();
+
     event RequestPrice(
         address indexed requester,
         bytes32 identifier,
