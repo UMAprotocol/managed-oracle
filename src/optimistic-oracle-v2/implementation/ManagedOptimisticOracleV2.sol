@@ -169,8 +169,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     }
 
     /**
-     * @notice Sets the bounds for a bond that can be set for a request by a request manager.
-     * @dev This can be used to limit the bond amount that can be set by request managers, callable by the regular admin.
+     * @notice Sets the bounds for a bond that can be set for a request.
+     * @dev This can be used to limit the bond amount that can be set by request managers, callable by the config admin.
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param newRange new allowed range for the bond.
      */
@@ -381,6 +381,12 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
         return keccak256(abi.encodePacked(requester, identifier, ancillaryData));
     }
 
+    /**
+     * @notice Sets the bounds for a bond that can be set for a request.
+     * @dev This can be used to limit the bond amount that can be set by request managers.
+     * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
+     * @param newRange new allowed range for the bond.
+     */
     function _setAllowedBondRange(IERC20 currency, BondRange calldata newRange) internal {
         require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
         require(newRange.minimumBond <= newRange.maximumBond, "minimumBond cannot be bigger than maximumBond");
