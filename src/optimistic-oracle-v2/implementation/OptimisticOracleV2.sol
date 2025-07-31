@@ -19,7 +19,7 @@ import {OptimisticOracleV2Interface} from "../interfaces/OptimisticOracleV2Inter
 
 import {Testable} from "../../common/implementation/Testable.sol";
 import {Lockable} from "../../common/implementation/Lockable.sol";
-import {FixedPoint} from "../../common/implementation/FixedPoint.sol";
+import {FixedPointInterface} from "../../common/interfaces/FixedPointInterface.sol";
 import {AncillaryData} from "@uma/contracts/common/implementation/AncillaryData.sol";
 import {AddressWhitelist} from "../../common/implementation/AddressWhitelist.sol";
 
@@ -432,7 +432,7 @@ contract OptimisticOracleV2 is OptimisticOracleV2Interface, UUPSUpgradeable, Tes
         uint256 totalFee = finalFee + _computeBurnedBond(request);
         if (totalFee > 0) {
             request.currency.safeIncreaseAllowance(address(store), totalFee);
-            _getStore().payOracleFeesErc20(address(request.currency), FixedPoint.Unsigned(totalFee));
+            _getStore().payOracleFeesErc20(address(request.currency), FixedPointInterface.Unsigned(totalFee));
         }
 
         _getOracle().requestPrice(
