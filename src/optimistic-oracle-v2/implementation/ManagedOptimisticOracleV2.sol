@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {DisableableAddressWhitelistInterface} from "../../common/interfaces/DisableableAddressWhitelistInterface.sol";
+import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelistInterface.sol";
 import {MultiCaller} from "../../common/implementation/MultiCaller.sol";
 
 import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
@@ -83,8 +83,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     bytes32 public constant REQUEST_MANAGER_ROLE = keccak256("REQUEST_MANAGER_ROLE");
 
     // Default whitelist for proposers.
-    DisableableAddressWhitelistInterface public defaultProposerWhitelist;
-    DisableableAddressWhitelistInterface public requesterWhitelist;
+    AddressWhitelistInterface public defaultProposerWhitelist;
+    AddressWhitelistInterface public requesterWhitelist;
 
     // Custom bonds set by request managers for specific request and currency combinations.
     mapping(bytes32 => mapping(IERC20 => CustomBond)) public customBonds;
@@ -93,7 +93,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     mapping(bytes32 => CustomLiveness) public customLivenessValues;
 
     // Custom proposer whitelists set by request managers for specific requests.
-    mapping(bytes32 => DisableableAddressWhitelistInterface) public customProposerWhitelists;
+    mapping(bytes32 => AddressWhitelistInterface) public customProposerWhitelists;
 
     // Admin controlled bounds limiting the changes that can be made by request managers.
     mapping(IERC20 => uint256) public maximumBonds; // Maximum bonds for a given currency.
@@ -280,7 +280,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
         address whitelist
     ) external nonReentrant onlyRequestManager {
         bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
-        customProposerWhitelists[managedRequestId] = DisableableAddressWhitelistInterface(whitelist);
+        customProposerWhitelists[managedRequestId] = AddressWhitelistInterface(whitelist);
         emit CustomProposerWhitelistSet(managedRequestId, requester, identifier, ancillaryData, whitelist);
     }
 
@@ -314,8 +314,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
             request.requestSettings.customLiveness = customLivenessValues[managedRequestId].liveness;
         }
 
-        DisableableAddressWhitelistInterface whitelist =
-            _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
+        AddressWhitelistInterface whitelist = _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
 
         require(whitelist.isOnWhitelist(proposer), "Proposer not whitelisted");
         require(whitelist.isOnWhitelist(msg.sender), "Sender not whitelisted");
@@ -334,32 +333,29 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     function getCustomProposerWhitelist(address requester, bytes32 identifier, bytes memory ancillaryData)
         external
         view
-        returns (DisableableAddressWhitelistInterface)
+        returns (AddressWhitelistInterface)
     {
         return customProposerWhitelists[getManagedRequestId(requester, identifier, ancillaryData)];
     }
 
     /**
-     * @notice Returns the proposer whitelist and enforcement status for a given request.
+     * @notice Returns the proposer whitelist and whether whitelist is enabled for a given request.
      * @dev If no custom proposer whitelist is set for the request, the default proposer whitelist is used.
-     * If whitelist enforcement is disabled, the returned proposer list will be empty and isEnforced will be false,
+     * If whitelist used is DisabledAddressWhitelist, the returned proposer list will be empty and isEnabled will be false,
      * indicating that any address is allowed to propose.
      * @param requester The address that made or will make the price request.
      * @param identifier The identifier of the price request.
      * @param ancillaryData Additional data used to uniquely identify the request.
-     * @return allowedProposers The list of addresses allowed to propose, if enforcement is enabled. Otherwise, an empty array.
-     * @return isEnforced A boolean indicating whether whitelist enforcement is active for this request.
+     * @return allowedProposers The list of addresses allowed to propose, if whitelist is enabled. Otherwise, an empty array.
+     * @return isEnabled A boolean indicating whether whitelist is enabled for this request.
      */
-    function getProposerWhitelistWithEnforcementStatus(
-        address requester,
-        bytes32 identifier,
-        bytes memory ancillaryData
-    ) external view returns (address[] memory allowedProposers, bool isEnforced) {
-        DisableableAddressWhitelistInterface whitelist =
-            _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
-        isEnforced = whitelist.isEnforced();
-        allowedProposers = isEnforced ? whitelist.getWhitelist() : new address[](0);
-        return (allowedProposers, isEnforced);
+    function getProposerWhitelistWithEnabledStatus(address requester, bytes32 identifier, bytes memory ancillaryData)
+        external
+        view
+        returns (address[] memory allowedProposers, bool isEnabled)
+    {
+        AddressWhitelistInterface whitelist = _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
+        return (whitelist.getWhitelist(), whitelist.isWhitelistEnabled());
     }
 
     /**
@@ -407,7 +403,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      */
     function _setDefaultProposerWhitelist(address whitelist) internal {
         require(whitelist != address(0), "Whitelist cannot be zero address");
-        defaultProposerWhitelist = DisableableAddressWhitelistInterface(whitelist);
+        defaultProposerWhitelist = AddressWhitelistInterface(whitelist);
         emit DefaultProposerWhitelistUpdated(whitelist);
     }
 
@@ -417,7 +413,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      */
     function _setRequesterWhitelist(address whitelist) internal {
         require(whitelist != address(0), "Whitelist cannot be zero address");
-        requesterWhitelist = DisableableAddressWhitelistInterface(whitelist);
+        requesterWhitelist = AddressWhitelistInterface(whitelist);
         emit RequesterWhitelistUpdated(whitelist);
     }
 
@@ -449,12 +445,12 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @param requester The address that made or will make the price request.
      * @param identifier The identifier of the price request.
      * @param ancillaryData Additional data used to uniquely identify the request.
-     * @return whitelist The effective DisableableAddressWhitelistInterface for the request.
+     * @return whitelist The effective AddressWhitelistInterface for the request.
      */
     function _getEffectiveProposerWhitelist(address requester, bytes32 identifier, bytes memory ancillaryData)
         internal
         view
-        returns (DisableableAddressWhitelistInterface whitelist)
+        returns (AddressWhitelistInterface whitelist)
     {
         whitelist = customProposerWhitelists[getManagedRequestId(requester, identifier, ancillaryData)];
         if (address(whitelist) == address(0)) {
