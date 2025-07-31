@@ -15,8 +15,7 @@ import {MultiCaller} from "../../common/implementation/MultiCaller.sol";
 abstract contract ManagedOptimisticOracleV2Events {
     event RequestManagerAdded(address indexed requestManager);
     event RequestManagerRemoved(address indexed requestManager);
-    event MinimumBondUpdated(IERC20 indexed currency, uint256 newMinimumBond);
-    event MaximumBondUpdated(IERC20 indexed currency, uint256 newMaximumBond);
+    event BondBoundsUpdated(IERC20 indexed currency, uint128 newMinimumBond, uint128 newMaximumBond);
     event MinimumLivenessUpdated(uint256 newMinimumLiveness);
     event DefaultProposerWhitelistUpdated(address indexed newWhitelist);
     event RequesterWhitelistUpdated(address indexed newWhitelist);
@@ -49,9 +48,14 @@ abstract contract ManagedOptimisticOracleV2Events {
  * @notice Pre-DVM escalation contract that allows faster settlement and management of price requests.
  */
 contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, OptimisticOracleV2, MultiCaller {
-    struct BondCapInfo {
+    struct BondBounds {
+        uint128 minimumBond;
+        uint128 maximumBond;
+    }
+
+    struct CurrencyBondBounds {
         IERC20 currency;
-        uint256 capAmount;
+        BondBounds bounds;
     }
 
     struct CustomBond {
@@ -70,8 +74,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
         address timerAddress; // address of the timer contract. Should be 0x0 in prod.
         address defaultProposerWhitelist; // address of the default whitelist.
         address requesterWhitelist; // address of the requester whitelist.
-        BondCapInfo[] minimumBonds; // array of minumum bonds for different currencies.
-        BondCapInfo[] maximumBonds; // array of maximum bonds for different currencies.
+        CurrencyBondBounds[] bondBounds; // array of bonds bounds for different currencies.
         uint256 minimumLiveness; // minimum liveness that can be overridden for a request.
         address configAdmin; // config admin, which is used for managing request managers and contract parameters.
         address upgradeAdmin; // contract upgrade admin, which also can manage the config admin role.
@@ -97,8 +100,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     mapping(bytes32 => AddressWhitelistInterface) public customProposerWhitelists;
 
     // Admin controlled bounds limiting the changes that can be made by request managers.
-    mapping(IERC20 => uint256) public minimumBonds; // Minimum bonds for a given currency.
-    mapping(IERC20 => uint256) public maximumBonds; // Maximum bonds for a given currency.
+    mapping(IERC20 => BondBounds) public bondBounds;
+
     uint256 public minimumLiveness;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -123,11 +126,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
 
         _setDefaultProposerWhitelist(params.defaultProposerWhitelist);
         _setRequesterWhitelist(params.requesterWhitelist);
-        for (uint256 i = 0; i < params.minimumBonds.length; i++) {
-            _setMinimumBond(params.minimumBonds[i].currency, params.minimumBonds[i].capAmount);
-        }
-        for (uint256 i = 0; i < params.maximumBonds.length; i++) {
-            _setMaximumBond(params.maximumBonds[i].currency, params.maximumBonds[i].capAmount);
+        for (uint256 i = 0; i < params.bondBounds.length; i++) {
+            _setBondBounds(params.bondBounds[i].currency, params.bondBounds[i].bounds);
         }
         _setMinimumLiveness(params.minimumLiveness);
     }
@@ -169,23 +169,13 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     }
 
     /**
-     * @notice Sets the maximum bond that can be set for a request.
-     * @dev This can be used to limit the bond amount that can be set by request managers, callable by the config admin.
-     * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
-     * @param maximumBond new maximum bond amount.
-     */
-    function setMaximumBond(IERC20 currency, uint256 maximumBond) external nonReentrant onlyConfigAdmin {
-        _setMaximumBond(currency, maximumBond);
-    }
-
-    /**
-     * @notice Sets the minimum bond that can be set for a request.
+     * @notice Sets the min / max bounds for a bond that can be set for a request.
      * @dev This can be used to limit the bond amount that can be set by request managers, callable by the regular admin.
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
-     * @param minimumBond new minimum bond amount.
+     * @param bounds new bounds for the bond.
      */
-    function setMinimumBond(IERC20 currency, uint256 minimumBond) external nonReentrant onlyConfigAdmin {
-        _setMinimumBond(currency, minimumBond);
+    function setBondBounds(IERC20 currency, BondBounds calldata bounds) external nonReentrant onlyConfigAdmin {
+        _setBondBounds(currency, bounds);
     }
 
     /**
@@ -391,28 +381,11 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
         return keccak256(abi.encodePacked(requester, identifier, ancillaryData));
     }
 
-    /**
-     * @notice Sets the maximum bond that can be set for a request.
-     * @dev This can be used to limit the bond amount that can be set by request managers.
-     * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
-     * @param maximumBond new maximum bond amount for the given currency.
-     */
-    function _setMaximumBond(IERC20 currency, uint256 maximumBond) internal {
+    function _setBondBounds(IERC20 currency, BondBounds calldata bounds) internal {
         require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
-        maximumBonds[currency] = maximumBond;
-        emit MaximumBondUpdated(currency, maximumBond);
-    }
-
-    /**
-     * @notice Sets the minimum bond that can be set for a request.
-     * @dev This can be used to limit the bond amount that can be set by request managers.
-     * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
-     * @param minimumBond new minimum bond amount for the given currency.
-     */
-    function _setMinimumBond(IERC20 currency, uint256 minimumBond) internal {
-        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
-        minimumBonds[currency] = minimumBond;
-        emit MinimumBondUpdated(currency, minimumBond);
+        require(bounds.minimumBond <= bounds.maximumBond, "minimumBond cannot be bigger than maximumBond");
+        bondBounds[currency] = bounds;
+        emit BondBoundsUpdated(currency, bounds.minimumBond, bounds.maximumBond);
     }
 
     /**
@@ -453,8 +426,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @param bond the bond amount to validate.
      */
     function _validateBond(IERC20 currency, uint256 bond) internal view {
-        require(bond <= maximumBonds[currency], "Bond exceeds maximum bond");
-        require(bond >= minimumBonds[currency], "Bond is less than minimum bond");
+        BondBounds memory bounds = bondBounds[currency];
+        require(bond <= uint256(bounds.maximumBond), "Bond exceeds maximum bond");
+        require(bond >= uint256(bounds.minimumBond), "Bond is less than minimum bond");
     }
 
     /**
