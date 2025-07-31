@@ -339,7 +339,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     }
 
     /**
-     * @notice Returns the proposer whitelist and enforcement status for a given request.
+     * @notice Returns the proposer whitelist and whether whitelist is enabled for a given request.
      * @dev If no custom proposer whitelist is set for the request, the default proposer whitelist is used.
      * If whitelist used is DisabledAddressWhitelist, the returned proposer list will be empty and isEnabled will be false,
      * indicating that any address is allowed to propose.
