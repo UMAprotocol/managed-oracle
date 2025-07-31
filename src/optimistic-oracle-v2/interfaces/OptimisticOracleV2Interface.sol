@@ -9,12 +9,8 @@ import {FinderInterface} from "@uma/contracts/data-verification-mechanism/interf
  * @dev Interface used by financial contracts to interact with the Oracle. Voters will use a different interface.
  */
 abstract contract OptimisticOracleV2Interface {
-    /// @notice Thrown when a request is not in the expected Invalid state.
-    error RequestStateNotInvalid();
-    /// @notice Thrown when a request is not in the expected Requested state.
-    error RequestStateNotRequested();
-    /// @notice Thrown when a request is not in the expected Proposed state.
-    error RequestStateNotProposed();
+    /// @notice Thrown when a request is not in the expected state.
+    error UnexpectedRequestState(State expected, State actual);
     /// @notice Thrown when an identifier is not supported by the identifier whitelist.
     error UnsupportedIdentifier();
     /// @notice Thrown when a currency is not supported by the collateral whitelist.
