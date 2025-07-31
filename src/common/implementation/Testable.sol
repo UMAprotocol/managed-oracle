@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Ported from https://github.com/UMAprotocol/protocol/blob/%40uma/core%402.62.0/packages/core/contracts/common/implementation/Testable.sol
+// to be compatible for use in upgradeable contracts.
+
 pragma solidity ^0.8.0;
 
 import {Timer} from "@uma/contracts/common/implementation/Timer.sol";

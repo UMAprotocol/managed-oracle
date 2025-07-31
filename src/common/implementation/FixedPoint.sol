@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Ported from https://github.com/UMAprotocol/protocol/blob/%40uma/core%402.62.0/packages/core/contracts/common/implementation/FixedPoint.sol
+// to be compatible with OpenZeppelin's v5.x that no longer supports SafeMath and SignedSafeMath.
+
 pragma solidity ^0.8.0;
 
 // import "@openzeppelin/contracts/utils/math/SafeMath.sol";
