@@ -1,69 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.26;
+pragma solidity ^0.8.27;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
-
 import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelistInterface.sol";
+import {ManagedOptimisticOracleV2Interface} from "../interfaces/ManagedOptimisticOracleV2Interface.sol";
 import {MultiCaller} from "../../common/implementation/MultiCaller.sol";
-
-/**
- * @title Events and Errors for the ManagedOptimisticOracleV2 contract.
- * @notice Contains events for request manager management, bond and liveness updates, and whitelists,
- * and custom errors for various conditions.
- */
-interface IManagedOptimisticOracleV2 {
-    /// @notice Thrown when a requester is not on the requester whitelist.
-    error RequesterNotWhitelisted();
-    /// @notice Thrown when a currency is not on the collateral whitelist.
-    error UnsupportedCurrency();
-    /// @notice Thrown when a whitelist address is set to the zero address.
-    error WhitelistCannotBeZeroAddress();
-    /// @notice Thrown when a bond is set higher than the maximum allowed bond.
-    error BondExceedsMaximumBond();
-    /// @notice Thrown when a liveness is set lower than the minimum allowed liveness.
-    error LivenessTooLow();
-    /// @notice Thrown when a proposer is not on the effective proposer whitelist.
-    error ProposerNotWhitelisted();
-    /// @notice Thrown when the message sender is not on the effective proposer whitelist for a proposal.
-    error SenderNotWhitelisted();
-
-    event RequestManagerAdded(address indexed requestManager);
-    event RequestManagerRemoved(address indexed requestManager);
-    event MaximumBondUpdated(IERC20 indexed currency, uint256 newMaximumBond);
-    event MinimumLivenessUpdated(uint256 newMinimumLiveness);
-    event DefaultProposerWhitelistUpdated(address indexed newWhitelist);
-    event RequesterWhitelistUpdated(address indexed newWhitelist);
-    event CustomBondSet(
-        bytes32 indexed managedRequestId,
-        address requester,
-        bytes32 indexed identifier,
-        bytes ancillaryData,
-        IERC20 indexed currency,
-        uint256 bond
-    );
-    event CustomLivenessSet(
-        bytes32 indexed managedRequestId,
-        address indexed requester,
-        bytes32 indexed identifier,
-        bytes ancillaryData,
-        uint256 customLiveness
-    );
-    event CustomProposerWhitelistSet(
-        bytes32 indexed managedRequestId,
-        address requester,
-        bytes32 indexed identifier,
-        bytes ancillaryData,
-        address indexed newWhitelist
-    );
-}
+import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
 
 /**
  * @title Managed Optimistic Oracle V2.
  * @notice Pre-DVM escalation contract that allows faster settlement and management of price requests.
  */
-contract ManagedOptimisticOracleV2 is IManagedOptimisticOracleV2, OptimisticOracleV2, MultiCaller {
+contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, OptimisticOracleV2, MultiCaller {
     struct MaximumBond {
         IERC20 currency;
         uint256 amount;
