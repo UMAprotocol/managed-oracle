@@ -45,6 +45,7 @@ contract DisableableAddressWhitelist is AddressWhitelist, DisableableAddressWhit
      * @return True if the contract implements the interface defined by interfaceId.
      */
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
-        return interfaceId == type(DisableableAddressWhitelistInterface).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(DisableableAddressWhitelistInterface).interfaceId
+            || super.supportsInterface(interfaceId);
     }
 }
