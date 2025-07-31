@@ -461,4 +461,12 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
             whitelist = defaultProposerWhitelist;
         }
     }
+
+    /**
+     * @dev Reserve storage slots for future versions of this base contract to add state variables without affecting the
+     * storage layout of child contracts. Decrement the size of __gap whenever state variables are added. This is at the
+     * bottom of contract to make sure its always at the end of storage.
+     * See https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable#storage-gaps
+     */
+    uint256[993] private __gap;
 }
