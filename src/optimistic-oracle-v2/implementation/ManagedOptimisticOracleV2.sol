@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
-import {AccessControlDefaultAdminRulesUpgradeable} from
-    "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-
-import {DisableableAddressWhitelistInterface} from "../../common/interfaces/DisableableAddressWhitelistInterface.sol";
-import {MultiCaller} from "../../common/implementation/MultiCaller.sol";
 
 import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
+
+import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelistInterface.sol";
+import {MultiCaller} from "../../common/implementation/MultiCaller.sol";
 
 /**
  * @title Events emitted by the ManagedOptimisticOracleV2 contract.
@@ -51,13 +48,7 @@ abstract contract ManagedOptimisticOracleV2Events {
  * @title Managed Optimistic Oracle V2.
  * @notice Pre-DVM escalation contract that allows faster settlement and management of price requests.
  */
-contract ManagedOptimisticOracleV2 is
-    UUPSUpgradeable,
-    ManagedOptimisticOracleV2Events,
-    OptimisticOracleV2,
-    AccessControlDefaultAdminRulesUpgradeable,
-    MultiCaller
-{
+contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, OptimisticOracleV2, MultiCaller {
     struct BondCapInfo {
         IERC20 currency;
         uint256 capAmount;
@@ -74,7 +65,7 @@ contract ManagedOptimisticOracleV2 is
     }
 
     struct InitializeParams {
-        uint256 liveness; // default liveness applied to each price request.
+        uint256 defaultLiveness; // default liveness applied to each price request.
         address finderAddress; // finder to use to get addresses of DVM contracts.
         address timerAddress; // address of the timer contract. Should be 0x0 in prod.
         address defaultProposerWhitelist; // address of the default whitelist.
@@ -82,19 +73,19 @@ contract ManagedOptimisticOracleV2 is
         BondCapInfo[] minimumBonds; // array of minumum bonds for different currencies.
         BondCapInfo[] maximumBonds; // array of maximum bonds for different currencies.
         uint256 minimumLiveness; // minimum liveness that can be overridden for a request.
-        address regularAdmin; // regular admin, which is used for managing request managers and contract parameters.
-        address upgradeAdmin; // contract upgrade admin, which also can manage the regular admin role.
+        address configAdmin; // config admin, which is used for managing request managers and contract parameters.
+        address upgradeAdmin; // contract upgrade admin, which also can manage the config admin role.
     }
 
-    // Regular admin role is used to manage request managers and set other default parameters.
-    bytes32 public constant REGULAR_ADMIN = keccak256("REGULAR_ADMIN");
+    // Config admin role is used to manage request managers and set other default parameters.
+    bytes32 public constant CONFIG_ADMIN_ROLE = keccak256("CONFIG_ADMIN_ROLE");
 
     // Request manager role is used to manage proposer whitelists, bonds, and liveness for individual requests.
-    bytes32 public constant REQUEST_MANAGER = keccak256("REQUEST_MANAGER");
+    bytes32 public constant REQUEST_MANAGER_ROLE = keccak256("REQUEST_MANAGER_ROLE");
 
     // Default whitelist for proposers.
-    DisableableAddressWhitelistInterface public defaultProposerWhitelist;
-    DisableableAddressWhitelistInterface public requesterWhitelist;
+    AddressWhitelistInterface public defaultProposerWhitelist;
+    AddressWhitelistInterface public requesterWhitelist;
 
     // Custom bonds set by request managers for specific request and currency combinations.
     mapping(bytes32 => mapping(IERC20 => CustomBond)) public customBonds;
@@ -103,7 +94,7 @@ contract ManagedOptimisticOracleV2 is
     mapping(bytes32 => CustomLiveness) public customLivenessValues;
 
     // Custom proposer whitelists set by request managers for specific requests.
-    mapping(bytes32 => DisableableAddressWhitelistInterface) public customProposerWhitelists;
+    mapping(bytes32 => AddressWhitelistInterface) public customProposerWhitelists;
 
     // Admin controlled bounds limiting the changes that can be made by request managers.
     mapping(IERC20 => uint256) public minimumBonds; // Minimum bonds for a given currency.
@@ -121,13 +112,14 @@ contract ManagedOptimisticOracleV2 is
      * @dev Struct parameter is used to overcome the stack too deep limitations in Solidity.
      */
     function initialize(InitializeParams calldata params) external initializer {
-        __OptimisticOracleV2_init(params.liveness, params.finderAddress, params.timerAddress);
-        __AccessControlDefaultAdminRules_init(3 days, params.upgradeAdmin); // Initialize DEFAULT_ADMIN_ROLE
+        __OptimisticOracleV2_init(
+            params.defaultLiveness, params.finderAddress, params.timerAddress, params.upgradeAdmin
+        );
 
-        // Regular admin is managing the request manager role.
-        // Contract upgrade admin retains the default admin role that can also manage the regular admin role.
-        _grantRole(REGULAR_ADMIN, params.regularAdmin);
-        _setRoleAdmin(REQUEST_MANAGER, REGULAR_ADMIN);
+        // Config admin is managing the request manager role.
+        // Contract upgrade admin retains the default admin role that can also manage the config admin role.
+        _grantRole(CONFIG_ADMIN_ROLE, params.configAdmin);
+        _setRoleAdmin(REQUEST_MANAGER_ROLE, CONFIG_ADMIN_ROLE);
 
         _setDefaultProposerWhitelist(params.defaultProposerWhitelist);
         _setRequesterWhitelist(params.requesterWhitelist);
@@ -141,18 +133,10 @@ contract ManagedOptimisticOracleV2 is
     }
 
     /**
-     * @dev Throws if called by any account other than the upgrade admin.
+     * @dev Throws if called by any account other than the config admin.
      */
-    modifier onlyUpgradeAdmin() {
-        _checkRole(DEFAULT_ADMIN_ROLE);
-        _;
-    }
-
-    /**
-     * @dev Throws if called by any account other than the regular admin.
-     */
-    modifier onlyRegularAdmin() {
-        _checkRole(REGULAR_ADMIN);
+    modifier onlyConfigAdmin() {
+        _checkRole(CONFIG_ADMIN_ROLE);
         _;
     }
 
@@ -160,48 +144,37 @@ contract ManagedOptimisticOracleV2 is
      * @dev Throws if called by any account other than the request manager.
      */
     modifier onlyRequestManager() {
-        _checkRole(REQUEST_MANAGER);
+        _checkRole(REQUEST_MANAGER_ROLE);
         _;
     }
 
     /**
-     * @notice Authorizes the upgrade of the contract.
-     * @dev This is required for UUPSUpgradeable. Only the upgrade admin can authorize upgrades.
-     * @param newImplementation address of the new implementation to upgrade to.
-     */
-    function _authorizeUpgrade(address newImplementation)
-        internal
-        override(OptimisticOracleV2, UUPSUpgradeable)
-        onlyUpgradeAdmin
-    {}
-
-    /**
      * @notice Adds a request manager.
-     * @dev Only callable by the regular admin (checked in grantRole of AccessControlUpgradeable).
+     * @dev Only callable by the config admin (checked in grantRole of AccessControlUpgradeable).
      * @param requestManager address of the request manager to set.
      */
     function addRequestManager(address requestManager) external nonReentrant {
-        grantRole(REQUEST_MANAGER, requestManager);
+        grantRole(REQUEST_MANAGER_ROLE, requestManager);
         emit RequestManagerAdded(requestManager);
     }
 
     /**
      * @notice Removes a request manager.
-     * @dev Only callable by the regular admin (checked in revokeRole of AccessControlUpgradeable).
+     * @dev Only callable by the config admin (checked in revokeRole of AccessControlUpgradeable).
      * @param requestManager address of the request manager to remove.
      */
     function removeRequestManager(address requestManager) external nonReentrant {
-        revokeRole(REQUEST_MANAGER, requestManager);
+        revokeRole(REQUEST_MANAGER_ROLE, requestManager);
         emit RequestManagerRemoved(requestManager);
     }
 
     /**
      * @notice Sets the maximum bond that can be set for a request.
-     * @dev This can be used to limit the bond amount that can be set by request managers, callable by the regular admin.
+     * @dev This can be used to limit the bond amount that can be set by request managers, callable by the config admin.
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param maximumBond new maximum bond amount.
      */
-    function setMaximumBond(IERC20 currency, uint256 maximumBond) external nonReentrant onlyRegularAdmin {
+    function setMaximumBond(IERC20 currency, uint256 maximumBond) external nonReentrant onlyConfigAdmin {
         _setMaximumBond(currency, maximumBond);
     }
 
@@ -211,34 +184,34 @@ contract ManagedOptimisticOracleV2 is
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param minimumBond new minimum bond amount.
      */
-    function setMinimumBond(IERC20 currency, uint256 minimumBond) external nonReentrant onlyRegularAdmin {
+    function setMinimumBond(IERC20 currency, uint256 minimumBond) external nonReentrant onlyConfigAdmin {
         _setMinimumBond(currency, minimumBond);
     }
 
     /**
      * @notice Sets the minimum liveness that can be set for a request.
-     * @dev This can be used to limit the liveness period that can be set by request managers, callable by the regular admin.
+     * @dev This can be used to limit the liveness period that can be set by request managers, callable by the config admin.
      * @param _minimumLiveness new minimum liveness period.
      */
-    function setMinimumLiveness(uint256 _minimumLiveness) external nonReentrant onlyRegularAdmin {
+    function setMinimumLiveness(uint256 _minimumLiveness) external nonReentrant onlyConfigAdmin {
         _setMinimumLiveness(_minimumLiveness);
     }
 
     /**
      * @notice Sets the default proposer whitelist.
-     * @dev Only callable by the regular admin.
+     * @dev Only callable by the config admin.
      * @param whitelist address of the whitelist to set.
      */
-    function setDefaultProposerWhitelist(address whitelist) external nonReentrant onlyRegularAdmin {
+    function setDefaultProposerWhitelist(address whitelist) external nonReentrant onlyConfigAdmin {
         _setDefaultProposerWhitelist(whitelist);
     }
 
     /**
      * @notice Sets the requester whitelist.
-     * @dev Only callable by the regular admin.
+     * @dev Only callable by the config admin.
      * @param whitelist address of the whitelist to set.
      */
-    function setRequesterWhitelist(address whitelist) external nonReentrant onlyRegularAdmin {
+    function setRequesterWhitelist(address whitelist) external nonReentrant onlyConfigAdmin {
         _setRequesterWhitelist(whitelist);
     }
 
@@ -261,7 +234,7 @@ contract ManagedOptimisticOracleV2 is
         IERC20 currency,
         uint256 reward
     ) public override returns (uint256 totalBond) {
-        require(requesterWhitelist.isOnWhitelist(address(msg.sender)), "Requester not whitelisted");
+        require(requesterWhitelist.isOnWhitelist(msg.sender), "Requester not whitelisted");
         return super.requestPrice(identifier, timestamp, ancillaryData, currency, reward);
     }
 
@@ -283,7 +256,7 @@ contract ManagedOptimisticOracleV2 is
     ) external nonReentrant onlyRequestManager {
         require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
         _validateBond(currency, bond);
-        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         customBonds[managedRequestId][currency] = CustomBond({amount: bond, isSet: true});
         emit CustomBondSet(managedRequestId, requester, identifier, ancillaryData, currency, bond);
     }
@@ -304,7 +277,7 @@ contract ManagedOptimisticOracleV2 is
         uint256 customLiveness
     ) external nonReentrant onlyRequestManager {
         _validateLiveness(customLiveness);
-        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         customLivenessValues[managedRequestId] = CustomLiveness({liveness: customLiveness, isSet: true});
         emit CustomLivenessSet(managedRequestId, requester, identifier, ancillaryData, customLiveness);
     }
@@ -323,8 +296,8 @@ contract ManagedOptimisticOracleV2 is
         bytes memory ancillaryData,
         address whitelist
     ) external nonReentrant onlyRequestManager {
-        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
-        customProposerWhitelists[managedRequestId] = DisableableAddressWhitelistInterface(whitelist);
+        bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
+        customProposerWhitelists[managedRequestId] = AddressWhitelistInterface(whitelist);
         emit CustomProposerWhitelistSet(managedRequestId, requester, identifier, ancillaryData, whitelist);
     }
 
@@ -350,7 +323,7 @@ contract ManagedOptimisticOracleV2 is
     ) public override returns (uint256 totalBond) {
         // Apply the custom bond and liveness overrides if set.
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
-        bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
+        bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         if (customBonds[managedRequestId][request.currency].isSet) {
             request.requestSettings.bond = customBonds[managedRequestId][request.currency].amount;
         }
@@ -358,8 +331,7 @@ contract ManagedOptimisticOracleV2 is
             request.requestSettings.customLiveness = customLivenessValues[managedRequestId].liveness;
         }
 
-        DisableableAddressWhitelistInterface whitelist =
-            _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
+        AddressWhitelistInterface whitelist = _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
 
         require(whitelist.isOnWhitelist(proposer), "Proposer not whitelisted");
         require(whitelist.isOnWhitelist(msg.sender), "Sender not whitelisted");
@@ -378,49 +350,45 @@ contract ManagedOptimisticOracleV2 is
     function getCustomProposerWhitelist(address requester, bytes32 identifier, bytes memory ancillaryData)
         external
         view
-        returns (DisableableAddressWhitelistInterface)
+        returns (AddressWhitelistInterface)
     {
-        return customProposerWhitelists[_getManagedRequestId(requester, identifier, ancillaryData)];
+        return customProposerWhitelists[getManagedRequestId(requester, identifier, ancillaryData)];
     }
 
     /**
-     * @notice Returns the proposer whitelist and enforcement status for a given request.
+     * @notice Returns the proposer whitelist and whether whitelist is enabled for a given request.
      * @dev If no custom proposer whitelist is set for the request, the default proposer whitelist is used.
-     * If whitelist enforcement is disabled, the returned proposer list will be empty and isEnforced will be false,
+     * If whitelist used is DisabledAddressWhitelist, the returned proposer list will be empty and isEnabled will be false,
      * indicating that any address is allowed to propose.
      * @param requester The address that made or will make the price request.
      * @param identifier The identifier of the price request.
      * @param ancillaryData Additional data used to uniquely identify the request.
-     * @return allowedProposers The list of addresses allowed to propose, if enforcement is enabled. Otherwise, an empty array.
-     * @return isEnforced A boolean indicating whether whitelist enforcement is active for this request.
+     * @return allowedProposers The list of addresses allowed to propose, if whitelist is enabled. Otherwise, an empty array.
+     * @return isEnabled A boolean indicating whether whitelist is enabled for this request.
      */
-    function getProposerWhitelistWithEnforcementStatus(
-        address requester,
-        bytes32 identifier,
-        bytes memory ancillaryData
-    ) external view returns (address[] memory allowedProposers, bool isEnforced) {
-        DisableableAddressWhitelistInterface whitelist =
-            _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
-        isEnforced = whitelist.isEnforced();
-        allowedProposers = isEnforced ? whitelist.getWhitelist() : new address[](0);
-        return (allowedProposers, isEnforced);
+    function getProposerWhitelistWithEnabledStatus(address requester, bytes32 identifier, bytes memory ancillaryData)
+        external
+        view
+        returns (address[] memory allowedProposers, bool isEnabled)
+    {
+        AddressWhitelistInterface whitelist = _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
+        return (whitelist.getWhitelist(), whitelist.isWhitelistEnabled());
     }
 
     /**
-     * @notice Gets the managed request ID for a price request (without timestamp).
-     * @dev This is just a helper function that offchain systems can use for tracking the indexed
-     * CustomProposerWhitelistSet events.
+     * @notice Gets the ID for a managed request.
+     * @dev This omits the timestamp from the key derivation, so it can be used for managed requests in advance.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
-     * @return bytes32 the request ID for the managed request.
+     * @return bytes32 the ID for the managed request.
      */
     function getManagedRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
-        external
+        public
         pure
         returns (bytes32)
     {
-        return _getManagedRequestId(requester, identifier, ancillaryData);
+        return keccak256(abi.encodePacked(requester, identifier, ancillaryData));
     }
 
     /**
@@ -453,6 +421,7 @@ contract ManagedOptimisticOracleV2 is
      * @param _minimumLiveness new minimum liveness period.
      */
     function _setMinimumLiveness(uint256 _minimumLiveness) internal {
+        super._validateLiveness(_minimumLiveness);
         minimumLiveness = _minimumLiveness;
         emit MinimumLivenessUpdated(_minimumLiveness);
     }
@@ -463,7 +432,7 @@ contract ManagedOptimisticOracleV2 is
      */
     function _setDefaultProposerWhitelist(address whitelist) internal {
         require(whitelist != address(0), "Whitelist cannot be zero address");
-        defaultProposerWhitelist = DisableableAddressWhitelistInterface(whitelist);
+        defaultProposerWhitelist = AddressWhitelistInterface(whitelist);
         emit DefaultProposerWhitelistUpdated(whitelist);
     }
 
@@ -473,29 +442,13 @@ contract ManagedOptimisticOracleV2 is
      */
     function _setRequesterWhitelist(address whitelist) internal {
         require(whitelist != address(0), "Whitelist cannot be zero address");
-        requesterWhitelist = DisableableAddressWhitelistInterface(whitelist);
+        requesterWhitelist = AddressWhitelistInterface(whitelist);
         emit RequesterWhitelistUpdated(whitelist);
     }
 
     /**
-     * @notice Gets the ID for a managed request.
-     * @dev This omits the timestamp from the key derivation, so it can be used for managed requests in advance.
-     * @param requester sender of the initial price request.
-     * @param identifier price identifier to identify the existing request.
-     * @param ancillaryData ancillary data of the price being requested.
-     * @return bytes32 the ID for the managed request.
-     */
-    function _getManagedRequestId(address requester, bytes32 identifier, bytes memory ancillaryData)
-        internal
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encodePacked(requester, identifier, ancillaryData));
-    }
-
-    /**
      * @notice Validates the bond amount.
-     * @dev Reverts if the bond exceeds the maximum bond amount (controllable by the regular admin).
+     * @dev Reverts if the bond exceeds the maximum bond amount (controllable by the config admin).
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param bond the bond amount to validate.
      */
@@ -506,7 +459,7 @@ contract ManagedOptimisticOracleV2 is
 
     /**
      * @notice Validates the liveness period.
-     * @dev Reverts if the liveness period is less than the minimum liveness (controllable by the regular admin) or
+     * @dev Reverts if the liveness period is less than the minimum liveness (controllable by the config admin) or
      * above the maximum liveness (which is set in the parent contract).
      * @param liveness the liveness period to validate.
      */
@@ -522,14 +475,14 @@ contract ManagedOptimisticOracleV2 is
      * @param requester The address that made or will make the price request.
      * @param identifier The identifier of the price request.
      * @param ancillaryData Additional data used to uniquely identify the request.
-     * @return whitelist The effective DisableableAddressWhitelistInterface for the request.
+     * @return whitelist The effective AddressWhitelistInterface for the request.
      */
     function _getEffectiveProposerWhitelist(address requester, bytes32 identifier, bytes memory ancillaryData)
         internal
         view
-        returns (DisableableAddressWhitelistInterface whitelist)
+        returns (AddressWhitelistInterface whitelist)
     {
-        whitelist = customProposerWhitelists[_getManagedRequestId(requester, identifier, ancillaryData)];
+        whitelist = customProposerWhitelists[getManagedRequestId(requester, identifier, ancillaryData)];
         if (address(whitelist) == address(0)) {
             whitelist = defaultProposerWhitelist;
         }
