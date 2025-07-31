@@ -96,4 +96,13 @@ contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable {
             }
         }
     }
+
+    /**
+     * @notice Checks if the whitelist is enabled.
+     * @dev For this implementation, the whitelist is always considered enabled.
+     * @return enabled Always returns true.
+     */
+    function isWhitelistEnabled() external pure returns (bool enabled) {
+        return true;
+    }
 }
