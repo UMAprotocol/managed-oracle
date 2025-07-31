@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {AddressWhitelistInterface} from "../interfaces/AddressWhitelistInterface.sol";
 import {DisableableAddressWhitelistInterface} from "../interfaces/DisableableAddressWhitelistInterface.sol";
 import {AddressWhitelist} from "./AddressWhitelist.sol";
-import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 /**
  * @title A contract to track a whitelist of addresses with ability to toggle its enforcement.
  */
-contract DisableableAddressWhitelist is AddressWhitelist, DisableableAddressWhitelistInterface, ERC165 {
+contract DisableableAddressWhitelist is AddressWhitelist, DisableableAddressWhitelistInterface {
     bool public isEnforced;
 
     event WhitelistEnforcementSet(bool enforced);
@@ -44,7 +43,13 @@ contract DisableableAddressWhitelist is AddressWhitelist, DisableableAddressWhit
      * @param interfaceId The interface identifier, as specified in ERC-165.
      * @return True if the contract implements the interface defined by interfaceId.
      */
-    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(AddressWhitelist, IERC165)
+        returns (bool)
+    {
         return interfaceId == type(DisableableAddressWhitelistInterface).interfaceId
             || super.supportsInterface(interfaceId);
     }

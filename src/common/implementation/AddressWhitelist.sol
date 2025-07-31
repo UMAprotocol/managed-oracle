@@ -2,13 +2,15 @@
 pragma solidity ^0.8.0;
 
 import {AddressWhitelistInterface} from "../interfaces/AddressWhitelistInterface.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Lockable} from "@uma/contracts/common/implementation/Lockable.sol";
 
 /**
  * @title A contract to track a whitelist of addresses.
  */
-contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable {
+contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable, ERC165 {
     enum Status {
         None,
         In,
@@ -95,5 +97,14 @@ contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable {
                 activeCount++;
             }
         }
+    }
+
+    /**
+     * @notice Returns true if this contract implements the interface defined by interfaceId.
+     * @param interfaceId The interface identifier, as specified in ERC-165.
+     * @return True if the contract implements the interface defined by interfaceId.
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
+        return interfaceId == type(AddressWhitelistInterface).interfaceId || super.supportsInterface(interfaceId);
     }
 }
