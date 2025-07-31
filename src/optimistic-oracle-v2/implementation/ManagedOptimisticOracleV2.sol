@@ -425,6 +425,7 @@ contract ManagedOptimisticOracleV2 is
      * @param _minimumLiveness new minimum liveness period.
      */
     function _setMinimumLiveness(uint256 _minimumLiveness) internal {
+        super._validateLiveness(_minimumLiveness);
         minimumLiveness = _minimumLiveness;
         emit MinimumLivenessUpdated(_minimumLiveness);
     }
