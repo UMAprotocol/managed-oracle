@@ -3,9 +3,9 @@ pragma solidity ^0.8.0;
 
 import {AccessControlDefaultAdminRulesUpgradeable} from
     "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
+import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 
 import {DisableableAddressWhitelistInterface} from "../../common/interfaces/DisableableAddressWhitelistInterface.sol";
 import {MultiCaller} from "../../common/implementation/MultiCaller.sol";
@@ -308,10 +308,11 @@ contract ManagedOptimisticOracleV2 is
         bytes memory ancillaryData,
         address whitelist
     ) external nonReentrant onlyRequestManager {
+        // Zero address is allowed to disable the custom proposer whitelist.
         if (whitelist != address(0)) {
             require(
                 ERC165Checker.supportsInterface(whitelist, type(DisableableAddressWhitelistInterface).interfaceId),
-                "Whitelist interface not supported"
+                "Unsupported whitelist interface"
             );
         }
         bytes32 managedRequestId = _getManagedRequestId(requester, identifier, ancillaryData);
@@ -441,10 +442,9 @@ contract ManagedOptimisticOracleV2 is
      * @param whitelist address of the whitelist to set.
      */
     function _setDefaultProposerWhitelist(address whitelist) internal {
-        require(whitelist != address(0), "Whitelist cannot be zero address");
         require(
             ERC165Checker.supportsInterface(whitelist, type(DisableableAddressWhitelistInterface).interfaceId),
-            "Whitelist interface not supported"
+            "Unsupported whitelist interface"
         );
         defaultProposerWhitelist = DisableableAddressWhitelistInterface(whitelist);
         emit DefaultProposerWhitelistUpdated(whitelist);
@@ -455,10 +455,9 @@ contract ManagedOptimisticOracleV2 is
      * @param whitelist address of the whitelist to set.
      */
     function _setRequesterWhitelist(address whitelist) internal {
-        require(whitelist != address(0), "Whitelist cannot be zero address");
         require(
             ERC165Checker.supportsInterface(whitelist, type(DisableableAddressWhitelistInterface).interfaceId),
-            "Whitelist interface not supported"
+            "Unsupported whitelist interface"
         );
         requesterWhitelist = DisableableAddressWhitelistInterface(whitelist);
         emit RequesterWhitelistUpdated(whitelist);
