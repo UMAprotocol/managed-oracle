@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Ported from https://github.com/UMAprotocol/protocol/blob/%40uma/core%402.62.0/packages/core/contracts/common/implementation/Lockable.sol
-// to be compatible for use in upgradeable contracts.
+// to be compatible for use in upgradeable contracts and using custom errors.
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.27;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -12,6 +12,8 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
  * and https://github.com/balancer-labs/balancer-core/blob/master/contracts/BPool.sol.
  */
 abstract contract LockableUpgradeable is Initializable {
+    error ReentrancyGuardReentrantCall();
+
     bool private _notEntered;
 
     /**
@@ -53,7 +55,7 @@ abstract contract LockableUpgradeable is Initializable {
     // View-only methods can simply call `_preEntranceCheck()` to make sure that it is not being re-entered.
     function _preEntranceCheck() internal view {
         // On the first call to nonReentrant, _notEntered will be true
-        require(_notEntered, "ReentrancyGuard: reentrant call");
+        require(_notEntered, ReentrancyGuardReentrantCall());
     }
 
     function _preEntranceSet() internal {
