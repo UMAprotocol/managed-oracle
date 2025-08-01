@@ -22,7 +22,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  *   - Polygon Mainnet (137): 0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64
  * - DEFAULT_PROPOSER_WHITELIST: Required. Address of the default proposer whitelist
  * - REQUESTER_WHITELIST: Required. Address of the requester whitelist
- * - REGULAR_ADMIN: Optional. Address of the regular admin (defaults to deployer if not provided)
+ * - CONFIG_ADMIN: Optional. Address of the config admin (defaults to deployer if not provided)
  * - UPGRADE_ADMIN: Optional. Address of the upgrade admin (defaults to deployer if not provided)
  * - DEFAULT_LIVENESS: Optional. Default liveness period in seconds (defaults to 7200 if not provided)
  * - MINIMUM_LIVENESS: Optional. Minimum liveness period in seconds (defaults to 1800 if not provided)
@@ -39,7 +39,6 @@ contract DeployManagedOptimisticOracleV2 is Script {
             finderAddress = _getDefaultFinderAddress();
         }
         
-        address timerAddress = address(0);
         address defaultProposerWhitelist = vm.envAddress("DEFAULT_PROPOSER_WHITELIST");
         address requesterWhitelist = vm.envAddress("REQUESTER_WHITELIST");
         
@@ -63,15 +62,14 @@ contract DeployManagedOptimisticOracleV2 is Script {
         address deployer = vm.addr(deployerPrivateKey);
 
         // Get admin addresses with deployer as default
-        address regularAdmin = vm.envOr("REGULAR_ADMIN", deployer);
+        address configAdmin = vm.envOr("CONFIG_ADMIN", deployer);
         address upgradeAdmin = vm.envOr("UPGRADE_ADMIN", deployer);
 
         console.log("Deployer:", deployer);
         console.log("Finder Address:", finderAddress);
-        console.log("Timer Address:", timerAddress);
         console.log("Default Proposer Whitelist:", defaultProposerWhitelist);
         console.log("Requester Whitelist:", requesterWhitelist);
-        console.log("Regular Admin:", regularAdmin);
+        console.log("Config Admin:", configAdmin);
         console.log("Upgrade Admin:", upgradeAdmin);
         console.log("Default Liveness:", defaultLiveness);
         console.log("Minimum Liveness:", minimumLiveness);
@@ -81,14 +79,13 @@ contract DeployManagedOptimisticOracleV2 is Script {
 
         // Create initialization parameters
         ManagedOptimisticOracleV2.InitializeParams memory params = ManagedOptimisticOracleV2.InitializeParams({
-            liveness: defaultLiveness,
+            defaultLiveness: defaultLiveness,
             finderAddress: finderAddress,
-            timerAddress: timerAddress,
             defaultProposerWhitelist: defaultProposerWhitelist,
             requesterWhitelist: requesterWhitelist,
             maximumBonds: maximumBonds,
             minimumLiveness: minimumLiveness,
-            regularAdmin: regularAdmin,
+            configAdmin: configAdmin,
             upgradeAdmin: upgradeAdmin
         });
 
@@ -108,7 +105,7 @@ contract DeployManagedOptimisticOracleV2 is Script {
         console.log("Implementation Address:", Upgrades.getImplementationAddress(address(proxy)));
         console.log("Chain ID:", block.chainid);
         console.log("Deployer:", deployer);
-        console.log("Regular Admin:", regularAdmin);
+        console.log("Config Admin:", configAdmin);
         console.log("Upgrade Admin:", upgradeAdmin);
         console.log("Default Liveness:", defaultLiveness);
         console.log("Minimum Liveness:", minimumLiveness);

@@ -15,45 +15,36 @@ vi .env
 # Common variables (used by all scripts)
 MNEMONIC="your mnemonic phrase here"
 
-# DisableableAddressWhitelist-specific variables
-IS_ENFORCED="true"  # Optional
-NEW_OWNER="0x1234567890123456789012345678901234567890"  # Optional
-
 # ManagedOptimisticOracleV2-specific variables
 FINDER_ADDRESS="0x1234567890123456789012345678901234567890"
-TIMER_ADDRESS="0x0000000000000000000000000000000000000000"  # 0x0 for mainnet
 DEFAULT_PROPOSER_WHITELIST="0x1234567890123456789012345678901234567890"
 REQUESTER_WHITELIST="0x1234567890123456789012345678901234567890"
-# REGULAR_ADMIN="0x1234567890123456789012345678901234567890"  # Optional, defaults to deployer
+# CONFIG_ADMIN="0x1234567890123456789012345678901234567890"  # Optional, defaults to deployer
 # UPGRADE_ADMIN="0x1234567890123456789012345678901234567890"  # Optional, defaults to deployer
 # DEFAULT_LIVENESS="7200"  # Optional, defaults to 7200 (2 hours) if not provided
 # MINIMUM_LIVENESS="1800"  # Optional, defaults to 1800 (30 minutes) if not provided
 MAXIMUM_BONDS="0xA0b86a33E6441b8C4C8C0C8C0C8C0C8C0C8C0C8:1000000000000000000,0xB0b86a33E6441b8C4C8C0C8C0C8C0C8C0C8C0C8:2000000000000000000"
 ```
 
-## DisableableAddressWhitelist Deployment
+## DisabledAddressWhitelist Deployment
 
-The `DeployDisableableAddressWhitelist.s.sol` script deploys the `DisableableAddressWhitelist` contract with optional configuration.
+The `DeployDisabledAddressWhitelist.s.sol` script deploys the `DisabledAddressWhitelist` contract with optional configuration.
 
 ### Environment Variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `MNEMONIC` | Yes | The mnemonic phrase for the deployer wallet (uses 0 index address) |
-| `IS_ENFORCED` | No | If set to "true", enables whitelist enforcement (default: false) |
-| `NEW_OWNER` | No | If set, transfers ownership to this address |
 
 ### Usage Examples
 
 ```bash
-forge script script/DeployDisableableAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+forge script script/DeployDisabledAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
 ```
 
 ### Features
 
-- **Automatic deployment**: Deploys the `DisableableAddressWhitelist` contract
-- **Configurable enforcement**: Optionally enables whitelist enforcement via `IS_ENFORCED`
-- **Ownership transfer**: Optionally transfers ownership to a new address via `NEW_OWNER`
+- **Automatic deployment**: Deploys the `DisabledAddressWhitelist` contract
 - **Detailed logging**: Provides comprehensive deployment information and status updates
 
 ### Etherscan Verification
@@ -61,7 +52,7 @@ forge script script/DeployDisableableAddressWhitelist.s.sol --rpc-url "YOUR_RPC_
 After deployment, verify the contract on Etherscan:
 
 ```bash
-forge verify-contract <CONTRACT_ADDRESS> src/common/implementation/DisableableAddressWhitelist.sol:DisableableAddressWhitelist --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+forge verify-contract <CONTRACT_ADDRESS> src/common/implementation/DisabledAddressWhitelist.sol:DisabledAddressWhitelist --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
 ```
 
 **Replace:**
@@ -71,12 +62,8 @@ forge verify-contract <CONTRACT_ADDRESS> src/common/implementation/DisableableAd
 
 ### Contract Details
 
-The `DisableableAddressWhitelist` contract:
-- Inherits from `AddressWhitelist` and `DisableableAddressWhitelistInterface`
-- Allows toggling whitelist enforcement on/off
-- When enforcement is disabled, all addresses are considered whitelisted
-- When enforcement is enabled, only explicitly whitelisted addresses are allowed
-- Supports ownership management for administrative functions
+The `DisabledAddressWhitelist` contract:
+- Inherits from `AddressWhitelist` and `DisabledAddressWhitelistInterface`
 
 ## ManagedOptimisticOracleV2 Deployment
 
@@ -90,7 +77,7 @@ The `DeployManagedOptimisticOracleV2.s.sol` script deploys the `ManagedOptimisti
 | `FINDER_ADDRESS` | No* | Address of the Finder contract. If not provided, uses network-specific defaults (see below) |
 | `DEFAULT_PROPOSER_WHITELIST` | Yes | Address of the default proposer whitelist |
 | `REQUESTER_WHITELIST` | Yes | Address of the requester whitelist |
-| `REGULAR_ADMIN` | No | Address of the regular admin (defaults to deployer if not provided) |
+| `CONFIG_ADMIN` | No | Address of the config admin (defaults to deployer if not provided) |
 | `UPGRADE_ADMIN` | No | Address of the upgrade admin (defaults to deployer if not provided) |
 | `DEFAULT_LIVENESS` | No | Default liveness period in seconds (defaults to 7200 if not provided) |
 | `MINIMUM_LIVENESS` | No | Minimum liveness period in seconds (defaults to 1800 if not provided) |
@@ -139,7 +126,7 @@ forge verify-contract <PROXY_ADDRESS> src/optimistic-oracle-v2/implementation/Ma
 The `ManagedOptimisticOracleV2` contract:
 - Inherits from `OptimisticOracleV2` and adds management capabilities
 - Uses UUPS upgradeable pattern for future upgrades
-- Supports role-based access control with regular and upgrade admins
+- Supports role-based access control with config and upgrade admins
 - Allows request managers to set custom bonds, liveness, and proposer whitelists
 - Enforces maximum bonds and minimum liveness set by admins
 - Requires whitelisted requesters and proposers 
