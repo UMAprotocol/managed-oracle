@@ -11,6 +11,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 abstract contract ManagedOptimisticOracleV2Interface {
     /// @notice Thrown when a requester is not on the requester whitelist.
     error RequesterNotWhitelisted();
+    /// @notice Thrown when a zero value bond is set.
+    error ZeroBondNotAllowed();
     /// @notice Thrown when a bond is set lower than the minimum allowed bond.
     error BondBelowMinimumBond();
     /// @notice Thrown when a bond is set higher than the maximum allowed bond.
