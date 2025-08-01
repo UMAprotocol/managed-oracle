@@ -22,8 +22,10 @@ REQUESTER_WHITELIST="0x1234567890123456789012345678901234567890"
 # CONFIG_ADMIN="0x1234567890123456789012345678901234567890"  # Optional, defaults to deployer
 # UPGRADE_ADMIN="0x1234567890123456789012345678901234567890"  # Optional, defaults to deployer
 # DEFAULT_LIVENESS="7200"  # Optional, defaults to 7200 (2 hours) if not provided
-# MINIMUM_LIVENESS="1800"  # Optional, defaults to 1800 (30 minutes) if not provided
-MAXIMUM_BONDS="0xA0b86a33E6441b8C4C8C0C8C0C8C0C8C0C8C0C8:1000000000000000000,0xB0b86a33E6441b8C4C8C0C8C0C8C0C8C0C8C0C8:2000000000000000000"
+# MINIMUM_LIVENESS="3600"  # Optional, defaults to 3600 (1 hour) if not provided
+# CUSTOM_CURRENCY="" # Optional, defaults to none or USDC.e on Polygon
+# MINIMUM_BOND_AMOUNT="100000000" # Optional, defaults to 100 USDC.e on Polygon
+# MAXIMUM_BOND_AMOUNT="100000000000" # Optional, defaults to 100,000 USDC.e on Polygon
 ```
 
 ## DisabledAddressWhitelist Deployment
@@ -80,8 +82,10 @@ The `DeployManagedOptimisticOracleV2.s.sol` script deploys the `ManagedOptimisti
 | `CONFIG_ADMIN` | No | Address of the config admin (defaults to deployer if not provided) |
 | `UPGRADE_ADMIN` | No | Address of the upgrade admin (defaults to deployer if not provided) |
 | `DEFAULT_LIVENESS` | No | Default liveness period in seconds (defaults to 7200 if not provided) |
-| `MINIMUM_LIVENESS` | No | Minimum liveness period in seconds (defaults to 1800 if not provided) |
-| `MAXIMUM_BONDS` | No | Comma-separated list of "currency_address:amount" pairs |
+| `MINIMUM_LIVENESS` | No | Minimum liveness period in seconds (defaults to 3600 if not provided) |
+| `CUSTOM_CURRENCY` | No | Address of the custom currency (defaults to none or USDC.e on Polygon) |
+| `MINIMUM_BOND_AMOUNT` | No | Minimum raw bond amount (defaults to 100 USDC.e on Polygon) |
+| `MAXIMUM_BOND_AMOUNT` | No | Maximum raw bond amount (defaults to 100,000 USDC.e on Polygon) |
 
 ### Default Finder Addresses
 
@@ -105,7 +109,6 @@ forge script script/DeployManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_UR
 - **Proxy deployment**: Deploys implementation and proxy using OZ Upgrades
 - **UUPS upgradeable**: Uses UUPS (Universal Upgradeable Proxy Standard) pattern
 - **Comprehensive initialization**: Sets all required parameters during deployment
-- **Maximum bonds parsing**: Supports multiple currency-amount pairs
 - **Detailed logging**: Provides comprehensive deployment information and status updates
 
 ### Etherscan Verification

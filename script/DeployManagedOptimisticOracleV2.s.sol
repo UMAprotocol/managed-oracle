@@ -26,40 +26,43 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * - UPGRADE_ADMIN: Optional. Address of the upgrade admin (defaults to deployer if not provided)
  * - DEFAULT_LIVENESS: Optional. Default liveness period in seconds (defaults to 7200 if not provided)
  * - MINIMUM_LIVENESS: Optional. Minimum liveness period in seconds (defaults to 1800 if not provided)
- * - MAXIMUM_BONDS: Optional. Comma-separated list of "currency_address:amount" pairs
+ * - CUSTOM_CURRENCY: Optional. Address of a custom currency bond range to initialize
+ * - MINIMUM_BOND_AMOUNT: Optional. Minimum bond amount for the custom currency (defaults to 0 if not provided)
+ * - MAXIMUM_BOND_AMOUNT: Optional. Maximum bond amount for the custom currency (defaults to 0 if not provided)
  */
 contract DeployManagedOptimisticOracleV2 is Script {
     function run() external {
-        // Get required environment variables
-        string memory mnemonic = vm.envString("MNEMONIC");
-        
+        uint256 deployerPrivateKey = _getDeployerPrivateKey();
+        address deployer = vm.addr(deployerPrivateKey);
+
         // Get Finder address with network-specific defaults
         address finderAddress = vm.envOr("FINDER_ADDRESS", address(0));
         if (finderAddress == address(0)) {
             finderAddress = _getDefaultFinderAddress();
         }
-        
+
         address defaultProposerWhitelist = vm.envAddress("DEFAULT_PROPOSER_WHITELIST");
         address requesterWhitelist = vm.envAddress("REQUESTER_WHITELIST");
-        
+
         uint256 defaultLiveness = vm.envOr("DEFAULT_LIVENESS", uint256(7200)); // Default to 2 hours (7200 seconds)
-        uint256 minimumLiveness = vm.envOr("MINIMUM_LIVENESS", uint256(1800)); // Default to 30 minutes (1800 seconds)
+        uint256 minimumLiveness = vm.envOr("MINIMUM_LIVENESS", uint256(3600)); // Default to 1 hour (3600 seconds)
 
-        // Parse maximum bonds from environment (optional for testing)
-        ManagedOptimisticOracleV2.MaximumBond[] memory maximumBonds;
-        try vm.envString("MAXIMUM_BONDS") returns (string memory maximumBondsStr) {
-            console.log("MAXIMUM_BONDS from env:", maximumBondsStr);
-            maximumBonds = _parseMaximumBonds(maximumBondsStr);
-            console.log("Parsed", maximumBonds.length, "bonds");
-        } catch {
-            // For testing, use empty array if MAXIMUM_BONDS is not set
-            console.log("MAXIMUM_BONDS not found in env, using empty array");
-            maximumBonds = new ManagedOptimisticOracleV2.MaximumBond[](0);
+        address customCurrency = vm.envAddress("CUSTOM_CURRENCY");
+        uint128 minimumBondAmount = uint128(vm.envOr("MINIMUM_BOND_AMOUNT", uint256(0)));
+        uint128 maximumBondAmount = uint128(vm.envOr("MAXIMUM_BOND_AMOUNT", uint256(0)));
+
+        ManagedOptimisticOracleV2.CurrencyBondRange[] memory currencyBondRanges;
+        if (customCurrency != address(0)) {
+            // If custom currency is provided, create a single bond range.
+            currencyBondRanges = new ManagedOptimisticOracleV2.CurrencyBondRange[](1);
+            currencyBondRanges[0] = ManagedOptimisticOracleV2.CurrencyBondRange({
+                currency: IERC20(customCurrency),
+                range: ManagedOptimisticOracleV2.BondRange({minimumBond: minimumBondAmount, maximumBond: maximumBondAmount})
+            });
+        } else {
+            // If no custom currency is provided, use default bond ranges based on the network.
+            currencyBondRanges = _getDefaultCurrencyBondRanges();
         }
-
-        // Derive the 0 index address from mnemonic
-        uint256 deployerPrivateKey = vm.deriveKey(mnemonic, 0);
-        address deployer = vm.addr(deployerPrivateKey);
 
         // Get admin addresses with deployer as default
         address configAdmin = vm.envOr("CONFIG_ADMIN", deployer);
@@ -77,23 +80,21 @@ contract DeployManagedOptimisticOracleV2 is Script {
         // Start broadcasting transactions with the derived private key
         vm.startBroadcast(deployerPrivateKey);
 
-        // Create initialization parameters
-        ManagedOptimisticOracleV2.InitializeParams memory params = ManagedOptimisticOracleV2.InitializeParams({
-            defaultLiveness: defaultLiveness,
-            finderAddress: finderAddress,
-            defaultProposerWhitelist: defaultProposerWhitelist,
-            requesterWhitelist: requesterWhitelist,
-            maximumBonds: maximumBonds,
-            minimumLiveness: minimumLiveness,
-            configAdmin: configAdmin,
-            upgradeAdmin: upgradeAdmin
-        });
-
         // Deploy implementation and proxy using OZ Upgrades
         ManagedOptimisticOracleV2 proxy = ManagedOptimisticOracleV2(
             Upgrades.deployUUPSProxy(
                 "ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2",
-                abi.encodeWithSelector(ManagedOptimisticOracleV2.initialize.selector, params)
+                abi.encodeWithSelector(
+                    ManagedOptimisticOracleV2.initialize.selector,
+                    defaultLiveness,
+                    finderAddress,
+                    defaultProposerWhitelist,
+                    requesterWhitelist,
+                    currencyBondRanges,
+                    minimumLiveness,
+                    configAdmin,
+                    upgradeAdmin
+                )
             )
         );
 
@@ -111,105 +112,23 @@ contract DeployManagedOptimisticOracleV2 is Script {
         console.log("Minimum Liveness:", minimumLiveness);
         console.log("Default Proposer Whitelist:", defaultProposerWhitelist);
         console.log("Requester Whitelist:", requesterWhitelist);
-        
-        console.log("\nMaximum Bonds:");
-        for (uint256 i = 0; i < maximumBonds.length; i++) {
-            console.log("  Currency:", address(maximumBonds[i].currency));
-            console.log("  Amount:", maximumBonds[i].amount);
+
+        console.log("\nBond ranges:");
+        for (uint256 i = 0; i < currencyBondRanges.length; i++) {
+            console.log("  Currency:", address(currencyBondRanges[i].currency));
+            console.log("  Minimum Bond Amount:", currencyBondRanges[i].range.minimumBond);
+            console.log("  Maximum Bond Amount:", currencyBondRanges[i].range.maximumBond);
         }
     }
 
     /**
-     * @notice Parses maximum bonds from a comma-separated string
-     * @param bondsStr String in format "currency1:amount1,currency2:amount2,..."
-     * @return maximumBonds Array of MaximumBond structs
+     * @notice Derives the deployer's private key from the mnemonic
+     * @return deployerPrivateKey The derived private key for the deployer
      */
-    function _parseMaximumBonds(string memory bondsStr) internal pure returns (ManagedOptimisticOracleV2.MaximumBond[] memory maximumBonds) {
-        // Handle empty string case
-        if (bytes(bondsStr).length == 0) {
-            return new ManagedOptimisticOracleV2.MaximumBond[](0);
-        }
-        
-        // Split the string and parse each bond
-        string[] memory bondStrings = _splitString(bondsStr, ",");
-        maximumBonds = new ManagedOptimisticOracleV2.MaximumBond[](bondStrings.length);
-        
-        for (uint256 i = 0; i < bondStrings.length; i++) {
-            string[] memory parts = _splitString(bondStrings[i], ":");
-            require(parts.length == 2, "Invalid bond format");
-            
-            address currency = vm.parseAddress(parts[0]);
-            uint256 amount = vm.parseUint(parts[1]);
-            
-            maximumBonds[i] = ManagedOptimisticOracleV2.MaximumBond({
-                currency: IERC20(currency),
-                amount: amount
-            });
-        }
-    }
-
-    /**
-     * @notice Splits a string by delimiter
-     * @param str String to split
-     * @param delimiter Delimiter to split by
-     * @return parts Array of substrings
-     */
-    function _splitString(string memory str, string memory delimiter) internal pure returns (string[] memory parts) {
-        // Count delimiters to determine array size
-        uint256 count = 0;
-        for (uint256 i = 0; i < bytes(str).length - bytes(delimiter).length + 1; i++) {
-            bool isMatch = true;
-            for (uint256 j = 0; j < bytes(delimiter).length; j++) {
-                if (bytes(str)[i + j] != bytes(delimiter)[j]) {
-                    isMatch = false;
-                    break;
-                }
-            }
-            if (isMatch) count++;
-        }
-        
-        parts = new string[](count + 1);
-        uint256 partIndex = 0;
-        uint256 startIndex = 0;
-        
-        for (uint256 i = 0; i < bytes(str).length - bytes(delimiter).length + 1; i++) {
-            bool isMatch = true;
-            for (uint256 j = 0; j < bytes(delimiter).length; j++) {
-                if (bytes(str)[i + j] != bytes(delimiter)[j]) {
-                    isMatch = false;
-                    break;
-                }
-            }
-            if (isMatch) {
-                parts[partIndex] = _substring(str, startIndex, i);
-                partIndex++;
-                startIndex = i + bytes(delimiter).length;
-                i += bytes(delimiter).length - 1;
-            }
-        }
-        
-        // Add the last part
-        parts[partIndex] = _substring(str, startIndex, bytes(str).length);
-    }
-
-    /**
-     * @notice Extracts a substring from a string
-     * @param str Original string
-     * @param startIndex Start index
-     * @param endIndex End index
-     * @return substring The extracted substring
-     */
-    function _substring(string memory str, uint256 startIndex, uint256 endIndex) internal pure returns (string memory substring) {
-        bytes memory strBytes = bytes(str);
-        require(endIndex <= strBytes.length, "End index out of bounds");
-        require(startIndex <= endIndex, "Start index greater than end index");
-        
-        bytes memory result = new bytes(endIndex - startIndex);
-        for (uint256 i = startIndex; i < endIndex; i++) {
-            result[i - startIndex] = strBytes[i];
-        }
-        
-        substring = string(result);
+    function _getDeployerPrivateKey() internal view returns (uint256) {
+        string memory mnemonic = vm.envString("MNEMONIC");
+        // Derive the 0 index address from mnemonic
+        return vm.deriveKey(mnemonic, 0);
     }
 
     /**
@@ -218,7 +137,7 @@ contract DeployManagedOptimisticOracleV2 is Script {
      */
     function _getDefaultFinderAddress() internal view returns (address finderAddress) {
         uint256 chainId = block.chainid;
-        
+
         if (chainId == 11155111) {
             // Sepolia
             return 0xf4C48eDAd256326086AEfbd1A53e1896815F8f13;
@@ -235,4 +154,26 @@ contract DeployManagedOptimisticOracleV2 is Script {
             revert("No default Finder address for this network. Please set FINDER_ADDRESS explicitly.");
         }
     }
-} 
+
+    function _getDefaultCurrencyBondRanges()
+        internal
+        view
+        returns (ManagedOptimisticOracleV2.CurrencyBondRange[] memory)
+    {
+        uint256 chainId = block.chainid;
+
+        if (chainId == 137) {
+            // Polygon default bond range
+            ManagedOptimisticOracleV2.CurrencyBondRange[] memory currencyBondRanges =
+                new ManagedOptimisticOracleV2.CurrencyBondRange[](1);
+            currencyBondRanges[0] = ManagedOptimisticOracleV2.CurrencyBondRange({
+                currency: IERC20(0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174), // USDC.e on Polygon
+                range: ManagedOptimisticOracleV2.BondRange({minimumBond: 100 * 10e6, maximumBond: 100_000 * 10e6}) // 100 to 100,000 USDC.e
+            });
+            return currencyBondRanges;
+        }
+
+        // Returns empty array for other networks
+        return new ManagedOptimisticOracleV2.CurrencyBondRange[](0);
+    }
+}
