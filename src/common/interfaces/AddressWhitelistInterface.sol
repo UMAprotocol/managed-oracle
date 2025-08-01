@@ -12,4 +12,6 @@ interface AddressWhitelistInterface {
     function isOnWhitelist(address newElement) external view returns (bool);
 
     function getWhitelist() external view returns (address[] memory);
+
+    function isWhitelistEnabled() external view returns (bool);
 }
