@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Ported from https://github.com/UMAprotocol/protocol/blob/%40uma/core%402.62.0/packages/core/contracts/data-verification-mechanism/interfaces/StoreInterface.sol
+// to use FixedPointInterface.Unsigned as the FixedPoint library is not compatible with OpenZeppelin v5.x. This also
+// uses named imports.
+
 pragma solidity ^0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
