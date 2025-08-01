@@ -6,6 +6,7 @@ import {AddressWhitelistInterface} from "../interfaces/AddressWhitelistInterface
 /**
  * @notice This contract is an implementation of AddressWhitelistInterface where the whitelist is permanently disabled.
  * @dev All addresses are considered to be on this whitelist.
+ * @custom:security-contact bugs@umaproject.org
  */
 contract DisabledAddressWhitelist is AddressWhitelistInterface {
     function addToWhitelist(address) external pure {

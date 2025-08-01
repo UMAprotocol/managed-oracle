@@ -7,6 +7,7 @@ import {Lockable} from "@uma/contracts/common/implementation/Lockable.sol";
 
 /**
  * @title A contract to track a whitelist of addresses.
+ * @custom:security-contact bugs@umaproject.org
  */
 contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable {
     enum Status {

@@ -64,6 +64,7 @@ interface OptimisticRequester {
 /**
  * @title Optimistic Oracle.
  * @notice Pre-DVM escalation contract that allows faster settlement.
+ * @custom:security-contact bugs@umaproject.org
  */
 contract OptimisticOracleV2 is
     OptimisticOracleV2Interface,
