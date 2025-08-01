@@ -168,7 +168,7 @@ contract DeployManagedOptimisticOracleV2 is Script {
                 new ManagedOptimisticOracleV2.CurrencyBondRange[](1);
             currencyBondRanges[0] = ManagedOptimisticOracleV2.CurrencyBondRange({
                 currency: IERC20(0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174), // USDC.e on Polygon
-                range: ManagedOptimisticOracleV2.BondRange({minimumBond: 100 * 10**6, maximumBond: 100_000 * 10**6}) // 100 to 100,000 USDC.e
+                range: ManagedOptimisticOracleV2.BondRange({minimumBond: 100 * 10 ** 6, maximumBond: 100_000 * 10 ** 6}) // 100 to 100,000 USDC.e
             });
             return currencyBondRanges;
         }

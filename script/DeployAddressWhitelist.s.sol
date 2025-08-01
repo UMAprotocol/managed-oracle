@@ -62,4 +62,4 @@ contract DeployAddressWhitelist is Script {
         console.log("Deployer:", deployer);
         console.log("Final Owner:", whitelist.owner());
     }
-} 
+}
