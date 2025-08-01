@@ -102,6 +102,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     // Admin controlled ranges limiting the changes that can be made by request managers.
     mapping(IERC20 => BondRange) public allowedBondRanges;
 
+    // Admin controlled minimum liveness that can be set by request managers.
     uint256 public minimumLiveness;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
