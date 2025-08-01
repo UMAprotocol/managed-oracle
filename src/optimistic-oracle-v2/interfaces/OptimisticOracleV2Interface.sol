@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Ported from https://github.com/UMAprotocol/protocol/blob/%40uma/core%402.62.0/packages/core/contracts/optimistic-oracle-v2/interfaces/OptimisticOracleV2Interface.sol
-// to be compatible for use in upgradeable contracts and OpenZeppelin v5.x. This also uses named imports and linting
-// from Foundry.
+// to be compatible for use in upgradeable contracts and OpenZeppelin v5.x. This also uses custom errors, named imports
+// and linting from Foundry.
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {FinderInterface} from "@uma/contracts/data-verification-mechanism/interfaces/FinderInterface.sol";
