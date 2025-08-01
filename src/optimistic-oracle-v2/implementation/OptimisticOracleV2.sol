@@ -16,7 +16,8 @@ import {OracleAncillaryInterface} from
     "@uma/contracts/data-verification-mechanism/interfaces/OracleAncillaryInterface.sol";
 import {OracleInterfaces} from "@uma/contracts/data-verification-mechanism/implementation/Constants.sol";
 
-import {OptimisticOracleV2Interface} from "../interfaces/OptimisticOracleV2Interface.sol";
+import {OptimisticOracleV2Interface} from
+    "@uma/contracts/optimistic-oracle-v2/interfaces/OptimisticOracleV2Interface.sol";
 
 import {AddressLegacy} from "../../common/implementation/AddressLegacy.sol";
 import {AddressWhitelist} from "../../common/implementation/AddressWhitelist.sol";
