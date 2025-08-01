@@ -25,10 +25,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * - CONFIG_ADMIN: Optional. Address of the config admin (defaults to deployer if not provided)
  * - UPGRADE_ADMIN: Optional. Address of the upgrade admin (defaults to deployer if not provided)
  * - DEFAULT_LIVENESS: Optional. Default liveness period in seconds (defaults to 7200 if not provided)
- * - MINIMUM_LIVENESS: Optional. Minimum liveness period in seconds (defaults to 1800 if not provided)
+ * - MINIMUM_LIVENESS: Optional. Minimum liveness period in seconds (defaults to 3600 if not provided)
  * - CUSTOM_CURRENCY: Optional. Address of a custom currency bond range to initialize
- * - MINIMUM_BOND_AMOUNT: Optional. Minimum bond amount for the custom currency (defaults to 0 if not provided)
- * - MAXIMUM_BOND_AMOUNT: Optional. Maximum bond amount for the custom currency (defaults to 0 if not provided)
+ * - MINIMUM_BOND_AMOUNT: Optional. Minimum bond amount for the custom currency
+ * - MAXIMUM_BOND_AMOUNT: Optional. Maximum bond amount for the custom currency
  */
 contract DeployManagedOptimisticOracleV2 is Script {
     function run() external {
@@ -47,7 +47,7 @@ contract DeployManagedOptimisticOracleV2 is Script {
         uint256 defaultLiveness = vm.envOr("DEFAULT_LIVENESS", uint256(7200)); // Default to 2 hours (7200 seconds)
         uint256 minimumLiveness = vm.envOr("MINIMUM_LIVENESS", uint256(3600)); // Default to 1 hour (3600 seconds)
 
-        address customCurrency = vm.envAddress("CUSTOM_CURRENCY");
+        address customCurrency = vm.envOr("CUSTOM_CURRENCY", address(0));
         uint128 minimumBondAmount = uint128(vm.envOr("MINIMUM_BOND_AMOUNT", uint256(0)));
         uint128 maximumBondAmount = uint128(vm.envOr("MAXIMUM_BOND_AMOUNT", uint256(0)));
 
@@ -168,7 +168,7 @@ contract DeployManagedOptimisticOracleV2 is Script {
                 new ManagedOptimisticOracleV2.CurrencyBondRange[](1);
             currencyBondRanges[0] = ManagedOptimisticOracleV2.CurrencyBondRange({
                 currency: IERC20(0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174), // USDC.e on Polygon
-                range: ManagedOptimisticOracleV2.BondRange({minimumBond: 100 * 10e6, maximumBond: 100_000 * 10e6}) // 100 to 100,000 USDC.e
+                range: ManagedOptimisticOracleV2.BondRange({minimumBond: 100 * 10**6, maximumBond: 100_000 * 10**6}) // 100 to 100,000 USDC.e
             });
             return currencyBondRanges;
         }

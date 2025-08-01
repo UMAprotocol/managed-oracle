@@ -83,9 +83,9 @@ The `DeployManagedOptimisticOracleV2.s.sol` script deploys the `ManagedOptimisti
 | `UPGRADE_ADMIN` | No | Address of the upgrade admin (defaults to deployer if not provided) |
 | `DEFAULT_LIVENESS` | No | Default liveness period in seconds (defaults to 7200 if not provided) |
 | `MINIMUM_LIVENESS` | No | Minimum liveness period in seconds (defaults to 3600 if not provided) |
-| `CUSTOM_CURRENCY` | No | Address of the custom currency (defaults to none or USDC.e on Polygon) |
-| `MINIMUM_BOND_AMOUNT` | No | Minimum raw bond amount (defaults to 100 USDC.e on Polygon) |
-| `MAXIMUM_BOND_AMOUNT` | No | Maximum raw bond amount (defaults to 100,000 USDC.e on Polygon) |
+| `CUSTOM_CURRENCY` | No | Address of a custom currency bond range to initialize (defaults to none or USDC.e on Polygon) |
+| `MINIMUM_BOND_AMOUNT` | No | Minimum bond amount for the custom currency (defaults to none or 100 USDC.e on Polygon) |
+| `MAXIMUM_BOND_AMOUNT` | No | Maximum bond amount for the custom currency (defaults to none or 100,000 USDC.e on Polygon) |
 
 ### Default Finder Addresses
 
