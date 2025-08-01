@@ -67,7 +67,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     struct InitializeParams {
         uint256 defaultLiveness; // default liveness applied to each price request.
         address finderAddress; // finder to use to get addresses of DVM contracts.
-        address timerAddress; // address of the timer contract. Should be 0x0 in prod.
         address defaultProposerWhitelist; // address of the default whitelist.
         address requesterWhitelist; // address of the requester whitelist.
         MaximumBond[] maximumBonds; // array of maximum bonds for different currencies.
@@ -110,9 +109,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @dev Struct parameter is used to overcome the stack too deep limitations in Solidity.
      */
     function initialize(InitializeParams calldata params) external initializer {
-        __OptimisticOracleV2_init(
-            params.defaultLiveness, params.finderAddress, params.timerAddress, params.upgradeAdmin
-        );
+        __OptimisticOracleV2_init(params.defaultLiveness, params.finderAddress, params.upgradeAdmin);
 
         // Config admin is managing the request manager role.
         // Contract upgrade admin retains the default admin role that can also manage the config admin role.

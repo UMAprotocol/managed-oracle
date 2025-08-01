@@ -8,10 +8,13 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
  * is inspired by https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/ReentrancyGuard.sol
  * and https://github.com/balancer-labs/balancer-core/blob/master/contracts/BPool.sol.
  */
-abstract contract Lockable is Initializable {
+abstract contract LockableUpgradeable is Initializable {
     bool private _notEntered;
 
-    function __Lockable_init() internal onlyInitializing {
+    /**
+     * @notice initializes the LockableUpgradeable contract
+     */
+    function __LockableUpgradeable_init() internal onlyInitializing {
         // Storing an initial non-zero value makes deployment a bit more expensive, but in exchange the refund on every
         // call to nonReentrant will be lower in amount. Since refunds are capped to a percentage of the total
         // transaction's gas, it is best to keep them low in cases like this one, to increase the likelihood of the full
