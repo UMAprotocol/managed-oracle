@@ -15,9 +15,14 @@ import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
  * @custom:security-contact bugs@umaproject.org
  */
 contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, OptimisticOracleV2, MultiCaller {
-    struct MaximumBond {
+    struct BondRange {
+        uint128 minimumBond;
+        uint128 maximumBond;
+    }
+
+    struct CurrencyBondRange {
         IERC20 currency;
-        uint256 amount;
+        BondRange range;
     }
 
     struct CustomBond {
@@ -28,17 +33,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     struct CustomLiveness {
         uint256 liveness;
         bool isSet;
-    }
-
-    struct InitializeParams {
-        uint256 defaultLiveness; // default liveness applied to each price request.
-        address finderAddress; // finder to use to get addresses of DVM contracts.
-        address defaultProposerWhitelist; // address of the default whitelist.
-        address requesterWhitelist; // address of the requester whitelist.
-        MaximumBond[] maximumBonds; // array of maximum bonds for different currencies.
-        uint256 minimumLiveness; // minimum liveness that can be overridden for a request.
-        address configAdmin; // config admin, which is used for managing request managers and contract parameters.
-        address upgradeAdmin; // contract upgrade admin, which also can manage the config admin role.
     }
 
     // Config admin role is used to manage request managers and set other default parameters.
@@ -60,8 +54,10 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Custom proposer whitelists set by request managers for specific requests.
     mapping(bytes32 => AddressWhitelistInterface) public customProposerWhitelists;
 
-    // Admin controlled bounds limiting the changes that can be made by request managers.
-    mapping(IERC20 => uint256) public maximumBonds; // Maximum bonds for a given currency.
+    // Admin controlled ranges limiting the changes that can be made by request managers.
+    mapping(IERC20 => BondRange) public allowedBondRanges;
+
+    // Admin controlled minimum liveness that can be set by request managers.
     uint256 public minimumLiveness;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -71,23 +67,38 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Initializer.
-     * @param params Initialization parameters, see InitializeParams struct for details.
-     * @dev Struct parameter is used to overcome the stack too deep limitations in Solidity.
+     * @param _defaultLiveness applied to each price request.
+     * @param _finderAddress to use to get addresses of DVM contracts.
+     * @param _defaultProposerWhitelist address of the default whitelist.
+     * @param _requesterWhitelist address of the requester whitelist.
+     * @param _allowedBondRanges array of allowed bond ranges for different currencies.
+     * @param _minimumLiveness that can be overridden for a request.
+     * @param configAdmin address, which is used for managing request managers and contract parameters.
+     * @param upgradeAdmin address, which also can manage the config admin role.
      */
-    function initialize(InitializeParams calldata params) external initializer {
-        __OptimisticOracleV2_init(params.defaultLiveness, params.finderAddress, params.upgradeAdmin);
+    function initialize(
+        uint256 _defaultLiveness,
+        address _finderAddress,
+        address _defaultProposerWhitelist,
+        address _requesterWhitelist,
+        CurrencyBondRange[] calldata _allowedBondRanges,
+        uint256 _minimumLiveness,
+        address configAdmin,
+        address upgradeAdmin
+    ) external initializer {
+        __OptimisticOracleV2_init(_defaultLiveness, _finderAddress, upgradeAdmin);
 
         // Config admin is managing the request manager role.
         // Contract upgrade admin retains the default admin role that can also manage the config admin role.
-        _grantRole(CONFIG_ADMIN_ROLE, params.configAdmin);
+        _grantRole(CONFIG_ADMIN_ROLE, configAdmin);
         _setRoleAdmin(REQUEST_MANAGER_ROLE, CONFIG_ADMIN_ROLE);
 
-        _setDefaultProposerWhitelist(params.defaultProposerWhitelist);
-        _setRequesterWhitelist(params.requesterWhitelist);
-        for (uint256 i = 0; i < params.maximumBonds.length; i++) {
-            _setMaximumBond(params.maximumBonds[i].currency, params.maximumBonds[i].amount);
+        _setDefaultProposerWhitelist(_defaultProposerWhitelist);
+        _setRequesterWhitelist(_requesterWhitelist);
+        for (uint256 i = 0; i < _allowedBondRanges.length; i++) {
+            _setAllowedBondRange(_allowedBondRanges[i].currency, _allowedBondRanges[i].range);
         }
-        _setMinimumLiveness(params.minimumLiveness);
+        _setMinimumLiveness(_minimumLiveness);
     }
 
     /**
@@ -127,13 +138,13 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
-     * @notice Sets the maximum bond that can be set for a request.
+     * @notice Sets the bounds for a bond that can be set for a request.
      * @dev This can be used to limit the bond amount that can be set by request managers, callable by the config admin.
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
-     * @param maximumBond new maximum bond amount.
+     * @param newRange new allowed range for the bond.
      */
-    function setMaximumBond(IERC20 currency, uint256 maximumBond) external nonReentrant onlyConfigAdmin {
-        _setMaximumBond(currency, maximumBond);
+    function setAllowedBondRange(IERC20 currency, BondRange calldata newRange) external nonReentrant onlyConfigAdmin {
+        _setAllowedBondRange(currency, newRange);
     }
 
     /**
@@ -344,15 +355,16 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
-     * @notice Sets the maximum bond that can be set for a request.
+     * @notice Sets the bounds for a bond that can be set for a request.
      * @dev This can be used to limit the bond amount that can be set by request managers.
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
-     * @param maximumBond new maximum bond amount for the given currency.
+     * @param newRange new allowed range for the bond.
      */
-    function _setMaximumBond(IERC20 currency, uint256 maximumBond) internal {
+    function _setAllowedBondRange(IERC20 currency, BondRange calldata newRange) internal {
         require(_getCollateralWhitelist().isOnWhitelist(address(currency)), UnsupportedCurrency());
-        maximumBonds[currency] = maximumBond;
-        emit MaximumBondUpdated(currency, maximumBond);
+        require(newRange.minimumBond <= newRange.maximumBond, MinimumBondAboveMaximumBond());
+        allowedBondRanges[currency] = newRange;
+        emit AllowedBondRangeUpdated(currency, newRange.minimumBond, newRange.maximumBond);
     }
 
     /**
@@ -405,7 +417,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param bond the bond amount to validate.
      */
     function _validateBond(IERC20 currency, uint256 bond) internal view {
-        require(bond <= maximumBonds[currency], BondExceedsMaximumBond());
+        BondRange memory allowedRange = allowedBondRanges[currency];
+        require(bond >= uint256(allowedRange.minimumBond), BondBelowMinimumBond());
+        require(bond <= uint256(allowedRange.maximumBond), BondExceedsMaximumBond());
     }
 
     /**
