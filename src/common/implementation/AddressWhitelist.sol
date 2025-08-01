@@ -9,6 +9,7 @@ import {Lockable} from "@uma/contracts/common/implementation/Lockable.sol";
 
 /**
  * @title A contract to track a whitelist of addresses.
+ * @custom:security-contact bugs@umaproject.org
  */
 contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable, ERC165 {
     enum Status {
@@ -97,6 +98,15 @@ contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable, ERC16
                 activeCount++;
             }
         }
+    }
+
+    /**
+     * @notice Checks if the whitelist is enabled.
+     * @dev For this implementation, the whitelist is always considered enabled.
+     * @return enabled Always returns true.
+     */
+    function isWhitelistEnabled() external pure returns (bool enabled) {
+        return true;
     }
 
     /**

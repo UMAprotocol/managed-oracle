@@ -3,27 +3,26 @@ pragma solidity ^0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AddressLegacy} from "../../common/implementation/AddressLegacy.sol";
 
 import {AccessControlDefaultAdminRulesUpgradeable} from
     "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlDefaultAdminRulesUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import {StoreInterface} from "../../data-verification-mechanism/interfaces/StoreInterface.sol";
-import {OracleAncillaryInterface} from
-    "@uma/contracts/data-verification-mechanism/interfaces/OracleAncillaryInterface.sol";
+import {AncillaryData} from "@uma/contracts/common/implementation/AncillaryData.sol";
 import {FinderInterface} from "@uma/contracts/data-verification-mechanism/interfaces/FinderInterface.sol";
 import {IdentifierWhitelistInterface} from
     "@uma/contracts/data-verification-mechanism/interfaces/IdentifierWhitelistInterface.sol";
+import {OracleAncillaryInterface} from
+    "@uma/contracts/data-verification-mechanism/interfaces/OracleAncillaryInterface.sol";
 import {OracleInterfaces} from "@uma/contracts/data-verification-mechanism/implementation/Constants.sol";
 
 import {OptimisticOracleV2Interface} from "../interfaces/OptimisticOracleV2Interface.sol";
 
-import {Testable} from "../../common/implementation/Testable.sol";
-import {Lockable} from "../../common/implementation/Lockable.sol";
-import {FixedPoint} from "../../common/implementation/FixedPoint.sol";
-import {AncillaryData} from "@uma/contracts/common/implementation/AncillaryData.sol";
+import {AddressLegacy} from "../../common/implementation/AddressLegacy.sol";
 import {AddressWhitelist} from "../../common/implementation/AddressWhitelist.sol";
+import {FixedPoint} from "../../common/implementation/FixedPoint.sol";
+import {LockableUpgradeable} from "../../common/implementation/LockableUpgradeable.sol";
+import {StoreInterface} from "../../data-verification-mechanism/interfaces/StoreInterface.sol";
 
 /**
  * @title Optimistic Requester.
@@ -64,13 +63,13 @@ interface OptimisticRequester {
 /**
  * @title Optimistic Oracle.
  * @notice Pre-DVM escalation contract that allows faster settlement.
+ * @custom:security-contact bugs@umaproject.org
  */
 contract OptimisticOracleV2 is
     OptimisticOracleV2Interface,
     UUPSUpgradeable,
     AccessControlDefaultAdminRulesUpgradeable,
-    Testable,
-    Lockable
+    LockableUpgradeable
 {
     using SafeERC20 for IERC20;
     using AddressLegacy for address;
@@ -98,31 +97,23 @@ contract OptimisticOracleV2 is
      * @dev Used only for standalone deployments of the OptimisticOracleV2Upgradeable contract.
      * @param _liveness default liveness applied to each price request.
      * @param _finderAddress finder to use to get addresses of DVM contracts.
-     * @param _timerAddress address of the timer contract. Should be 0x0 in prod.
      */
-    function initialize(uint256 _liveness, address _finderAddress, address _timerAddress, address upgradeAdmin)
-        external
-        initializer
-    {
-        __OptimisticOracleV2_init(_liveness, _finderAddress, _timerAddress, upgradeAdmin);
+    function initialize(uint256 _liveness, address _finderAddress, address upgradeAdmin) external initializer {
+        __OptimisticOracleV2_init(_liveness, _finderAddress, upgradeAdmin);
     }
 
     /**
      * @notice Initializer (internal, main entry point).
      * @param _liveness default liveness applied to each price request.
      * @param _finderAddress finder to use to get addresses of DVM contracts.
-     * @param _timerAddress address of the timer contract. Should be 0x0 in prod.
      */
-    function __OptimisticOracleV2_init(
-        uint256 _liveness,
-        address _finderAddress,
-        address _timerAddress,
-        address upgradeAdmin
-    ) internal onlyInitializing {
+    function __OptimisticOracleV2_init(uint256 _liveness, address _finderAddress, address upgradeAdmin)
+        internal
+        onlyInitializing
+    {
         __UUPSUpgradeable_init();
         __AccessControlDefaultAdminRules_init(3 days, upgradeAdmin); // Initialize `DEFAULT_ADMIN_ROLE`, and by extension, `UPGRADE_ADMIN_ROLE`
-        __Testable_init(_timerAddress);
-        __Lockable_init();
+        __LockableUpgradeable_init();
         __OptimisticOracleV2_init_unchained(_liveness, _finderAddress);
     }
 
@@ -759,8 +750,8 @@ contract OptimisticOracleV2 is
         return AncillaryData.appendKeyValueAddress(ancillaryData, "ooRequester", requester);
     }
 
-    function getCurrentTime() public view override(Testable, OptimisticOracleV2Interface) returns (uint256) {
-        return Testable.getCurrentTime();
+    function getCurrentTime() public view override returns (uint256) {
+        return block.timestamp;
     }
 
     /**
