@@ -356,7 +356,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Sets the bounds for a bond that can be set for a request.
-     * @dev This can be used to limit the bond amount that can be set by request managers.
+     * @dev This can be used to limit the bond amount that can be set by request managers. Setting the minimum and
+     * maximum both to 0 effectively blocks the request manager from overriding the bond for a given currency.
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param newRange new allowed range for the bond.
      */
@@ -412,11 +413,13 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Validates the bond amount.
-     * @dev Reverts if the bond exceeds the maximum bond amount (controllable by the config admin).
+     * @dev Reverts if the bond is outside the allowed bond range (controllable by the config admin) or it is 0 (which
+     * makes sure the allowed bond range was explicitly set).
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param bond the bond amount to validate.
      */
     function _validateBond(IERC20 currency, uint256 bond) internal view {
+        require(bond != 0, ZeroBondNotAllowed());
         BondRange memory allowedRange = allowedBondRanges[currency];
         require(bond >= uint256(allowedRange.minimumBond), BondBelowMinimumBond());
         require(bond <= uint256(allowedRange.maximumBond), BondExceedsMaximumBond());
