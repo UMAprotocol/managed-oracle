@@ -19,6 +19,8 @@ abstract contract ManagedOptimisticOracleV2Interface {
     error ProposerNotWhitelisted();
     /// @notice Thrown when the message sender is not on the effective proposer whitelist for a proposal.
     error SenderNotWhitelisted();
+    /// @notice Thrown when a whitelist does not support the required interface.
+    error UnsupportedWhitelistInterface();
 
     event RequestManagerAdded(address indexed requestManager);
     event RequestManagerRemoved(address indexed requestManager);

@@ -394,7 +394,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     function _validateWhitelistInterface(address whitelist) internal view {
         require(
             ERC165Checker.supportsInterface(whitelist, type(AddressWhitelistInterface).interfaceId),
-            "Unsupported whitelist interface"
+            UnsupportedWhitelistInterface()
         );
     }
 
