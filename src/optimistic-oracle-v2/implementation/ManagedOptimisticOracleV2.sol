@@ -70,17 +70,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
         bool isSet;
     }
 
-    struct InitializeParams {
-        uint256 defaultLiveness; // default liveness applied to each price request.
-        address finderAddress; // finder to use to get addresses of DVM contracts.
-        address defaultProposerWhitelist; // address of the default whitelist.
-        address requesterWhitelist; // address of the requester whitelist.
-        CurrencyBondRange[] bondRanges; // array of allowed bond ranges for different currencies.
-        uint256 minimumLiveness; // minimum liveness that can be overridden for a request.
-        address configAdmin; // config admin, which is used for managing request managers and contract parameters.
-        address upgradeAdmin; // contract upgrade admin, which also can manage the config admin role.
-    }
-
     // Config admin role is used to manage request managers and set other default parameters.
     bytes32 public constant CONFIG_ADMIN_ROLE = keccak256("CONFIG_ADMIN_ROLE");
 
@@ -113,23 +102,38 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
 
     /**
      * @notice Initializer.
-     * @param params Initialization parameters, see InitializeParams struct for details.
-     * @dev Struct parameter is used to overcome the stack too deep limitations in Solidity.
+     * @param _defaultLiveness applied to each price request.
+     * @param _finderAddress to use to get addresses of DVM contracts.
+     * @param _defaultProposerWhitelist address of the default whitelist.
+     * @param _requesterWhitelist address of the requester whitelist.
+     * @param _allowedBondRanges array of allowed bond ranges for different currencies.
+     * @param _minimumLiveness that can be overridden for a request.
+     * @param configAdmin address, which is used for managing request managers and contract parameters.
+     * @param upgradeAdmin address, which also can manage the config admin role.
      */
-    function initialize(InitializeParams calldata params) external initializer {
-        __OptimisticOracleV2_init(params.defaultLiveness, params.finderAddress, params.upgradeAdmin);
+    function initialize(
+        uint256 _defaultLiveness,
+        address _finderAddress,
+        address _defaultProposerWhitelist,
+        address _requesterWhitelist,
+        CurrencyBondRange[] calldata _allowedBondRanges,
+        uint256 _minimumLiveness,
+        address configAdmin,
+        address upgradeAdmin
+    ) external initializer {
+        __OptimisticOracleV2_init(_defaultLiveness, _finderAddress, upgradeAdmin);
 
         // Config admin is managing the request manager role.
         // Contract upgrade admin retains the default admin role that can also manage the config admin role.
-        _grantRole(CONFIG_ADMIN_ROLE, params.configAdmin);
+        _grantRole(CONFIG_ADMIN_ROLE, configAdmin);
         _setRoleAdmin(REQUEST_MANAGER_ROLE, CONFIG_ADMIN_ROLE);
 
-        _setDefaultProposerWhitelist(params.defaultProposerWhitelist);
-        _setRequesterWhitelist(params.requesterWhitelist);
-        for (uint256 i = 0; i < params.bondRanges.length; i++) {
-            _setAllowedBondRange(params.bondRanges[i].currency, params.bondRanges[i].range);
+        _setDefaultProposerWhitelist(_defaultProposerWhitelist);
+        _setRequesterWhitelist(_requesterWhitelist);
+        for (uint256 i = 0; i < _allowedBondRanges.length; i++) {
+            _setAllowedBondRange(_allowedBondRanges[i].currency, _allowedBondRanges[i].range);
         }
-        _setMinimumLiveness(params.minimumLiveness);
+        _setMinimumLiveness(_minimumLiveness);
     }
 
     /**
