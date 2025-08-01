@@ -15,6 +15,9 @@ vi .env
 # Common variables (used by all scripts)
 MNEMONIC="your mnemonic phrase here"
 
+# AddressWhitelist-specific variables
+# WHITELIST_OWNER="0x1234567890123456789012345678901234567890"  # Optional, defaults to deployer
+
 # ManagedOptimisticOracleV2-specific variables
 FINDER_ADDRESS="0x1234567890123456789012345678901234567890"
 DEFAULT_PROPOSER_WHITELIST="0x1234567890123456789012345678901234567890"
@@ -27,6 +30,56 @@ REQUESTER_WHITELIST="0x1234567890123456789012345678901234567890"
 # MINIMUM_BOND_AMOUNT="100000000" # Optional, defaults to 100 USDC.e on Polygon
 # MAXIMUM_BOND_AMOUNT="100000000000" # Optional, defaults to 100,000 USDC.e on Polygon
 ```
+
+## AddressWhitelist Deployment
+
+The `DeployAddressWhitelist.s.sol` script deploys the `AddressWhitelist` contract with configurable ownership.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MNEMONIC` | Yes | The mnemonic phrase for the deployer wallet (uses 0 index address) |
+| `WHITELIST_OWNER` | No | The address to set as owner. If not set, uses deployer address. If set to 0x0000000000000000000000000000000000000000, burns ownership. |
+
+### Usage Examples
+
+```bash
+# Deploy with deployer as owner (WHITELIST_OWNER not set)
+forge script script/DeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Deploy and burn ownership to zero address
+WHITELIST_OWNER=0x0000000000000000000000000000000000000000 forge script script/DeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Deploy and transfer ownership to specific address
+WHITELIST_OWNER=0x1234567890123456789012345678901234567890 forge script script/DeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+```
+
+### Features
+
+- **Configurable ownership**: Supports setting custom owner or burning ownership
+- **Automatic deployment**: Deploys the `AddressWhitelist` contract
+- **Detailed logging**: Provides comprehensive deployment information and status updates
+
+### Etherscan Verification
+
+After deployment, verify the contract on Etherscan:
+
+```bash
+forge verify-contract <CONTRACT_ADDRESS> src/common/implementation/AddressWhitelist.sol:AddressWhitelist --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+```
+
+**Replace:**
+- `<CONTRACT_ADDRESS>` with the deployed contract address
+- `<CHAIN_ID>` with the network chain ID (1 for Ethereum mainnet, 11155111 for Sepolia, etc.)
+- `<YOUR_ETHERSCAN_API_KEY>` with your Etherscan API key
+
+### Contract Details
+
+The `AddressWhitelist` contract:
+- Inherits from `AddressWhitelistInterface`, `Ownable`, `Lockable`, and `ERC165`
+- Supports adding/removing addresses from whitelist
+- Includes ownership management capabilities
 
 ## DisabledAddressWhitelist Deployment
 
