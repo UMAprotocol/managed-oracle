@@ -281,10 +281,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     ) external nonReentrant onlyRequestManager {
         // Zero address is allowed to disable the custom proposer whitelist.
         if (whitelist != address(0)) {
-            require(
-                ERC165Checker.supportsInterface(whitelist, type(AddressWhitelistInterface).interfaceId),
-                "Unsupported whitelist interface"
-            );
+            _validateWhitelistInterface(whitelist);
         }
         bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         customProposerWhitelists[managedRequestId] = AddressWhitelistInterface(whitelist);
@@ -409,10 +406,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @param whitelist address of the whitelist to set.
      */
     function _setDefaultProposerWhitelist(address whitelist) internal {
-        require(
-            ERC165Checker.supportsInterface(whitelist, type(AddressWhitelistInterface).interfaceId),
-            "Unsupported whitelist interface"
-        );
+        _validateWhitelistInterface(whitelist);
         defaultProposerWhitelist = AddressWhitelistInterface(whitelist);
         emit DefaultProposerWhitelistUpdated(whitelist);
     }
@@ -422,12 +416,21 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @param whitelist address of the whitelist to set.
      */
     function _setRequesterWhitelist(address whitelist) internal {
+        _validateWhitelistInterface(whitelist);
+        requesterWhitelist = AddressWhitelistInterface(whitelist);
+        emit RequesterWhitelistUpdated(whitelist);
+    }
+
+    /**
+     * @notice Validates that the given address implements the AddressWhitelistInterface.
+     * @dev Reverts if the address does not implement the interface.
+     * @param whitelist address of the whitelist to validate.
+     */
+    function _validateWhitelistInterface(address whitelist) internal view {
         require(
             ERC165Checker.supportsInterface(whitelist, type(AddressWhitelistInterface).interfaceId),
             "Unsupported whitelist interface"
         );
-        requesterWhitelist = AddressWhitelistInterface(whitelist);
-        emit RequesterWhitelistUpdated(whitelist);
     }
 
     /**
