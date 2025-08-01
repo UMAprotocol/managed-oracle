@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
@@ -278,6 +279,10 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
         bytes memory ancillaryData,
         address whitelist
     ) external nonReentrant onlyRequestManager {
+        // Zero address is allowed to disable the custom proposer whitelist.
+        if (whitelist != address(0)) {
+            _validateWhitelistInterface(whitelist);
+        }
         bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         customProposerWhitelists[managedRequestId] = AddressWhitelistInterface(whitelist);
         emit CustomProposerWhitelistSet(managedRequestId, requester, identifier, ancillaryData, whitelist);
@@ -401,7 +406,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @param whitelist address of the whitelist to set.
      */
     function _setDefaultProposerWhitelist(address whitelist) internal {
-        require(whitelist != address(0), "Whitelist cannot be zero address");
+        _validateWhitelistInterface(whitelist);
         defaultProposerWhitelist = AddressWhitelistInterface(whitelist);
         emit DefaultProposerWhitelistUpdated(whitelist);
     }
@@ -411,9 +416,21 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @param whitelist address of the whitelist to set.
      */
     function _setRequesterWhitelist(address whitelist) internal {
-        require(whitelist != address(0), "Whitelist cannot be zero address");
+        _validateWhitelistInterface(whitelist);
         requesterWhitelist = AddressWhitelistInterface(whitelist);
         emit RequesterWhitelistUpdated(whitelist);
+    }
+
+    /**
+     * @notice Validates that the given address implements the AddressWhitelistInterface.
+     * @dev Reverts if the address does not implement the interface.
+     * @param whitelist address of the whitelist to validate.
+     */
+    function _validateWhitelistInterface(address whitelist) internal view {
+        require(
+            ERC165Checker.supportsInterface(whitelist, type(AddressWhitelistInterface).interfaceId),
+            "Unsupported whitelist interface"
+        );
     }
 
     /**
