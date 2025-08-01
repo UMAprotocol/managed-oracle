@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
 
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {AddressWhitelistInterface} from "../interfaces/AddressWhitelistInterface.sol";
@@ -10,12 +10,15 @@ import {AddressWhitelistInterface} from "../interfaces/AddressWhitelistInterface
  * @custom:security-contact bugs@umaproject.org
  */
 contract DisabledAddressWhitelist is AddressWhitelistInterface, ERC165 {
+    error CannotAddToDisabledAddressWhitelist();
+    error CannotRemoveFromDisabledAddressWhitelist();
+
     function addToWhitelist(address) external pure {
-        revert("Can't add to DisabledAddressWhitelist");
+        revert CannotAddToDisabledAddressWhitelist();
     }
 
     function removeFromWhitelist(address) external pure {
-        revert("Can't remove from DisabledAddressWhitelist");
+        revert CannotRemoveFromDisabledAddressWhitelist();
     }
 
     function isOnWhitelist(address) external pure returns (bool) {
