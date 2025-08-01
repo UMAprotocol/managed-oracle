@@ -1,55 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.27;
 
 import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
-
 import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelistInterface.sol";
+import {ManagedOptimisticOracleV2Interface} from "../interfaces/ManagedOptimisticOracleV2Interface.sol";
 import {MultiCaller} from "../../common/implementation/MultiCaller.sol";
-
-/**
- * @title Events emitted by the ManagedOptimisticOracleV2 contract.
- * @notice Contains events for request manager management, bond and liveness updates, and whitelists.
- */
-abstract contract ManagedOptimisticOracleV2Events {
-    event RequestManagerAdded(address indexed requestManager);
-    event RequestManagerRemoved(address indexed requestManager);
-    event MaximumBondUpdated(IERC20 indexed currency, uint256 newMaximumBond);
-    event MinimumLivenessUpdated(uint256 newMinimumLiveness);
-    event DefaultProposerWhitelistUpdated(address indexed newWhitelist);
-    event RequesterWhitelistUpdated(address indexed newWhitelist);
-    event CustomBondSet(
-        bytes32 indexed managedRequestId,
-        address requester,
-        bytes32 indexed identifier,
-        bytes ancillaryData,
-        IERC20 indexed currency,
-        uint256 bond
-    );
-    event CustomLivenessSet(
-        bytes32 indexed managedRequestId,
-        address indexed requester,
-        bytes32 indexed identifier,
-        bytes ancillaryData,
-        uint256 customLiveness
-    );
-    event CustomProposerWhitelistSet(
-        bytes32 indexed managedRequestId,
-        address requester,
-        bytes32 indexed identifier,
-        bytes ancillaryData,
-        address indexed newWhitelist
-    );
-}
+import {OptimisticOracleV2} from "./OptimisticOracleV2.sol";
 
 /**
  * @title Managed Optimistic Oracle V2.
  * @notice Pre-DVM escalation contract that allows faster settlement and management of price requests.
  * @custom:security-contact bugs@umaproject.org
  */
-contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, OptimisticOracleV2, MultiCaller {
+contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, OptimisticOracleV2, MultiCaller {
     struct MaximumBond {
         IERC20 currency;
         uint256 amount;
@@ -217,7 +182,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
         IERC20 currency,
         uint256 reward
     ) public override returns (uint256 totalBond) {
-        require(requesterWhitelist.isOnWhitelist(msg.sender), "Requester not whitelisted");
+        require(requesterWhitelist.isOnWhitelist(msg.sender), RequesterNotWhitelisted());
         return super.requestPrice(identifier, timestamp, ancillaryData, currency, reward);
     }
 
@@ -237,7 +202,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
         IERC20 currency,
         uint256 bond
     ) external nonReentrant onlyRequestManager {
-        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
+        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), UnsupportedCurrency());
         _validateBond(currency, bond);
         bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
         customBonds[managedRequestId][currency] = CustomBond({amount: bond, isSet: true});
@@ -320,8 +285,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
 
         AddressWhitelistInterface whitelist = _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
 
-        require(whitelist.isOnWhitelist(proposer), "Proposer not whitelisted");
-        require(whitelist.isOnWhitelist(msg.sender), "Sender not whitelisted");
+        require(whitelist.isOnWhitelist(proposer), ProposerNotWhitelisted());
+        require(whitelist.isOnWhitelist(msg.sender), SenderNotWhitelisted());
         return super.proposePriceFor(proposer, requester, identifier, timestamp, ancillaryData, proposedPrice);
     }
 
@@ -385,7 +350,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @param maximumBond new maximum bond amount for the given currency.
      */
     function _setMaximumBond(IERC20 currency, uint256 maximumBond) internal {
-        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), "Unsupported currency");
+        require(_getCollateralWhitelist().isOnWhitelist(address(currency)), UnsupportedCurrency());
         maximumBonds[currency] = maximumBond;
         emit MaximumBondUpdated(currency, maximumBond);
     }
@@ -429,7 +394,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
     function _validateWhitelistInterface(address whitelist) internal view {
         require(
             ERC165Checker.supportsInterface(whitelist, type(AddressWhitelistInterface).interfaceId),
-            "Unsupported whitelist interface"
+            UnsupportedWhitelistInterface()
         );
     }
 
@@ -440,7 +405,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @param bond the bond amount to validate.
      */
     function _validateBond(IERC20 currency, uint256 bond) internal view {
-        require(bond <= maximumBonds[currency], "Bond exceeds maximum bond");
+        require(bond <= maximumBonds[currency], BondExceedsMaximumBond());
     }
 
     /**
@@ -450,7 +415,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Events, Optimisti
      * @param liveness the liveness period to validate.
      */
     function _validateLiveness(uint256 liveness) internal view override {
-        require(liveness >= minimumLiveness, "Liveness is less than minimum");
+        require(liveness >= minimumLiveness, LivenessTooLow());
         super._validateLiveness(liveness);
     }
 
