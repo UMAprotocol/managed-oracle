@@ -180,9 +180,6 @@ forge verify-contract <IMPLEMENTATION_ADDRESS> src/optimistic-oracle-v2/implemen
 forge verify-contract <PROXY_ADDRESS> lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY> --constructor-args $(cast abi-encode "constructor(address,bytes)" <IMPLEMENTATION_ADDRESS> <INITIALIZATION_DATA>)
 ```
 
-Where `INITIALIZATION_DATA` is the encoded initialization data for the proxy constructor, which includes the implementation address and any additional constructor arguments.
-```
-
 **Replace:**
 - `<IMPLEMENTATION_ADDRESS>` with the deployed implementation contract address
 - `<PROXY_ADDRESS>` with the deployed proxy contract address
