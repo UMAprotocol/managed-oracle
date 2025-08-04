@@ -177,7 +177,10 @@ forge verify-contract <IMPLEMENTATION_ADDRESS> src/optimistic-oracle-v2/implemen
 #### 2. Verify Proxy Contract
 
 ```bash
-forge verify-contract <PROXY_ADDRESS> @openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY> --constructor-args <CONSTRUCTOR_ARGS>
+forge verify-contract <PROXY_ADDRESS> lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY> --constructor-args $(cast abi-encode "constructor(address,bytes)" <IMPLEMENTATION_ADDRESS> <INITIALIZATION_DATA>)
+```
+
+Where `INITIALIZATION_DATA` is the encoded initialization data for the proxy constructor, which includes the implementation address and any additional constructor arguments.
 ```
 
 **Replace:**
@@ -185,7 +188,8 @@ forge verify-contract <PROXY_ADDRESS> @openzeppelin/contracts/proxy/ERC1967/ERC1
 - `<PROXY_ADDRESS>` with the deployed proxy contract address
 - `<CHAIN_ID>` with the network chain ID (1 for Ethereum mainnet, 11155111 for Sepolia, etc.)
 - `<YOUR_ETHERSCAN_API_KEY>` with your Etherscan API key
-- `<CONSTRUCTOR_ARGS>` with the proxy constructor arguments (implementation address + initialization data)
+- `<IMPLEMENTATION_ADDRESS>` with the address of the implementation contract
+- `<INITIALIZATION_DATA>` with the encoded initialization data for the proxy constructor
 
 #### Example for Polygon (Chain ID 137)
 
@@ -198,10 +202,10 @@ Based on the latest deployment:
 forge verify-contract 0x3555e39a1264f5f8febc129ebbb909f3ea299936 src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
 
 # Verify proxy (constructor args from deployment)
-forge verify-contract 0x2c0367a9db231ddebd88a94b4f6461a6e47c58b1 @openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY> --constructor-args 0x0000000000000000000000003555e39a1264f5f8febc129ebbb909f3ea29993600000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000184cdb21cc60000000000000000000000000000000000000000000000000000000000001c2000000000000000000000000009aea4b2242abc8bb4bb78d537a67a245a7bec640000000000000000000000009f35885ce8f67a942d7b2f4fbf937987da08c4630000000000000000000000000f79d0039956d58a7d5d006a6dd64a35616aa2c600000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000e100000000000000000000000003dce0a29139a851da1dfca56af8e8a6440b4d9520000000000000000000000007fb4492ff58e4326a99d7d4f66ae1f47c8286fc600000000000000000000000000000000000000000000000000000000000000010000000000000000000000002791bca1f2de4661ed88a30c99a7a9449aa841740000000000000000000000000000000000000000000000000000000005f5e100000000000000000000000000000000000000000000000000000000174876e800
+forge verify-contract 0x2c0367a9db231ddebd88a94b4f6461a6e47c58b1 lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY> --constructor-args $(cast abi-encode "constructor(address,bytes)" 0x3555e39A1264f5f8Febc129eBBb909F3Ea299936 0xcdb21cc60000000000000000000000000000000000000000000000000000000000001c2000000000000000000000000009aea4b2242abc8bb4bb78d537a67a245a7bec640000000000000000000000009f35885ce8f67a942d7b2f4fbf937987da08c4630000000000000000000000000f79d0039956d58a7d5d006a6dd64a35616aa2c600000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000e100000000000000000000000003dce0a29139a851da1dfca56af8e8a6440b4d9520000000000000000000000007fb4492ff58e4326a99d7d4f66ae1f47c8286fc600000000000000000000000000000000000000000000000000000000000000010000000000000000000000002791bca1f2de4661ed88a30c99a7a9449aa841740000000000000000000000000000000000000000000000000000000005f5e100000000000000000000000000000000000000000000000000000000174876e800)
 ```
 
-**Note:** The constructor args for the proxy include the implementation address and the initialization data. You can extract these from the deployment broadcast files or use the `--constructor-args` flag with the exact bytes from the deployment transaction.
+**Note:** The initialization data can be extracted from the deployment broadcast file as the second element in the `arguments` array for the `ERC1967Proxy` deployment transaction.
 
 ### Contract Details
 
