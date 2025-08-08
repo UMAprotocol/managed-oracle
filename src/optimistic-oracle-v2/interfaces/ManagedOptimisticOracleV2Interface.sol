@@ -28,8 +28,6 @@ abstract contract ManagedOptimisticOracleV2Interface {
     /// @notice Thrown when minimum bond is higher than maximum bond.
     error MinimumBondAboveMaximumBond();
 
-    event RequestManagerAdded(address indexed requestManager);
-    event RequestManagerRemoved(address indexed requestManager);
     event AllowedBondRangeUpdated(IERC20 indexed currency, uint256 newMinimumBond, uint256 newMaximumBond);
     event MinimumLivenessUpdated(uint256 newMinimumLiveness);
     event DefaultProposerWhitelistUpdated(address indexed newWhitelist);
