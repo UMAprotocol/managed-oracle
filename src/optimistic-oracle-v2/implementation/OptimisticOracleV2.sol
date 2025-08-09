@@ -143,9 +143,8 @@ contract OptimisticOracleV2 is
     /**
      * @notice Authorizes the upgrade of the contract.
      * @dev This is required for UUPSUpgradeable. Only the upgrade admin can authorize upgrades.
-     * @param newImplementation address of the new implementation to upgrade to.
      */
-    function _authorizeUpgrade(address newImplementation) internal override onlyUpgradeAdmin {}
+    function _authorizeUpgrade(address) internal override onlyUpgradeAdmin {}
 
     /**
      * @notice Requests a new price.
@@ -381,7 +380,7 @@ contract OptimisticOracleV2 is
         // End the re-entrancy guard early to allow the caller to potentially take OO-related actions inside this callback.
         _startReentrantGuardDisabled();
         // Callback.
-        if (address(requester).isContract() && request.requestSettings.callbackOnPriceProposed) {
+        if (requester.isContract() && request.requestSettings.callbackOnPriceProposed) {
             OptimisticRequester(requester).priceProposed(identifier, timestamp, ancillaryData);
         }
         _endReentrantGuardDisabled();
@@ -470,7 +469,7 @@ contract OptimisticOracleV2 is
         // End the re-entrancy guard early to allow the caller to potentially re-request inside this callback.
         _startReentrantGuardDisabled();
         // Callback.
-        if (address(requester).isContract() && request.requestSettings.callbackOnPriceDisputed) {
+        if (requester.isContract() && request.requestSettings.callbackOnPriceDisputed) {
             OptimisticRequester(requester).priceDisputed(identifier, timestamp, ancillaryData, refund);
         }
         _endReentrantGuardDisabled();
@@ -665,7 +664,7 @@ contract OptimisticOracleV2 is
         // Temporarily disable the re-entrancy guard early to allow the caller to take an OO-related action inside this callback.
         _startReentrantGuardDisabled();
         // Callback.
-        if (address(requester).isContract() && request.requestSettings.callbackOnPriceSettled) {
+        if (requester.isContract() && request.requestSettings.callbackOnPriceSettled) {
             OptimisticRequester(requester).priceSettled(identifier, timestamp, ancillaryData, request.resolvedPrice);
         }
         _endReentrantGuardDisabled();
