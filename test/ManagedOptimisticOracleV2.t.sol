@@ -411,8 +411,8 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.requestManagerSetProposerWhitelist(requester, IDENTIFIER, ANCILLARY, address(disabledWhitelist));
 
         // Neither proposer nor sender are in default whitelist now (use other addresses) -> should still pass
-        address freeSender = address(0xAAAA);
-        address freeProposer = address(0xBBBB);
+        address freeSender = makeAddr("freeSender");
+        address freeProposer = makeAddr("freeProposer");
         uint256 totalBond = _proposeFor(freeSender, freeProposer, requester, t, 7);
         assertGt(totalBond, 0);
     }
