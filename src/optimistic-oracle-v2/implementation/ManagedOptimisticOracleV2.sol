@@ -361,7 +361,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param newRange new allowed range for the bond.
      */
-    function _setAllowedBondRange(IERC20 currency, BondRange calldata newRange) internal {
+    function _setAllowedBondRange(IERC20 currency, BondRange calldata newRange) private {
         require(_getCollateralWhitelist().isOnWhitelist(address(currency)), UnsupportedCurrency());
         require(newRange.minimumBond <= newRange.maximumBond, MinimumBondAboveMaximumBond());
         allowedBondRanges[currency] = newRange;
@@ -373,7 +373,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @dev This can be used to limit the liveness period that can be set by request managers.
      * @param _minimumLiveness new minimum liveness period.
      */
-    function _setMinimumLiveness(uint256 _minimumLiveness) internal {
+    function _setMinimumLiveness(uint256 _minimumLiveness) private {
         super._validateLiveness(_minimumLiveness);
         minimumLiveness = _minimumLiveness;
         emit MinimumLivenessUpdated(_minimumLiveness);
@@ -383,7 +383,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @notice Sets the default proposer whitelist.
      * @param whitelist address of the whitelist to set.
      */
-    function _setDefaultProposerWhitelist(address whitelist) internal {
+    function _setDefaultProposerWhitelist(address whitelist) private {
         _validateWhitelistInterface(whitelist);
         defaultProposerWhitelist = AddressWhitelistInterface(whitelist);
         emit DefaultProposerWhitelistUpdated(whitelist);
@@ -393,7 +393,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @notice Sets the requester whitelist.
      * @param whitelist address of the whitelist to set.
      */
-    function _setRequesterWhitelist(address whitelist) internal {
+    function _setRequesterWhitelist(address whitelist) private {
         _validateWhitelistInterface(whitelist);
         requesterWhitelist = AddressWhitelistInterface(whitelist);
         emit RequesterWhitelistUpdated(whitelist);
@@ -418,7 +418,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
      * @param bond the bond amount to validate.
      */
-    function _validateBond(IERC20 currency, uint256 bond) internal view {
+    function _validateBond(IERC20 currency, uint256 bond) private view {
         require(bond != 0, ZeroBondNotAllowed());
         BondRange memory allowedRange = allowedBondRanges[currency];
         require(bond >= uint256(allowedRange.minimumBond), BondBelowMinimumBond());
@@ -446,7 +446,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @return whitelist The effective AddressWhitelistInterface for the request.
      */
     function _getEffectiveProposerWhitelist(address requester, bytes32 identifier, bytes memory ancillaryData)
-        internal
+        private
         view
         returns (AddressWhitelistInterface whitelist)
     {

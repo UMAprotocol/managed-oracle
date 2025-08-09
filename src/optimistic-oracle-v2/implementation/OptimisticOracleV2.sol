@@ -605,7 +605,7 @@ contract OptimisticOracleV2 is
     }
 
     function _getId(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
-        internal
+        private
         pure
         returns (bytes32)
     {
@@ -690,7 +690,7 @@ contract OptimisticOracleV2 is
     }
 
     function _getState(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
-        internal
+        private
         view
         returns (State)
     {
@@ -711,7 +711,7 @@ contract OptimisticOracleV2 is
         ) ? State.Resolved : State.Disputed;
     }
 
-    function _getOracle() internal view returns (OracleAncillaryInterface) {
+    function _getOracle() private view returns (OracleAncillaryInterface) {
         return OracleAncillaryInterface(finder.getImplementationAddress(OracleInterfaces.Oracle));
     }
 
@@ -719,16 +719,16 @@ contract OptimisticOracleV2 is
         return AddressWhitelist(finder.getImplementationAddress(OracleInterfaces.CollateralWhitelist));
     }
 
-    function _getStore() internal view returns (StoreInterface) {
+    function _getStore() private view returns (StoreInterface) {
         return StoreInterface(finder.getImplementationAddress(OracleInterfaces.Store));
     }
 
-    function _getIdentifierWhitelist() internal view returns (IdentifierWhitelistInterface) {
+    function _getIdentifierWhitelist() private view returns (IdentifierWhitelistInterface) {
         return IdentifierWhitelistInterface(finder.getImplementationAddress(OracleInterfaces.IdentifierWhitelist));
     }
 
     function _getTimestampForDvmRequest(Request storage request, uint256 requestTimestamp)
-        internal
+        private
         view
         returns (uint256)
     {
@@ -746,7 +746,7 @@ contract OptimisticOracleV2 is
      * For those cases, we assume that the client will be able to strip out the utf8-translateable part of the
      * ancillary data that this contract stamps.
      */
-    function _stampAncillaryData(bytes memory ancillaryData, address requester) internal pure returns (bytes memory) {
+    function _stampAncillaryData(bytes memory ancillaryData, address requester) private pure returns (bytes memory) {
         // Since this contract will be the one to formally submit DVM price requests, its useful for voters to know who
         // the original requester was.
         return AncillaryData.appendKeyValueAddress(ancillaryData, "ooRequester", requester);
