@@ -313,6 +313,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     function getCustomProposerWhitelist(address requester, bytes32 identifier, bytes memory ancillaryData)
         external
         view
+        nonReentrantView
         returns (AddressWhitelistInterface)
     {
         return customProposerWhitelists[getManagedRequestId(requester, identifier, ancillaryData)];
@@ -332,6 +333,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     function getProposerWhitelistWithEnabledStatus(address requester, bytes32 identifier, bytes memory ancillaryData)
         external
         view
+        nonReentrantView
         returns (address[] memory allowedProposers, bool isEnabled)
     {
         AddressWhitelistInterface whitelist = _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
