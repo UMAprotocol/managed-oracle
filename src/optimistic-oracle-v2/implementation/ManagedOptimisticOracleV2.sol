@@ -277,11 +277,13 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         // Apply the custom bond and liveness overrides if set.
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
         bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
-        if (customBonds[managedRequestId][request.currency] != 0) {
-            request.requestSettings.bond = customBonds[managedRequestId][request.currency];
+        uint256 customBond = customBonds[managedRequestId][request.currency];
+        if (customBond != 0) {
+            request.requestSettings.bond = customBond;
         }
-        if (customLivenessValues[managedRequestId] != 0) {
-            request.requestSettings.customLiveness = customLivenessValues[managedRequestId];
+        uint256 customLiveness = customLivenessValues[managedRequestId];
+        if (customLiveness != 0) {
+            request.requestSettings.customLiveness = customLiveness;
         }
 
         AddressWhitelistInterface whitelist = _getEffectiveProposerWhitelist(requester, identifier, ancillaryData);
