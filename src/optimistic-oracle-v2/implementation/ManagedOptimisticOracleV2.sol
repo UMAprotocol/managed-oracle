@@ -126,7 +126,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function addRequestManager(address requestManager) external nonReentrant {
         grantRole(REQUEST_MANAGER_ROLE, requestManager);
-        emit RequestManagerAdded(requestManager);
     }
 
     /**
@@ -136,7 +135,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function removeRequestManager(address requestManager) external nonReentrant {
         revokeRole(REQUEST_MANAGER_ROLE, requestManager);
-        emit RequestManagerRemoved(requestManager);
     }
 
     /**
