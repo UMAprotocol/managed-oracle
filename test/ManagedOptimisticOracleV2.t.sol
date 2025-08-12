@@ -293,7 +293,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         // Admin adds
         vm.startPrank(configAdmin);
         vm.expectEmit(true, false, false, true);
-        emit ManagedOptimisticOracleV2Interface.RequestManagerAdded(newMgr);
+        emit IAccessControl.RoleGranted(REQUEST_MANAGER_ROLE, newMgr, configAdmin);
         moo.addRequestManager(newMgr);
         vm.stopPrank();
         assertTrue(moo.hasRole(REQUEST_MANAGER_ROLE, newMgr));
@@ -301,7 +301,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         // Admin removes
         vm.startPrank(configAdmin);
         vm.expectEmit(true, false, false, true);
-        emit ManagedOptimisticOracleV2Interface.RequestManagerRemoved(newMgr);
+        emit IAccessControl.RoleRevoked(REQUEST_MANAGER_ROLE, newMgr, configAdmin);
         moo.removeRequestManager(newMgr);
         vm.stopPrank();
         assertFalse(moo.hasRole(REQUEST_MANAGER_ROLE, newMgr));
