@@ -45,6 +45,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     mapping(bytes32 managedRequestId => AddressWhitelistInterface) public customProposerWhitelists;
 
     // Admin controlled ranges limiting the changes that can be made by request managers.
+    // Unset currency -> (0,0) range; manager-set custom bonds revert until explicitly set.
     mapping(IERC20 currency => BondRange) public allowedBondRanges;
 
     // Admin controlled minimum liveness that can be set by request managers.
@@ -85,6 +86,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
         _setDefaultProposerWhitelist(_defaultProposerWhitelist);
         _setRequesterWhitelist(_requesterWhitelist);
+        // Explicit ranges enable manager-set custom bonds per currency (forbid-by-default).
         for (uint256 i = 0; i < _allowedBondRanges.length; i++) {
             _setAllowedBondRange(_allowedBondRanges[i].currency, _allowedBondRanges[i].range);
         }
@@ -114,7 +116,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function addRequestManager(address requestManager) external nonReentrant {
         grantRole(REQUEST_MANAGER_ROLE, requestManager);
-        emit RequestManagerAdded(requestManager);
     }
 
     /**
@@ -124,7 +125,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function removeRequestManager(address requestManager) external nonReentrant {
         revokeRole(REQUEST_MANAGER_ROLE, requestManager);
-        emit RequestManagerRemoved(requestManager);
     }
 
     /**

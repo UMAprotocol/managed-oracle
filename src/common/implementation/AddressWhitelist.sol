@@ -9,21 +9,17 @@ import {AddressWhitelistInterface} from "../interfaces/AddressWhitelistInterface
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Lockable} from "@uma/contracts/common/implementation/Lockable.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 /**
  * @title A contract to track a whitelist of addresses.
  * @custom:security-contact bugs@umaproject.org
  */
 contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable, ERC165 {
-    enum Status {
-        None,
-        In,
-        Out
-    }
+    using EnumerableSet for EnumerableSet.AddressSet;
 
-    mapping(address => Status) public whitelist;
-
-    address[] public whitelistIndices;
+    // Holds the entire whitelist of addresses. Order is not guaranteed and may change over time.
+    EnumerableSet.AddressSet whitelistedSet;
 
     event AddedToWhitelist(address indexed addedAddress);
     event RemovedFromWhitelist(address indexed removedAddress);
@@ -39,19 +35,10 @@ contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable, ERC16
      * @param newElement the new address to add.
      */
     function addToWhitelist(address newElement) external override nonReentrant onlyOwner {
-        // Ignore if address is already included
-        if (whitelist[newElement] == Status.In) {
-            return;
+        bool added = whitelistedSet.add(newElement);
+        if (added) {
+            emit AddedToWhitelist(newElement);
         }
-
-        // Only append new addresses to the array, never a duplicate
-        if (whitelist[newElement] == Status.None) {
-            whitelistIndices.push(newElement);
-        }
-
-        whitelist[newElement] = Status.In;
-
-        emit AddedToWhitelist(newElement);
     }
 
     /**
@@ -59,8 +46,8 @@ contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable, ERC16
      * @param elementToRemove the existing address to remove.
      */
     function removeFromWhitelist(address elementToRemove) external override nonReentrant onlyOwner {
-        if (whitelist[elementToRemove] != Status.Out) {
-            whitelist[elementToRemove] = Status.Out;
+        bool removed = whitelistedSet.remove(elementToRemove);
+        if (removed) {
             emit RemovedFromWhitelist(elementToRemove);
         }
     }
@@ -71,36 +58,19 @@ contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable, ERC16
      * @return True if `elementToCheck` is on the whitelist, or False.
      */
     function isOnWhitelist(address elementToCheck) public view virtual override nonReentrantView returns (bool) {
-        return whitelist[elementToCheck] == Status.In;
+        return whitelistedSet.contains(elementToCheck);
     }
 
     /**
      * @notice Gets all addresses that are currently included in the whitelist.
-     * @dev Note: This method skips over, but still iterates through addresses. It is possible for this call to run out
-     * of gas if a large number of addresses have been removed. To reduce the likelihood of this unlikely scenario, we
-     * can modify the implementation so that when addresses are removed, the last addresses in the array is moved to
-     * the empty index.
+     * @dev Returns a copy of the entire set via EnumerableSet.values(). This operation is O(n) in the number of
+     * addresses and theoretically unbounded. In practice, in the context of `ManagedOptimisticOracleV2.sol` this list
+     * is expected to remain small, so this method is not expected to run out of gas.
+     * Order of addresses is arbitrary and not guaranteed to be stable across calls.
      * @return activeWhitelist the list of addresses on the whitelist.
      */
     function getWhitelist() external view override nonReentrantView returns (address[] memory activeWhitelist) {
-        // Determine size of whitelist first
-        uint256 activeCount = 0;
-        for (uint256 i = 0; i < whitelistIndices.length; i++) {
-            if (whitelist[whitelistIndices[i]] == Status.In) {
-                activeCount++;
-            }
-        }
-
-        // Populate whitelist
-        activeWhitelist = new address[](activeCount);
-        activeCount = 0;
-        for (uint256 i = 0; i < whitelistIndices.length; i++) {
-            address addr = whitelistIndices[i];
-            if (whitelist[addr] == Status.In) {
-                activeWhitelist[activeCount] = addr;
-                activeCount++;
-            }
-        }
+        return whitelistedSet.values();
     }
 
     /**
@@ -108,7 +78,7 @@ contract AddressWhitelist is AddressWhitelistInterface, Ownable, Lockable, ERC16
      * @dev For this implementation, the whitelist is always considered enabled.
      * @return enabled Always returns true.
      */
-    function isWhitelistEnabled() external pure returns (bool enabled) {
+    function isWhitelistEnabled() external pure override returns (bool enabled) {
         return true;
     }
 
