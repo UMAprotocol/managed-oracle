@@ -31,7 +31,7 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
 
         // Required reference build version for upgrade validation
         uint256 referenceBuildVersion = vm.envUint("REFERENCE_BUILD_VERSION");
-        
+
         // Optional unsafe validation flags (use only for local/testing)
         bool unsafeSkipStorageCheck = vm.envOr("UNSAFE_SKIP_STORAGE_CHECK", false);
 
@@ -39,15 +39,21 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
         console.log("Derived Upgrade Admin:", derivedUpgradeAdmin);
         console.log("Actual Upgrade Admin:", actualUpgradeAdmin);
         console.log("Proxy Address:", proxyAddress);
-        console.log("Reference Contract:", string.concat("build-info-v", vm.toString(referenceBuildVersion), ":ManagedOptimisticOracleV2"));
-        console.log("Reference Build Info Dir:", string.concat("old-builds/build-info-v", vm.toString(referenceBuildVersion)));
+        console.log(
+            "Reference Contract:",
+            string.concat("build-info-v", vm.toString(referenceBuildVersion), ":ManagedOptimisticOracleV2")
+        );
+        console.log(
+            "Reference Build Info Dir:", string.concat("old-builds/build-info-v", vm.toString(referenceBuildVersion))
+        );
 
         // Check if we need to impersonate or can execute directly
         bool shouldImpersonate = actualUpgradeAdmin != derivedUpgradeAdmin;
 
         // Build common options for both modes
         Options memory opts;
-        opts.referenceContract = string.concat("build-info-v", vm.toString(referenceBuildVersion), ":ManagedOptimisticOracleV2");
+        opts.referenceContract =
+            string.concat("build-info-v", vm.toString(referenceBuildVersion), ":ManagedOptimisticOracleV2");
         opts.referenceBuildInfoDir = string.concat("old-builds/build-info-v", vm.toString(referenceBuildVersion));
         opts.unsafeSkipStorageCheck = unsafeSkipStorageCheck;
 
@@ -56,30 +62,25 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
             console.log("\n=== IMPERSONATION MODE ===");
             console.log("MNEMONIC does not correspond to actual upgrade admin");
             console.log("Deploying new implementation and generating upgrade transaction data");
-            
+
             // Deploy the new implementation
             console.log("\n=== DEPLOYING NEW IMPLEMENTATION ===");
             vm.startBroadcast(upgradeAdminPrivateKey);
-            address newImplementationAddress = Upgrades.prepareUpgrade(
-                "ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2",
-                opts
-            );
+            address newImplementationAddress =
+                Upgrades.prepareUpgrade("ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2", opts);
             vm.stopBroadcast();
             console.log("New Implementation Address:", newImplementationAddress);
-            
+
             // Generate upgrade transaction data
-            bytes memory upgradeData = abi.encodeWithSignature(
-                "upgradeToAndCall(address,bytes)",
-                newImplementationAddress,
-                bytes("")
-            );
+            bytes memory upgradeData =
+                abi.encodeWithSignature("upgradeToAndCall(address,bytes)", newImplementationAddress, bytes(""));
 
             // Simulate the upgrade transaction to verify it would succeed
             console.log("\n=== SIMULATING UPGRADE TRANSACTION ===");
             vm.startPrank(actualUpgradeAdmin);
             (bool success, bytes memory result) = proxyAddress.call(upgradeData);
             vm.stopPrank();
-            
+
             if (success) {
                 console.log("Upgrade simulation successful!");
             } else {
@@ -96,7 +97,6 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
             console.log("Chain ID:", block.chainid);
             console.log("\nUse this transaction data in your multisig wallet to execute the upgrade.");
             console.log("The new implementation has been deployed at:", newImplementationAddress);
-            
         } else {
             // Direct mode - execute upgrade directly
             console.log("\n=== DIRECT EXECUTION MODE ===");
@@ -108,10 +108,7 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
 
             // Upgrade the proxy
             Upgrades.upgradeProxy(
-                proxyAddress,
-                "ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2",
-                bytes(""),
-                opts
+                proxyAddress, "ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2", bytes(""), opts
             );
 
             vm.stopBroadcast();
@@ -124,8 +121,6 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
             console.log("Upgrade Admin:", actualUpgradeAdmin);
         }
     }
-
-
 
     /**
      * @notice Derives the upgrade admin's private key from the mnemonic
