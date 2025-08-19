@@ -19,21 +19,21 @@ import {ManagedOptimisticOracleV2} from "../src/optimistic-oracle-v2/implementat
  */
 contract UpgradeManagedOptimisticOracleV2 is Script {
     function run() external {
-        uint256 upgradeAdminPrivateKey = _getUpgradeAdminPrivateKey();
-        address derivedUpgradeAdmin = vm.addr(upgradeAdminPrivateKey);
+        uint256 deployerPrivateKey = _getDeployerPrivateKey();
+        address deployerAddress = vm.addr(deployerPrivateKey);
 
         // Get the proxy address to upgrade
         address proxyAddress = vm.envAddress("PROXY_ADDRESS");
 
-        // Fetch the actual upgrade admin from the contract
-        address actualUpgradeAdmin = ManagedOptimisticOracleV2(proxyAddress).owner();
+        // Fetch the upgrade admin from the contract
+        address upgradeAdmin = ManagedOptimisticOracleV2(proxyAddress).owner();
 
         // Required reference build version for upgrade validation
         uint256 referenceBuildVersion = vm.envUint("REFERENCE_BUILD_VERSION");
 
         // Log initial setup
-        console.log("Derived Upgrade Admin:", derivedUpgradeAdmin);
-        console.log("Actual Upgrade Admin:", actualUpgradeAdmin);
+        console.log("Deployer Address:", deployerAddress);
+        console.log("Upgrade Admin:", upgradeAdmin);
         console.log("Proxy Address:", proxyAddress);
         console.log(
             "Reference Contract:",
@@ -44,7 +44,7 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
         );
 
         // Check if we need to impersonate or can execute directly
-        bool shouldImpersonate = actualUpgradeAdmin != derivedUpgradeAdmin;
+        bool shouldImpersonate = upgradeAdmin != deployerAddress;
 
         // Build common options for both modes
         Options memory opts;
@@ -55,12 +55,12 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
         if (shouldImpersonate) {
             // Multisig mode - deploy implementation and generate transaction data
             console.log("\n=== IMPERSONATION MODE ===");
-            console.log("MNEMONIC does not correspond to actual upgrade admin");
+            console.log("MNEMONIC does not correspond to upgrade admin");
             console.log("Deploying new implementation and generating upgrade transaction data");
 
             // Deploy the new implementation
             console.log("\n=== DEPLOYING NEW IMPLEMENTATION ===");
-            vm.startBroadcast(upgradeAdminPrivateKey);
+            vm.startBroadcast(deployerPrivateKey);
             address newImplementationAddress =
                 Upgrades.prepareUpgrade("ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2", opts);
             vm.stopBroadcast();
@@ -72,7 +72,7 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
 
             // Simulate the upgrade transaction to verify it would succeed
             console.log("\n=== SIMULATING UPGRADE TRANSACTION ===");
-            vm.startPrank(actualUpgradeAdmin);
+            vm.startPrank(upgradeAdmin);
             (bool success, bytes memory result) = proxyAddress.call(upgradeData);
             vm.stopPrank();
 
@@ -88,18 +88,18 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
             console.log("\n=== MULTISIG UPGRADE TRANSACTION DATA ===");
             console.log("Target Contract:", proxyAddress);
             console.log("Transaction Data:", vm.toString(upgradeData));
-            console.log("Upgrade Admin:", actualUpgradeAdmin);
+            console.log("Upgrade Admin:", upgradeAdmin);
             console.log("Chain ID:", block.chainid);
             console.log("\nUse this transaction data in your multisig wallet to execute the upgrade.");
             console.log("The new implementation has been deployed at:", newImplementationAddress);
         } else {
             // Direct mode - execute upgrade directly
             console.log("\n=== DIRECT EXECUTION MODE ===");
-            console.log("MNEMONIC corresponds to actual upgrade admin");
+            console.log("MNEMONIC corresponds to upgrade admin");
             console.log("Executing upgrade directly");
 
             // Start broadcasting transactions with the derived private key
-            vm.startBroadcast(upgradeAdminPrivateKey);
+            vm.startBroadcast(deployerPrivateKey);
 
             // Upgrade the proxy
             Upgrades.upgradeProxy(
@@ -113,15 +113,15 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
             console.log("Proxy Address:", proxyAddress);
             console.log("New Implementation Address:", Upgrades.getImplementationAddress(proxyAddress));
             console.log("Chain ID:", block.chainid);
-            console.log("Upgrade Admin:", actualUpgradeAdmin);
+            console.log("Upgrade Admin:", upgradeAdmin);
         }
     }
 
     /**
-     * @notice Derives the upgrade admin's private key from the mnemonic
-     * @return upgradeAdminPrivateKey The derived private key for the upgrade admin
+     * @notice Derives the deployer's private key from the mnemonic
+     * @return deployerPrivateKey The derived private key for the deployer
      */
-    function _getUpgradeAdminPrivateKey() internal view returns (uint256) {
+    function _getDeployerPrivateKey() internal view returns (uint256) {
         string memory mnemonic = vm.envString("MNEMONIC");
         // Derive the 0 index address from mnemonic
         return vm.deriveKey(mnemonic, 0);
