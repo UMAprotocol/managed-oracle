@@ -16,7 +16,6 @@ import {ManagedOptimisticOracleV2} from "../src/optimistic-oracle-v2/implementat
  * - MNEMONIC: Required. The mnemonic phrase for the upgrade admin wallet
  * - PROXY_ADDRESS: Required. Address of the existing proxy contract to upgrade
  * - REFERENCE_BUILD_VERSION: Required. Integer version number to derive reference contract and build info dir (e.g., 1 for "build-info-v1:ManagedOptimisticOracleV2" and "old-builds/build-info-v1")
-
  */
 contract UpgradeManagedOptimisticOracleV2 is Script {
     function run() external {
@@ -31,8 +30,6 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
 
         // Required reference build version for upgrade validation
         uint256 referenceBuildVersion = vm.envUint("REFERENCE_BUILD_VERSION");
-
-
 
         // Log initial setup
         console.log("Derived Upgrade Admin:", derivedUpgradeAdmin);
