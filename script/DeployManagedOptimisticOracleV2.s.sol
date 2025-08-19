@@ -84,16 +84,18 @@ contract DeployManagedOptimisticOracleV2 is Script {
         ManagedOptimisticOracleV2 proxy = ManagedOptimisticOracleV2(
             Upgrades.deployUUPSProxy(
                 "ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2",
-                abi.encodeWithSelector(
-                    ManagedOptimisticOracleV2.initialize.selector,
-                    defaultLiveness,
-                    finderAddress,
-                    defaultProposerWhitelist,
-                    requesterWhitelist,
-                    currencyBondRanges,
-                    minimumLiveness,
-                    configAdmin,
-                    upgradeAdmin
+                abi.encodeCall(
+                    ManagedOptimisticOracleV2.initialize,
+                    (
+                        defaultLiveness,
+                        finderAddress,
+                        defaultProposerWhitelist,
+                        requesterWhitelist,
+                        currencyBondRanges,
+                        minimumLiveness,
+                        configAdmin,
+                        upgradeAdmin
+                    )
                 )
             )
         );
