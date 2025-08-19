@@ -234,7 +234,6 @@ The `UpgradeManagedOptimisticOracleV2.s.sol` script upgrades the `ManagedOptimis
 ### Usage Examples
 
 ```bash
-REFERENCE_BUILD_VERSION=1 \
 forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
 ```
 
@@ -244,7 +243,6 @@ forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_U
 
 - **UUPS upgradeable**: Uses UUPS (Universal Upgradeable Proxy Standard) pattern
 - **Mandatory reference validation**: Always uses reference contracts for upgrade safety validation
-
 - **Dual execution modes**: Supports both direct execution and multisig transaction data generation
 - **Upgrade simulation**: In multisig mode, simulates the upgrade transaction to verify it would succeed
 - **Automatic admin detection**: Automatically fetches the upgrade admin from the proxy contract
@@ -262,8 +260,6 @@ forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_U
 3. **Upgrade Validation**: The script automatically derives reference contract and build info directory from the `REFERENCE_BUILD_VERSION` environment variable. The upgrade validation uses the automatically derived reference paths based on `REFERENCE_BUILD_VERSION`.
 
 4. **Upgrade Simulation**: In multisig mode, the script simulates the upgrade transaction using `vm.startPrank()` to impersonate the actual upgrade admin, ensuring the transaction would succeed before generating the multisig data.
-
-
 
 5. **Testing**: Always test upgrades on a forked mainnet or testnet before executing on mainnet.
 
@@ -328,4 +324,4 @@ forge verify-contract <NEW_IMPLEMENTATION_ADDRESS> src/optimistic-oracle-v2/impl
    ```bash
    # Use the new implementation address from the script output
    forge verify-contract 0xNEW_IMPLEMENTATION_ADDRESS src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
-   ``` 
+   ```
