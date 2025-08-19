@@ -223,6 +223,35 @@ The `ManagedOptimisticOracleV2` contract:
 
 The `UpgradeManagedOptimisticOracleV2.s.sol` script upgrades the `ManagedOptimisticOracleV2` contract implementation using OpenZeppelin Upgrades library.
 
+### Prerequisites
+
+The old build info should normally be created and committed at the time of deployment. If this was missed, you need to generate it before running the upgrade script:
+
+```bash
+# 1. Checkout the exact commit corresponding to the previous version deployment
+git checkout <commit-hash-of-previous-version>
+
+# 2. Create a new branch for the build info
+git checkout -b add-build-info-v1
+
+# 3. Generate build info for the previous version (e.g., v1)
+forge build --build-info --build-info-path old-builds/build-info-v1
+
+# 4. Add and commit the build info to the repository
+git add old-builds/build-info-v1/
+git commit -m "Add build info for version v1"
+
+# 5. Push the branch and create a PR
+git push origin add-build-info-v1
+# Create PR on GitHub/GitLab, get review, and merge
+
+# 6. Switch back to the latest branch for the upgrade
+git checkout master  # or your latest development branch
+git pull origin master  # ensure you have the latest changes
+```
+
+**Note**: The `REFERENCE_BUILD_VERSION` environment variable should match the version number in the build info path (e.g., `REFERENCE_BUILD_VERSION=1` for `old-builds/build-info-v1`).
+
 ### Environment Variables
 
 | Variable | Required | Description |
