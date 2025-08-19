@@ -31,26 +31,21 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
         // Required reference build version for upgrade validation
         uint256 referenceBuildVersion = vm.envUint("REFERENCE_BUILD_VERSION");
 
-        // Log initial setup
-        console.log("Deployer Address:", deployerAddress);
-        console.log("Upgrade Admin:", upgradeAdmin);
-        console.log("Proxy Address:", proxyAddress);
-        console.log(
-            "Reference Contract:",
-            string.concat("build-info-v", vm.toString(referenceBuildVersion), ":ManagedOptimisticOracleV2")
-        );
-        console.log(
-            "Reference Build Info Dir:", string.concat("old-builds/build-info-v", vm.toString(referenceBuildVersion))
-        );
-
-        // Check if we need to impersonate or can execute directly
-        bool shouldImpersonate = upgradeAdmin != deployerAddress;
-
-        // Build common options for both modes
+        // Build upgrade validation options
         Options memory opts;
         opts.referenceContract =
             string.concat("build-info-v", vm.toString(referenceBuildVersion), ":ManagedOptimisticOracleV2");
         opts.referenceBuildInfoDir = string.concat("old-builds/build-info-v", vm.toString(referenceBuildVersion));
+
+        // Log initial setup
+        console.log("Deployer Address:", deployerAddress);
+        console.log("Upgrade Admin:", upgradeAdmin);
+        console.log("Proxy Address:", proxyAddress);
+        console.log("Reference Contract:", opts.referenceContract);
+        console.log("Reference Build Info Dir:", opts.referenceBuildInfoDir);
+
+        // Check if we need to impersonate or can execute directly
+        bool shouldImpersonate = upgradeAdmin != deployerAddress;
 
         if (shouldImpersonate) {
             // Multisig mode - deploy implementation and generate transaction data
