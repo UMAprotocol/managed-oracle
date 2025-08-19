@@ -233,17 +233,12 @@ The `UpgradeManagedOptimisticOracleV2.s.sol` script upgrades the `ManagedOptimis
 
 ### Usage Examples
 
-#### Direct Execution (MNEMONIC corresponds to upgrade admin)
 ```bash
 REFERENCE_BUILD_VERSION=1 \
 forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
 ```
 
-#### Multisig Mode (MNEMONIC does not correspond to upgrade admin)
-```bash
-REFERENCE_BUILD_VERSION=1 \
-forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_URL"
-```
+**Note**: The script automatically detects whether the MNEMONIC corresponds to the actual upgrade admin and adjusts its behavior accordingly.
 
 ### Features
 
@@ -318,7 +313,7 @@ forge verify-contract <NEW_IMPLEMENTATION_ADDRESS> src/optimistic-oracle-v2/impl
 
 2. **Generate transaction data and deploy implementation**:
    ```bash
-   forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_URL"
+   forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
    ```
    
    The script will:
