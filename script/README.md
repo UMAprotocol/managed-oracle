@@ -248,6 +248,9 @@ git push origin add-build-info-v1
 # 6. Switch back to the latest branch for the upgrade
 git checkout master  # or your latest development branch
 git pull origin master  # ensure you have the latest changes
+
+# 7. Clean and rebuild for the upgrade script
+forge clean && forge build
 ```
 
 **Note**: The `REFERENCE_BUILD_VERSION` environment variable should match the version number in the build info path (e.g., `REFERENCE_BUILD_VERSION=1` for `old-builds/build-info-v1`).
