@@ -16,7 +16,7 @@ import {ManagedOptimisticOracleV2} from "../src/optimistic-oracle-v2/implementat
  * - MNEMONIC: Required. The mnemonic phrase for the upgrade admin wallet
  * - PROXY_ADDRESS: Required. Address of the existing proxy contract to upgrade
  * - REFERENCE_BUILD_VERSION: Required. Integer version number to derive reference contract and build info dir (e.g., 1 for "build-info-v1:ManagedOptimisticOracleV2" and "old-builds/build-info-v1")
- * - UNSAFE_SKIP_STORAGE_CHECK: Optional. Skip storage layout validation for local testing (defaults to false)
+
  */
 contract UpgradeManagedOptimisticOracleV2 is Script {
     function run() external {
@@ -32,8 +32,7 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
         // Required reference build version for upgrade validation
         uint256 referenceBuildVersion = vm.envUint("REFERENCE_BUILD_VERSION");
 
-        // Optional unsafe validation flags (use only for local/testing)
-        bool unsafeSkipStorageCheck = vm.envOr("UNSAFE_SKIP_STORAGE_CHECK", false);
+
 
         // Log initial setup
         console.log("Derived Upgrade Admin:", derivedUpgradeAdmin);
@@ -55,7 +54,6 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
         opts.referenceContract =
             string.concat("build-info-v", vm.toString(referenceBuildVersion), ":ManagedOptimisticOracleV2");
         opts.referenceBuildInfoDir = string.concat("old-builds/build-info-v", vm.toString(referenceBuildVersion));
-        opts.unsafeSkipStorageCheck = unsafeSkipStorageCheck;
 
         if (shouldImpersonate) {
             // Multisig mode - deploy implementation and generate transaction data

@@ -230,7 +230,6 @@ The `UpgradeManagedOptimisticOracleV2.s.sol` script upgrades the `ManagedOptimis
 | `MNEMONIC` | Yes | The mnemonic phrase for the upgrade admin wallet (uses 0 index address) |
 | `PROXY_ADDRESS` | Yes | Address of the existing proxy contract to upgrade |
 | `REFERENCE_BUILD_VERSION` | Yes | Integer version number to derive reference contract and build info dir (e.g., 1 for "build-info-v1:ManagedOptimisticOracleV2" and "old-builds/build-info-v1") |
-| `UNSAFE_SKIP_STORAGE_CHECK` | No | Skip storage layout validation for local testing (defaults to false) |
 
 ### Usage Examples
 
@@ -250,7 +249,7 @@ forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_U
 
 - **UUPS upgradeable**: Uses UUPS (Universal Upgradeable Proxy Standard) pattern
 - **Mandatory reference validation**: Always uses reference contracts for upgrade safety validation
-- **Optional storage check skip**: Supports skipping storage layout validation for local testing
+
 - **Dual execution modes**: Supports both direct execution and multisig transaction data generation
 - **Upgrade simulation**: In multisig mode, simulates the upgrade transaction to verify it would succeed
 - **Automatic admin detection**: Automatically fetches the upgrade admin from the proxy contract
@@ -269,9 +268,9 @@ forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_U
 
 4. **Upgrade Simulation**: In multisig mode, the script simulates the upgrade transaction using `vm.startPrank()` to impersonate the actual upgrade admin, ensuring the transaction would succeed before generating the multisig data.
 
-5. **Storage Check Skip**: For local testing, you can skip storage layout validation by setting `UNSAFE_SKIP_STORAGE_CHECK=true`.
 
-6. **Testing**: Always test upgrades on a forked mainnet or testnet before executing on mainnet.
+
+5. **Testing**: Always test upgrades on a forked mainnet or testnet before executing on mainnet.
 
 ### Etherscan Verification
 
