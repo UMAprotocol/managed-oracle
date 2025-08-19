@@ -243,7 +243,7 @@ git commit -s -m "fix: add build info for version v1"
 
 # 5. Push the branch and create a PR
 git push origin add-build-info-v1
-# Create PR on GitHub/GitLab, get review, and merge
+# Create PR on GitHub, get review, and merge
 
 # 6. Switch back to the latest branch for the upgrade
 git checkout master  # or your latest development branch
