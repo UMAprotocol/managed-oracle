@@ -235,7 +235,7 @@ git checkout <commit-hash-of-previous-version>
 git checkout -b add-build-info-v1
 
 # 3. Generate build info for the previous version
-forge build --build-info --build-info-path old-builds/build-info-v1
+forge clean && forge build --build-info --build-info-path old-builds/build-info-v1
 
 # 4. Add and commit the build info to the repository
 git add old-builds/build-info-v1/
