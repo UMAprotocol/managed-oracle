@@ -231,15 +231,15 @@ The old build info should normally be created and committed at the time of deplo
 # 1. Checkout the exact commit corresponding to the previous version deployment
 git checkout <commit-hash-of-previous-version>
 
-# 2. Create a new branch for the build info
+# 2. Create a new branch for the previous version build info (e.g., for v1)
 git checkout -b add-build-info-v1
 
-# 3. Generate build info for the previous version (e.g., v1)
+# 3. Generate build info for the previous version
 forge build --build-info --build-info-path old-builds/build-info-v1
 
 # 4. Add and commit the build info to the repository
 git add old-builds/build-info-v1/
-git commit -m "Add build info for version v1"
+git commit -s -m "fix: add build info for version v1"
 
 # 5. Push the branch and create a PR
 git push origin add-build-info-v1
