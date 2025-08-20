@@ -25,6 +25,18 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         BondRange range;
     }
 
+    struct CustomBond {
+        uint256 amount;
+        // isSet is not used anymore as amount cannot be set to 0, but it is kept for storage layout compatibility.
+        bool isSet;
+    }
+
+    struct CustomLiveness {
+        uint256 liveness;
+        // isSet is not used anymore as liveness cannot be set to 0, but it is kept for storage layout compatibility.
+        bool isSet;
+    }
+
     // Config admin role is used to manage request managers and set other default parameters.
     bytes32 public constant CONFIG_ADMIN_ROLE = keccak256("CONFIG_ADMIN_ROLE");
 
@@ -36,10 +48,10 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     AddressWhitelistInterface public requesterWhitelist;
 
     // Custom bonds set by request managers for specific request and currency combinations.
-    mapping(bytes32 managedRequestId => mapping(IERC20 currency => uint256 customBond)) public customBonds;
+    mapping(bytes32 managedRequestId => mapping(IERC20 currency => CustomBond)) public customBonds;
 
     // Custom liveness values set by request managers for specific requests.
-    mapping(bytes32 managedRequestId => uint256 customLiveness) public customLivenessValues;
+    mapping(bytes32 managedRequestId => CustomLiveness) public customLivenessValues;
 
     // Custom proposer whitelists set by request managers for specific requests.
     mapping(bytes32 managedRequestId => AddressWhitelistInterface) public customProposerWhitelists;
@@ -206,7 +218,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         require(_getCollateralWhitelist().isOnWhitelist(address(currency)), UnsupportedCurrency());
         _validateBond(currency, bond);
         bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
-        customBonds[managedRequestId][currency] = bond;
+        customBonds[managedRequestId][currency].amount = bond;
         emit CustomBondSet(managedRequestId, requester, identifier, ancillaryData, currency, bond);
     }
 
@@ -227,7 +239,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     ) external nonReentrant onlyRequestManager {
         _validateLiveness(customLiveness);
         bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
-        customLivenessValues[managedRequestId] = customLiveness;
+        customLivenessValues[managedRequestId].liveness = customLiveness;
         emit CustomLivenessSet(managedRequestId, requester, identifier, ancillaryData, customLiveness);
     }
 
@@ -277,11 +289,11 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         // Apply the custom bond and liveness overrides if set.
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
         bytes32 managedRequestId = getManagedRequestId(requester, identifier, ancillaryData);
-        uint256 customBond = customBonds[managedRequestId][request.currency];
+        uint256 customBond = customBonds[managedRequestId][request.currency].amount;
         if (customBond != 0) {
             request.requestSettings.bond = customBond;
         }
-        uint256 customLiveness = customLivenessValues[managedRequestId];
+        uint256 customLiveness = customLivenessValues[managedRequestId].liveness;
         if (customLiveness != 0) {
             request.requestSettings.customLiveness = customLiveness;
         }
