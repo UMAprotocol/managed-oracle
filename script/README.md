@@ -81,6 +81,55 @@ The `AddressWhitelist` contract:
 - Supports adding/removing addresses from whitelist
 - Includes ownership management capabilities
 
+## AddressWhitelist Redeployment
+
+The `RedeployAddressWhitelist.s.sol` script deploys a new `AddressWhitelist` contract that duplicates the configuration from a previously deployed contract.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MNEMONIC` | Yes | The mnemonic phrase for the deployer wallet (uses 0 index address) |
+| `PREVIOUS_ADDRESS_WHITELIST` | Yes | The address of the previous AddressWhitelist contract to duplicate |
+
+### Usage Examples
+
+```bash
+# Redeploy with configuration from previous contract
+forge script script/RedeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+```
+
+### Features
+
+- **Configuration duplication**: Copies all whitelisted addresses from the previous contract
+- **Ownership preservation**: Transfers ownership to the same address if different from deployer
+- **Ownership burning**: Burns ownership if the previous contract had no owner
+- **Verification**: Includes verification that the whitelist was copied correctly
+- **Detailed logging**: Provides comprehensive redeployment information and status updates
+
+### What Gets Copied
+
+- All whitelisted addresses from the previous contract
+- Ownership configuration (same owner or burned ownership)
+
+### What Gets Reset
+
+- Contract address (new deployment)
+- Contract state (fresh contract instance)
+
+### Etherscan Verification
+
+After redeployment, verify the new contract on Etherscan:
+
+```bash
+forge verify-contract <NEW_CONTRACT_ADDRESS> src/common/implementation/AddressWhitelist.sol:AddressWhitelist --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+```
+
+**Replace:**
+- `<NEW_CONTRACT_ADDRESS>` with the newly deployed contract address
+- `<CHAIN_ID>` with the network chain ID (1 for Ethereum mainnet, 11155111 for Sepolia, etc.)
+- `<YOUR_ETHERSCAN_API_KEY>` with your Etherscan API key
+
 ## DisabledAddressWhitelist Deployment
 
 The `DeployDisabledAddressWhitelist.s.sol` script deploys the `DisabledAddressWhitelist` contract with optional configuration.
