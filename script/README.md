@@ -130,11 +130,7 @@ When using `DEPLOYER_MULTISIG`, the script validates:
 
 - **Threshold = 1**: The multisig must have a threshold of 1 for single signature execution
 - **Deployer as signer**: The deployer address must be a signer of the multisig
-- **Supported interfaces**: The multisig must support common function signatures:
-  - `getThreshold()` or `threshold()` for threshold validation
-  - `isOwner(address)` or `isSigner(address)` for signer validation
-
-**Supported multisig types**: Safe, Gnosis Safe, and other multisig contracts with standard interfaces
+**Supported multisig types**: Gnosis Safe (tested and verified)
 
 **Note**: The script uses the MultiSend contract for batching. When using `DEPLOYER_MULTISIG`, the `MULTISEND_ADDRESS` environment variable is optional and defaults to the MultiSendCallOnly v1.4.1 contract address.
 
