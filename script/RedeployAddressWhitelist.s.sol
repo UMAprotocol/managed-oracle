@@ -55,32 +55,28 @@ contract RedeployAddressWhitelist is Script {
         address executor = deployerMultisig != address(0) ? deployerMultisig : deployer;
         console.log("Using executor for whitelist operations:", executor);
 
-        // Copy whitelisted addresses
-        if (whitelistedAddresses.length > 0) {
-            if (deployerMultisig != address(0)) {
-                // Transfer ownership to multisig for batch execution
-                console.log("Transferring ownership to multisig for batching...");
-                newWhitelist.transferOwnership(deployerMultisig);
+        // Handle whitelist copying and ownership
+        if (deployerMultisig != address(0)) {
+            // Transfer ownership to multisig for batch execution
+            console.log("Transferring ownership to multisig for batching...");
+            newWhitelist.transferOwnership(deployerMultisig);
 
-                // Execute batch transaction through multisig
-                console.log("Batching whitelist additions and ownership operations through multisig...");
-                batchAddToWhitelistWithOwnership(
-                    newWhitelist, whitelistedAddresses, deployerMultisig, multisendAddress, deployer, previousOwner
-                );
-            } else {
-                // Use deployer directly for individual transactions
-                console.log("Copying whitelisted addresses using deployer...");
-                for (uint256 i = 0; i < whitelistedAddresses.length; i++) {
-                    address addr = whitelistedAddresses[i];
-                    newWhitelist.addToWhitelist(addr);
-                    console.log("Added to whitelist:", addr);
-                }
+            // Execute batch transaction through multisig (includes whitelist additions + ownership)
+            console.log("Batching whitelist additions and ownership operations through multisig...");
+            batchAddToWhitelistWithOwnership(
+                newWhitelist, whitelistedAddresses, deployerMultisig, multisendAddress, deployer, previousOwner
+            );
+        } else {
+            // Use deployer directly for individual transactions
+            console.log("Copying whitelisted addresses using deployer...");
+            for (uint256 i = 0; i < whitelistedAddresses.length; i++) {
+                address addr = whitelistedAddresses[i];
+                newWhitelist.addToWhitelist(addr);
+                console.log("Added to whitelist:", addr);
             }
             console.log("Finished copying whitelisted addresses");
-        }
 
-        // Handle ownership for non-multisig deployments
-        if (deployerMultisig == address(0)) {
+            // Handle ownership for non-multisig deployments
             if (previousOwner == address(0)) {
                 console.log("Previous contract had no owner, burning ownership on new contract...");
                 newWhitelist.renounceOwnership();
@@ -93,7 +89,6 @@ contract RedeployAddressWhitelist is Script {
                 console.log("Keeping executor as owner:", executor);
             }
         }
-        // For multisig deployments, ownership is handled in the batch transaction
 
         vm.stopBroadcast();
 
