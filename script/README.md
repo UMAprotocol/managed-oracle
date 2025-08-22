@@ -91,12 +91,17 @@ The `RedeployAddressWhitelist.s.sol` script deploys a new `AddressWhitelist` con
 |----------|----------|-------------|
 | `MNEMONIC` | Yes | The mnemonic phrase for the deployer wallet (uses 0 index address) |
 | `PREVIOUS_ADDRESS_WHITELIST` | Yes | The address of the previous AddressWhitelist contract to duplicate |
+| `DEPLOYER_MULTISIG` | No | The address of a Safe multisig to use for batching transactions (requires threshold=1) |
+| `MULTISEND_ADDRESS` | No | The address of the MultiSend contract (defaults to MultiSendCallOnly v1.4.1) |
 
 ### Usage Examples
 
 ```bash
 # Redeploy with configuration from previous contract
 forge script script/RedeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Redeploy using multisig for batching (MULTISEND_ADDRESS optional)
+DEPLOYER_MULTISIG=0x1234567890123456789012345678901234567890 forge script script/RedeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
 ```
 
 ### Features
@@ -104,6 +109,8 @@ forge script script/RedeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --br
 - **Configuration duplication**: Copies all whitelisted addresses from the previous contract
 - **Ownership preservation**: Transfers ownership to the same address if different from deployer
 - **Ownership burning**: Burns ownership if the previous contract had no owner
+- **Multisig support**: Optional Safe multisig integration for batching transactions atomically
+- **Multisig validation**: Validates deployer is a signer and threshold is 1
 - **Verification**: Includes verification that the whitelist was copied correctly
 - **Detailed logging**: Provides comprehensive redeployment information and status updates
 
@@ -116,6 +123,27 @@ forge script script/RedeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --br
 
 - Contract address (new deployment)
 - Contract state (fresh contract instance)
+
+### Multisig Requirements
+
+When using `DEPLOYER_MULTISIG`, the script validates:
+
+- **Threshold = 1**: The multisig must have a threshold of 1 for single signature execution
+- **Deployer as signer**: The deployer address must be a signer of the multisig
+- **Supported interfaces**: The multisig must support common function signatures:
+  - `getThreshold()` or `threshold()` for threshold validation
+  - `isOwner(address)` or `isSigner(address)` for signer validation
+
+**Supported multisig types**: Safe, Gnosis Safe, and other multisig contracts with standard interfaces
+
+**Note**: The script uses the MultiSend contract for batching. When using `DEPLOYER_MULTISIG`, the `MULTISEND_ADDRESS` environment variable is optional and defaults to the MultiSendCallOnly v1.4.1 contract address.
+
+**Benefits of multisig batching**:
+- **Atomic operations**: All whitelist additions happen in a single transaction
+- **Gas efficiency**: Reduces gas costs for large whitelists
+- **Better UX**: Single transaction instead of multiple individual transactions
+- **Error handling**: If one addition fails, the entire batch is reverted
+- **Safe integration**: Uses standard Safe multisig execTransaction with v=1 signature
 
 ### Etherscan Verification
 
