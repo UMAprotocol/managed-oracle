@@ -298,9 +298,16 @@ contract RedeployAddressWhitelist is Script {
             operations = appendOperation(operations, 0, address(whitelist), 0, callData);
         }
 
-        // Transfer ownership to previous owner
-        bytes memory transferOwnershipData = abi.encodeWithSignature("transferOwnership(address)", previousOwner);
-        operations = appendOperation(operations, 0, address(whitelist), 0, transferOwnershipData);
+        // Handle ownership based on previous owner
+        if (previousOwner == address(0)) {
+            // Burn ownership if previous contract had no owner
+            bytes memory renounceOwnershipData = abi.encodeWithSignature("renounceOwnership()");
+            operations = appendOperation(operations, 0, address(whitelist), 0, renounceOwnershipData);
+        } else {
+            // Transfer ownership to previous owner
+            bytes memory transferOwnershipData = abi.encodeWithSignature("transferOwnership(address)", previousOwner);
+            operations = appendOperation(operations, 0, address(whitelist), 0, transferOwnershipData);
+        }
 
         batchData = abi.encodeWithSignature("multiSend(bytes)", operations);
     }

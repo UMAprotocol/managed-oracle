@@ -117,7 +117,7 @@ DEPLOYER_MULTISIG=0x1234567890123456789012345678901234567890 forge script script
 ### What Gets Copied
 
 - All whitelisted addresses from the previous contract
-- Ownership configuration (same owner or burned ownership)
+- Ownership configuration (same owner or burned ownership) - **both transfer and renounce operations are supported in batch mode**
 
 ### What Gets Reset
 
