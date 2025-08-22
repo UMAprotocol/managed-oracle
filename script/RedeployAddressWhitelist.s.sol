@@ -130,6 +130,7 @@ contract RedeployAddressWhitelist is Script {
             if (!allAddressesPresent) {
                 console.log("Some addresses are missing from the new whitelist");
             }
+            revert("Whitelist copy verification failed");
         }
 
         // Verify ownership restoration
@@ -140,6 +141,7 @@ contract RedeployAddressWhitelist is Script {
             console.log("[FAILED] Ownership verification: FAILED");
             console.log("Expected:", previousOwner);
             console.log("Actual:", finalOwner);
+            revert("Ownership verification failed");
         }
     }
 
