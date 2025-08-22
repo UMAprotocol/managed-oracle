@@ -85,11 +85,11 @@ contract RedeployAddressWhitelist is Script {
         console.log("Previous Owner:", previousOwner);
         console.log("Final Owner:", newWhitelist.owner());
         console.log("Whitelisted Addresses Copied:", whitelistedAddresses.length);
-        
+
         // Verify the whitelist was copied correctly
         address[] memory newWhitelistAddresses = newWhitelist.getWhitelist();
         console.log("New Contract Whitelist Count:", newWhitelistAddresses.length);
-        
+
         if (whitelistedAddresses.length == newWhitelistAddresses.length) {
             console.log("[SUCCESS] Whitelist copy verification: SUCCESS");
         } else {
