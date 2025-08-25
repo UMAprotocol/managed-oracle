@@ -92,6 +92,79 @@ The `AddressWhitelist` contract:
 - Supports adding/removing addresses from whitelist
 - Includes ownership management capabilities
 
+## AddressWhitelist Redeployment
+
+The `RedeployAddressWhitelist.s.sol` script deploys a new `AddressWhitelist` contract that duplicates the configuration from a previously deployed contract.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MNEMONIC` | Yes | The mnemonic phrase for the deployer wallet (uses 0 index address) |
+| `PREVIOUS_ADDRESS_WHITELIST` | Yes | The address of the previous AddressWhitelist contract to duplicate |
+| `DEPLOYER_MULTISIG` | No | The address of a Safe multisig to use for batching transactions (requires threshold=1) |
+| `MULTISEND_ADDRESS` | No | The address of the MultiSend contract (defaults to MultiSendCallOnly v1.4.1) |
+
+### Usage Examples
+
+```bash
+# Redeploy with configuration from previous contract
+forge script script/RedeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Redeploy using multisig for batching (MULTISEND_ADDRESS optional)
+DEPLOYER_MULTISIG=0x1234567890123456789012345678901234567890 forge script script/RedeployAddressWhitelist.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+```
+
+### Features
+
+- **Configuration duplication**: Copies all whitelisted addresses from the previous contract
+- **Ownership preservation**: Transfers ownership to the same address if different from deployer
+- **Ownership burning**: Burns ownership if the previous contract had no owner
+- **Multisig support**: Optional Safe multisig integration for batching transactions atomically
+- **Multisig validation**: Validates deployer is a signer and threshold is 1
+- **Verification**: Includes verification that the whitelist was copied correctly
+- **Detailed logging**: Provides comprehensive redeployment information and status updates
+
+### What Gets Copied
+
+- All whitelisted addresses from the previous contract
+- Ownership configuration (same owner or burned ownership) - **both transfer and renounce operations are supported in batch mode**
+
+### What Gets Reset
+
+- Contract address (new deployment)
+- Contract state (fresh contract instance)
+
+### Multisig Requirements
+
+When using `DEPLOYER_MULTISIG`, the script validates:
+
+- **Threshold = 1**: The multisig must have a threshold of 1 for single signature execution
+- **Deployer as signer**: The deployer address must be a signer of the multisig
+**Supported multisig types**: Gnosis Safe (tested and verified)
+
+**Note**: The script uses the MultiSend contract for batching. When using `DEPLOYER_MULTISIG`, the `MULTISEND_ADDRESS` environment variable is optional and defaults to the MultiSendCallOnly v1.4.1 contract address.
+
+**Benefits of multisig batching**:
+- **Atomic operations**: All whitelist additions happen in a single transaction
+- **Gas efficiency**: Reduces gas costs for large whitelists
+- **Better UX**: Single transaction instead of multiple individual transactions
+- **Error handling**: If one addition fails, the entire batch is reverted
+- **Safe integration**: Uses standard Safe multisig execTransaction with v=1 signature
+
+### Etherscan Verification
+
+After redeployment, verify the new contract on Etherscan:
+
+```bash
+forge verify-contract <NEW_CONTRACT_ADDRESS> src/common/implementation/AddressWhitelist.sol:AddressWhitelist --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+```
+
+**Replace:**
+- `<NEW_CONTRACT_ADDRESS>` with the newly deployed contract address
+- `<CHAIN_ID>` with the network chain ID (1 for Ethereum mainnet, 11155111 for Sepolia, etc.)
+- `<YOUR_ETHERSCAN_API_KEY>` with your Etherscan API key
+
 ## DisabledAddressWhitelist Deployment
 
 The `DeployDisabledAddressWhitelist.s.sol` script deploys the `DisabledAddressWhitelist` contract with optional configuration.
