@@ -30,6 +30,10 @@ REQUESTER_WHITELIST="0x1234567890123456789012345678901234567890"
 # MINIMUM_BOND_AMOUNT="100000000" # Optional, defaults to 100 USDC.e on Polygon
 # MAXIMUM_BOND_AMOUNT="100000000000" # Optional, defaults to 100,000 USDC.e on Polygon
 
+# ManagedOptimisticOracleV2 Upgrade-specific variables
+PROXY_ADDRESS="0x1234567890123456789012345678901234567890"
+REFERENCE_BUILD_VERSION="1" # Required, integer version to derive reference paths (e.g., 1 for build-info-v1)
+
 # UpdateManagedOptimisticOracleV2Whitelists-specific variables
 PROXY_ADDRESS="0x1234567890123456789012345678901234567890"
 # NEW_DEFAULT_PROPOSER_WHITELIST="0x1234567890123456789012345678901234567890"  # Optional
@@ -221,6 +225,145 @@ The `ManagedOptimisticOracleV2` contract:
 - Enforces maximum bonds and minimum liveness set by admins
 - Requires whitelisted requesters and proposers
 
+## ManagedOptimisticOracleV2 Upgrade
+
+The `UpgradeManagedOptimisticOracleV2.s.sol` script upgrades the `ManagedOptimisticOracleV2` contract implementation using OpenZeppelin Upgrades library.
+
+### Prerequisites
+
+The old build info should normally be created and committed at the time of deployment. If this was missed, you need to generate it before running the upgrade script:
+
+```bash
+# 1. Checkout the exact commit corresponding to the previous version deployment
+git checkout <commit-hash-of-previous-version>
+
+# 2. Create a new branch for the previous version build info (e.g., for v1)
+git checkout -b add-build-info-v1
+
+# 3. Generate build info for the previous version
+forge clean && forge build --build-info --build-info-path old-builds/build-info-v1
+
+# 4. Add and commit the build info to the repository
+git add old-builds/build-info-v1/
+git commit -s -m "fix: add build info for version v1"
+
+# 5. Push the branch and create a PR
+git push origin add-build-info-v1
+# Create PR on GitHub, get review, and merge
+
+# 6. Switch back to the latest branch for the upgrade
+git checkout master  # or your latest development branch
+git pull origin master  # ensure you have the latest changes
+
+# 7. Clean and rebuild for the upgrade script
+forge clean && forge build
+```
+
+**Note**: The `REFERENCE_BUILD_VERSION` environment variable should match the version number in the build info path (e.g., `REFERENCE_BUILD_VERSION=1` for `old-builds/build-info-v1`).
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MNEMONIC` | Yes | The mnemonic phrase for the upgrade admin wallet (uses 0 index address) |
+| `PROXY_ADDRESS` | Yes | Address of the existing proxy contract to upgrade |
+| `REFERENCE_BUILD_VERSION` | Yes | Integer version number to derive reference contract and build info dir (e.g., 1 for "build-info-v1:ManagedOptimisticOracleV2" and "old-builds/build-info-v1") |
+
+### Usage Examples
+
+```bash
+forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+```
+
+**Note**: The script automatically detects whether the MNEMONIC corresponds to the actual upgrade admin and adjusts its behavior accordingly.
+
+### Features
+
+- **UUPS upgradeable**: Uses UUPS (Universal Upgradeable Proxy Standard) pattern
+- **Mandatory reference validation**: Always uses reference contracts for upgrade safety validation
+- **Dual execution modes**: Supports both direct execution and multisig transaction data generation
+- **Upgrade simulation**: In multisig mode, simulates the upgrade transaction to verify it would succeed
+- **Automatic admin detection**: Automatically fetches the upgrade admin from the proxy contract
+- **Detailed logging**: Provides comprehensive upgrade information and status updates
+
+### Important Notes
+
+1. **Upgrade Admin**: The script automatically fetches the actual upgrade admin from the proxy contract using the `owner()` function. It compares this with the address derived from the mnemonic to determine the execution mode.
+
+2. **Multisig Support**: If the MNEMONIC doesn't correspond to the actual upgrade admin (e.g., if it's a multisig wallet), the script will:
+   - Deploy the new implementation using the mnemonic's private key
+   - Simulate the upgrade transaction to verify it would succeed
+   - Generate transaction data for manual multisig execution
+
+3. **Upgrade Validation**: The script automatically derives reference contract and build info directory from the `REFERENCE_BUILD_VERSION` environment variable. The upgrade validation uses the automatically derived reference paths based on `REFERENCE_BUILD_VERSION`.
+
+4. **Upgrade Simulation**: In multisig mode, the script simulates the upgrade transaction using `vm.startPrank()` to impersonate the actual upgrade admin, ensuring the transaction would succeed before generating the multisig data.
+
+5. **Testing**: Always test upgrades on a forked mainnet or testnet before executing on mainnet.
+
+### Etherscan Verification
+
+After upgrading, verify the new implementation contract on Etherscan:
+
+```bash
+forge verify-contract <NEW_IMPLEMENTATION_ADDRESS> src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+```
+
+**Replace:**
+- `<NEW_IMPLEMENTATION_ADDRESS>` with the new implementation contract address (printed in the upgrade summary)
+- `<CHAIN_ID>` with the network chain ID (1 for Ethereum mainnet, 11155111 for Sepolia, etc.)
+- `<YOUR_ETHERSCAN_API_KEY>` with your Etherscan API key
+
+### Example Upgrade Process
+
+#### Direct Execution (Single Signer)
+1. **Prepare the upgrade**:
+   ```bash
+   # Set environment variables
+   export MNEMONIC="your mnemonic phrase here"
+   export PROXY_ADDRESS="0x2c0367a9db231ddebd88a94b4f6461a6e47c58b1"
+   export REFERENCE_BUILD_VERSION="1"
+   ```
+
+2. **Run the upgrade**:
+   ```bash
+   forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+   ```
+
+3. **Verify the new implementation**:
+   ```bash
+   # Use the new implementation address from the upgrade summary
+   forge verify-contract 0xNEW_IMPLEMENTATION_ADDRESS src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+   ```
+
+#### Multisig Execution
+1. **Prepare the upgrade**:
+   ```bash
+   # Set environment variables
+   export MNEMONIC="your mnemonic phrase here"
+   export PROXY_ADDRESS="0x2c0367a9db231ddebd88a94b4f6461a6e47c58b1"
+   export REFERENCE_BUILD_VERSION="1"
+   ```
+
+2. **Generate transaction data and deploy implementation**:
+   ```bash
+   forge script script/UpgradeManagedOptimisticOracleV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+   ```
+   
+   The script will:
+   - Deploy the new implementation using your mnemonic's private key
+   - Simulate the upgrade transaction to verify it would succeed
+   - Generate transaction data for multisig execution
+   - Display the new implementation address and transaction data
+
+3. **Execute via multisig**: Use the generated transaction data in your multisig wallet to execute the upgrade.
+
+4. **Verify the new implementation**:
+   ```bash
+   # Use the new implementation address from the script output
+   forge verify-contract 0xNEW_IMPLEMENTATION_ADDRESS src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+   ```
+
 ## UpdateManagedOptimisticOracleV2Whitelists
 
 The `UpdateManagedOptimisticOracleV2Whitelists.s.sol` script updates the default proposer and/or requester whitelists for an existing `ManagedOptimisticOracleV2` contract using the `CONFIG_ADMIN_ROLE`.
@@ -302,4 +445,4 @@ The script interacts with the `ManagedOptimisticOracleV2` contract:
 - Uses `multicall` for atomic whitelist updates
 - Calls `setDefaultProposerWhitelist` and/or `setRequesterWhitelist` functions
 - Requires `CONFIG_ADMIN_ROLE` for execution
-- Supports both direct execution and multisig transaction generation 
+- Supports both direct execution and multisig transaction generation
