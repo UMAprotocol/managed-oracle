@@ -34,6 +34,12 @@ REQUESTER_WHITELIST="0x1234567890123456789012345678901234567890"
 PROXY_ADDRESS="0x1234567890123456789012345678901234567890"
 REFERENCE_BUILD_VERSION="1" # Required, integer version to derive reference paths (e.g., 1 for build-info-v1)
 
+# UpdateManagedOptimisticOracleV2Whitelists-specific variables
+PROXY_ADDRESS="0x1234567890123456789012345678901234567890"
+# NEW_DEFAULT_PROPOSER_WHITELIST="0x1234567890123456789012345678901234567890"  # Optional
+# NEW_REQUESTER_WHITELIST="0x1234567890123456789012345678901234567890"  # Optional
+# CONFIG_ADMIN="0x1234567890123456789012345678901234567890"  # Required if deployer doesn't have CONFIG_ADMIN_ROLE
+# VERIFY_WHITELIST_CONFIGURATION="true"  # Optional, defaults to true
 ```
 
 ## AddressWhitelist Deployment
@@ -201,7 +207,7 @@ Based on the latest deployment:
 
 ```bash
 # Verify implementation
-forge verify-contract 0x3555e39a1264f5f8febc129ebbb909f3ea299936 src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+forge verify-contract 0x3555e39a1264f5f8Febc129eBBb909F3Ea299936 src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
 
 # Verify proxy (constructor args from deployment)
 forge verify-contract 0x2c0367a9db231ddebd88a94b4f6461a6e47c58b1 lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY> --constructor-args $(cast abi-encode "constructor(address,bytes)" 0x3555e39A1264f5f8Febc129eBBb909F3Ea299936 0xcdb21cc60000000000000000000000000000000000000000000000000000000000001c2000000000000000000000000009aea4b2242abc8bb4bb78d537a67a245a7bec640000000000000000000000009f35885ce8f67a942d7b2f4fbf937987da08c4630000000000000000000000000f79d0039956d58a7d5d006a6dd64a35616aa2c600000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000e100000000000000000000000003dce0a29139a851da1dfca56af8e8a6440b4d9520000000000000000000000007fb4492ff58e4326a99d7d4f66ae1f47c8286fc600000000000000000000000000000000000000000000000000000000000000010000000000000000000000002791bca1f2de4661ed88a30c99a7a9449aa841740000000000000000000000000000000000000000000000000000000005f5e100000000000000000000000000000000000000000000000000000000174876e800)
@@ -357,3 +363,86 @@ forge verify-contract <NEW_IMPLEMENTATION_ADDRESS> src/optimistic-oracle-v2/impl
    # Use the new implementation address from the script output
    forge verify-contract 0xNEW_IMPLEMENTATION_ADDRESS src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
    ```
+
+## UpdateManagedOptimisticOracleV2Whitelists
+
+The `UpdateManagedOptimisticOracleV2Whitelists.s.sol` script updates the default proposer and/or requester whitelists for an existing `ManagedOptimisticOracleV2` contract using the `CONFIG_ADMIN_ROLE`.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MNEMONIC` | Yes | The mnemonic phrase for the deployer wallet (uses 0 index address) |
+| `PROXY_ADDRESS` | Yes | Address of the existing ManagedOptimisticOracleV2 proxy contract |
+| `NEW_DEFAULT_PROPOSER_WHITELIST` | No* | New address for the default proposer whitelist |
+| `NEW_REQUESTER_WHITELIST` | No* | New address for the requester whitelist |
+| `CONFIG_ADMIN` | No** | Address of the config admin for multisig mode |
+| `VERIFY_WHITELIST_CONFIGURATION` | No | Whether to verify whitelist configuration (defaults to true) |
+
+*At least one of `NEW_DEFAULT_PROPOSER_WHITELIST` or `NEW_REQUESTER_WHITELIST` must be provided.
+
+**Required if deployer doesn't hold `CONFIG_ADMIN_ROLE`. If deployer has the role, this variable is not needed.
+
+### Usage Examples
+
+```bash
+# Update only the default proposer whitelist (deployer has CONFIG_ADMIN_ROLE)
+NEW_DEFAULT_PROPOSER_WHITELIST=0x1234567890123456789012345678901234567890 forge script script/UpdateManagedOptimisticOracleV2Whitelists.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Update only the requester whitelist (deployer has CONFIG_ADMIN_ROLE)
+NEW_REQUESTER_WHITELIST=0x1234567890123456789012345678901234567890 forge script script/UpdateManagedOptimisticOracleV2Whitelists.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Update both whitelists (deployer has CONFIG_ADMIN_ROLE)
+NEW_DEFAULT_PROPOSER_WHITELIST=0x1234567890123456789012345678901234567890 NEW_REQUESTER_WHITELIST=0x0987654321098765432109876543210987654321 forge script script/UpdateManagedOptimisticOracleV2Whitelists.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Multisig mode - deployer doesn't have CONFIG_ADMIN_ROLE
+CONFIG_ADMIN=0x1234567890123456789012345678901234567890 NEW_DEFAULT_PROPOSER_WHITELIST=0x1234567890123456789012345678901234567890 forge script script/UpdateManagedOptimisticOracleV2Whitelists.s.sol --rpc-url "YOUR_RPC_URL"
+```
+
+### Features
+
+- **Dual execution modes**: Supports both direct execution (if deployer has `CONFIG_ADMIN_ROLE`) and multisig mode (generates transaction data for multisig execution)
+- **Atomic updates**: Uses multicall to update multiple whitelists atomically
+- **Comprehensive verification**: Verifies whitelist configuration before and after updates
+- **Whitelist validation**: Ensures new whitelists have matching owners and contents
+- **Detailed logging**: Provides comprehensive update information and status updates
+- **Transaction data generation**: Generates ready-to-use transaction data for multisig wallets
+
+### Execution Modes
+
+#### Direct Execution Mode
+When the deployer has `CONFIG_ADMIN_ROLE`, the script executes the whitelist updates directly:
+- Updates are performed immediately using the deployer's private key
+- All changes are broadcast and confirmed on-chain
+- Verification is performed after execution
+
+#### Multisig Mode
+When the deployer doesn't have `CONFIG_ADMIN_ROLE`, the script operates in multisig mode:
+- Simulates the whitelist updates to verify they would succeed
+- Generates transaction data for multisig execution
+- Provides detailed instructions for multisig wallet usage
+- No on-chain changes are made during script execution
+
+### Whitelist Configuration Verification
+
+The script includes comprehensive verification of whitelist configurations:
+- **Owner verification**: Ensures new whitelists have the same owner as the old ones
+- **Content verification**: Verifies that new whitelists contain the same addresses as the old ones
+- **Order-independent comparison**: Whitelist contents are compared regardless of order
+- **Configurable verification**: Can be disabled by setting `VERIFY_WHITELIST_CONFIGURATION=false`
+
+### Transaction Data for Multisig
+
+When operating in multisig mode, the script generates:
+- **Target contract address**: The proxy contract to update
+- **Transaction data**: Encoded multicall data for the whitelist updates
+- **Operation count**: Number of operations in the multicall
+- **Chain ID**: Network identifier for verification
+
+### Contract Details
+
+The script interacts with the `ManagedOptimisticOracleV2` contract:
+- Uses `multicall` for atomic whitelist updates
+- Calls `setDefaultProposerWhitelist` and/or `setRequesterWhitelist` functions
+- Requires `CONFIG_ADMIN_ROLE` for execution
+- Supports both direct execution and multisig transaction generation
