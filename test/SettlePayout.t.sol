@@ -28,7 +28,7 @@ import {BlacklistERC20Mock} from "./mocks/BlacklistERC20Mock.sol";
 import {RevertingReasonBlacklistERC20Mock} from "./mocks/RevertingReasonBlacklistERC20Mock.sol";
 import {RevertingBlacklistERC20Mock} from "./mocks/RevertingBlacklistERC20Mock.sol";
 
-contract SettlePayoutFailureTest is Test {
+contract SettlePayoutTest is Test {
     // Actors
     address internal upgradeAdmin;
     address internal requester;
@@ -321,7 +321,9 @@ contract SettlePayoutFailureTest is Test {
         revertingReasonToken.setBlacklisted(proposer, false);
 
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.ClaimedSettlePayout(address(revertingReasonToken), proposer, proposer, accruedAmount);
+        emit OptimisticOracleV2Interface.ClaimedSettlePayout(
+            address(revertingReasonToken), proposer, proposer, accruedAmount
+        );
         vm.prank(proposer);
         oo.claimSettlePayout(revertingReasonToken, proposer);
 
@@ -452,6 +454,160 @@ contract SettlePayoutFailureTest is Test {
         // Check both are claimed
         assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
         assertEq(oo.accruedSettlePayouts(blacklistToken, disputer), 0);
+    }
+
+    // -------------------- Happy Path Tests (No Blacklist) --------------------
+
+    function testExpiredSettlementHappyPath() public {
+        uint256 timestamp = _makeRequest(blacklistToken);
+        _proposePrice(blacklistToken, timestamp, 100);
+
+        // Fast forward to expiration
+        vm.warp(block.timestamp + LIVENESS + 1);
+
+        // Settlement should succeed and payout should go directly to proposer
+        uint256 proposerBalanceBefore = blacklistToken.balanceOf(proposer);
+        uint256 contractBalanceBefore = blacklistToken.balanceOf(address(oo));
+
+        uint256 expectedPayout = TOTAL_BOND + REWARD;
+        oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
+
+        // Check balances - proposer should receive tokens directly
+        assertEq(blacklistToken.balanceOf(proposer), proposerBalanceBefore + expectedPayout);
+        assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
+
+        // Check no accrued payout
+        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
+    }
+
+    function testDisputedSettlementHappyPathProposerWins() public {
+        uint256 timestamp = _makeRequest(blacklistToken);
+        _proposePrice(blacklistToken, timestamp, 100);
+        _disputePrice(blacklistToken, timestamp);
+
+        // Mock DVM resolution (proposer wins) - set the same price as proposed
+        bytes memory stampedAncillary = oo.stampAncillaryData(ANCILLARY_DATA, requester);
+        oracle.setPrice(IDENTIFIER, timestamp, stampedAncillary, 100);
+
+        // Ensure the oracle has the price
+        assertTrue(oracle.hasPrice(IDENTIFIER, timestamp, stampedAncillary));
+
+        uint256 proposerBalanceBefore = blacklistToken.balanceOf(proposer);
+        uint256 disputerBalanceBefore = blacklistToken.balanceOf(disputer);
+        uint256 contractBalanceBefore = blacklistToken.balanceOf(address(oo));
+
+        uint256 expectedPayout = TOTAL_BOND + REWARD + DEFAULT_BOND / 2; // proposer gets half of disputer's bond
+        oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
+
+        // Check balances - proposer should receive tokens directly
+        assertEq(blacklistToken.balanceOf(proposer), proposerBalanceBefore + expectedPayout);
+        assertEq(blacklistToken.balanceOf(disputer), disputerBalanceBefore); // disputer gets nothing
+        assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
+
+        // Check no accrued payouts
+        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
+        assertEq(oo.accruedSettlePayouts(blacklistToken, disputer), 0);
+    }
+
+    function testDisputedSettlementHappyPathDisputerWins() public {
+        uint256 timestamp = _makeRequest(blacklistToken);
+        _proposePrice(blacklistToken, timestamp, 100);
+        _disputePrice(blacklistToken, timestamp);
+
+        // Mock DVM resolution (disputer wins) - set a different price than proposed
+        bytes memory stampedAncillary = oo.stampAncillaryData(ANCILLARY_DATA, requester);
+        oracle.setPrice(IDENTIFIER, timestamp, stampedAncillary, 200);
+
+        // Ensure the oracle has the price
+        assertTrue(oracle.hasPrice(IDENTIFIER, timestamp, stampedAncillary));
+
+        uint256 proposerBalanceBefore = blacklistToken.balanceOf(proposer);
+        uint256 disputerBalanceBefore = blacklistToken.balanceOf(disputer);
+        uint256 contractBalanceBefore = blacklistToken.balanceOf(address(oo));
+
+        uint256 expectedPayout = TOTAL_BOND + REWARD + DEFAULT_BOND / 2; // disputer gets half of proposer's bond
+        oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
+
+        // Check balances - disputer should receive tokens directly
+        assertEq(blacklistToken.balanceOf(proposer), proposerBalanceBefore); // proposer gets nothing
+        assertEq(blacklistToken.balanceOf(disputer), disputerBalanceBefore + expectedPayout);
+        assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
+
+        // Check no accrued payouts
+        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
+        assertEq(oo.accruedSettlePayouts(blacklistToken, disputer), 0);
+    }
+
+    function testHappyPathWithRevertingReasonToken() public {
+        uint256 timestamp = _makeRequest(revertingReasonToken);
+        _proposePrice(revertingReasonToken, timestamp, 100);
+
+        // Fast forward to expiration
+        vm.warp(block.timestamp + LIVENESS + 1);
+
+        // Settlement should succeed and payout should go directly to proposer
+        uint256 proposerBalanceBefore = revertingReasonToken.balanceOf(proposer);
+        uint256 contractBalanceBefore = revertingReasonToken.balanceOf(address(oo));
+
+        uint256 expectedPayout = TOTAL_BOND + REWARD;
+        oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
+
+        // Check balances - proposer should receive tokens directly
+        assertEq(revertingReasonToken.balanceOf(proposer), proposerBalanceBefore + expectedPayout);
+        assertEq(revertingReasonToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
+
+        // Check no accrued payout
+        assertEq(oo.accruedSettlePayouts(revertingReasonToken, proposer), 0);
+    }
+
+    function testHappyPathWithRevertingToken() public {
+        uint256 timestamp = _makeRequest(revertingToken);
+        _proposePrice(revertingToken, timestamp, 100);
+
+        // Fast forward to expiration
+        vm.warp(block.timestamp + LIVENESS + 1);
+
+        // Settlement should succeed and payout should go directly to proposer
+        uint256 proposerBalanceBefore = revertingToken.balanceOf(proposer);
+        uint256 contractBalanceBefore = revertingToken.balanceOf(address(oo));
+
+        uint256 expectedPayout = TOTAL_BOND + REWARD;
+        oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
+
+        // Check balances - proposer should receive tokens directly
+        assertEq(revertingToken.balanceOf(proposer), proposerBalanceBefore + expectedPayout);
+        assertEq(revertingToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
+
+        // Check no accrued payout
+        assertEq(oo.accruedSettlePayouts(revertingToken, proposer), 0);
+    }
+
+    function testHappyPathWithCustomBond() public {
+        uint256 timestamp = _makeRequest(blacklistToken);
+
+        // Set custom bond
+        uint256 customBond = 15 ether;
+        vm.prank(requester);
+        oo.setBond(IDENTIFIER, timestamp, ANCILLARY_DATA, customBond);
+
+        _proposePrice(blacklistToken, timestamp, 100);
+
+        // Fast forward to expiration
+        vm.warp(block.timestamp + LIVENESS + 1);
+
+        // Settlement should succeed and payout should go directly to proposer
+        uint256 proposerBalanceBefore = blacklistToken.balanceOf(proposer);
+        uint256 contractBalanceBefore = blacklistToken.balanceOf(address(oo));
+
+        uint256 expectedPayout = customBond + FINAL_FEE + REWARD;
+        oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
+
+        // Check balances - proposer should receive tokens directly
+        assertEq(blacklistToken.balanceOf(proposer), proposerBalanceBefore + expectedPayout);
+        assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
+
+        // Check no accrued payout
+        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
     }
 
     // -------------------- Edge Cases and Error Tests --------------------
