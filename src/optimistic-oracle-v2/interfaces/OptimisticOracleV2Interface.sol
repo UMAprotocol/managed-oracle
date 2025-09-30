@@ -39,6 +39,8 @@ abstract contract OptimisticOracleV2Interface {
     error LivenessCannotBeZero();
     /// @notice Thrown when trying to settle a request that is not settleable.
     error RequestNotSettleable();
+    /// @notice Thrown when trying to claim a non-existent settle payout.
+    error NoSettlePayoutToClaim();
 
     event RequestPrice(
         address indexed requester,
@@ -77,6 +79,10 @@ abstract contract OptimisticOracleV2Interface {
         bytes ancillaryData,
         int256 price,
         uint256 payout
+    );
+    event SettlePayoutAccrued(address indexed currency, address indexed settleRecipient, uint256 amount);
+    event ClaimedSettlePayout(
+        address indexed currency, address indexed settleRecipient, address indexed repaymentAddress, uint256 amount
     );
     // Struct representing the state of a price request.
 

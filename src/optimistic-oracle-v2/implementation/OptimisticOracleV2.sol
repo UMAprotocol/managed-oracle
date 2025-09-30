@@ -91,6 +91,11 @@ contract OptimisticOracleV2 is
     uint256 public constant OO_ANCILLARY_DATA_LIMIT = ancillaryBytesLimit - MAX_ADDED_ANCILLARY_DATA;
     int256 public constant TOO_EARLY_RESPONSE = type(int256).min;
 
+    // Mapping of collateral currency to settle recipient (proposer or disputer) and to their outstanding settle
+    // payouts. Used when settle payout fails for some reason (e.g. the recipient is blacklisted) to track their
+    // outstanding liability, thereby letting them claim it later.
+    mapping(IERC20 currency => mapping(address settleRecipient => uint256)) public accruedSettlePayouts;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -534,6 +539,23 @@ contract OptimisticOracleV2 is
     }
 
     /**
+     * @notice Claims the settle payout for a given currency and repayment address.
+     * @dev This is used to claim settle payouts that were accrued due to failed transfer call. Only can be called by
+     * the original settle recipient (proposer or disputer).
+     * @param currency ERC20 token used for the settle payout.
+     * @param repaymentAddress address to which the payout will be sent.
+     */
+    function claimSettlePayout(IERC20 currency, address repaymentAddress) external {
+        address settleRecipient = msg.sender;
+        uint256 amount = accruedSettlePayouts[currency][settleRecipient];
+        if (amount == 0) revert NoSettlePayoutToClaim();
+        accruedSettlePayouts[currency][settleRecipient] = 0;
+        currency.safeTransfer(repaymentAddress, amount);
+
+        emit ClaimedSettlePayout(address(currency), settleRecipient, repaymentAddress, amount);
+    }
+
+    /**
      * @notice Gets the current data structure containing all information about a price request.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
@@ -625,7 +647,7 @@ contract OptimisticOracleV2 is
             // In the expiry case, just pay back the proposer's bond and final fee along with the reward.
             request.resolvedPrice = request.proposedPrice;
             payout = request.requestSettings.bond + request.finalFee + request.reward;
-            request.currency.safeTransfer(request.proposer, payout);
+            _trySettlePayout(request.currency, request.proposer, payout);
         } else if (state == State.Resolved) {
             // In the Resolved case, pay either the disputer or the proposer the entire payout (+ bond and reward).
             request.resolvedPrice = _getOracle().getPrice(
@@ -645,7 +667,7 @@ contract OptimisticOracleV2 is
             // - Their final fee back.
             // - The request reward (if not already refunded -- if refunded, it will be set to 0).
             payout = bond + unburnedBond + request.finalFee + request.reward;
-            request.currency.safeTransfer(disputeSuccess ? request.disputer : request.proposer, payout);
+            _trySettlePayout(request.currency, disputeSuccess ? request.disputer : request.proposer, payout);
         } else {
             revert RequestNotSettleable();
         }
@@ -668,6 +690,15 @@ contract OptimisticOracleV2 is
             OptimisticRequester(requester).priceSettled(identifier, timestamp, ancillaryData, request.resolvedPrice);
         }
         _endReentrantGuardDisabled();
+    }
+
+    // Attempts to transfer a settle payout for a recipient. If the payout fails, it accrues the payout amount to the
+    // recipient for later claiming.
+    function _trySettlePayout(IERC20 currency, address recipient, uint256 amount) private {
+        if (!currency.trySafeTransfer(recipient, amount)) {
+            accruedSettlePayouts[currency][recipient] += amount;
+            emit SettlePayoutAccrued(address(currency), recipient, amount);
+        }
     }
 
     function _getRequest(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
@@ -761,5 +792,5 @@ contract OptimisticOracleV2 is
      * bottom of contract to make sure its always at the end of storage.
      * See https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable#storage-gaps
      */
-    uint256[998] private __gap;
+    uint256[997] private __gap;
 }
