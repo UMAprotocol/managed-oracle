@@ -539,7 +539,7 @@ contract OptimisticOracleV2 is
     }
 
     /**
-     * @notice Claims the settle payout for a given currency and repayment address.
+     * @notice Claims the settle payout for a given currency to the provided repayment address.
      * @dev This is used to claim settle payouts that were accrued due to failed transfer call. Only can be called by
      * the original settle recipient (proposer or disputer).
      * @param currency ERC20 token used for the settle payout.
