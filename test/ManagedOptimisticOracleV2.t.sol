@@ -24,60 +24,10 @@ import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-contract MockStore is StoreInterface {
-    mapping(address => uint256) public finalFeeByCurrency;
-
-    function setFinalFee(address currency, uint256 amount) external {
-        finalFeeByCurrency[currency] = amount;
-    }
-
-    function payOracleFees() external payable {}
-
-    function payOracleFeesErc20(address, /*erc20Address*/ FixedPointInterface.Unsigned calldata /*amount*/ ) external {}
-
-    function computeRegularFee(uint256, uint256, FixedPointInterface.Unsigned calldata)
-        external
-        pure
-        returns (FixedPointInterface.Unsigned memory regularFee, FixedPointInterface.Unsigned memory latePenalty)
-    {
-        regularFee = FixedPointInterface.Unsigned({rawValue: 0});
-        latePenalty = FixedPointInterface.Unsigned({rawValue: 0});
-    }
-
-    function computeFinalFee(address currency) external view returns (FixedPointInterface.Unsigned memory) {
-        return FixedPointInterface.Unsigned({rawValue: finalFeeByCurrency[currency]});
-    }
-}
-
-contract MockIdentifierWhitelist is IdentifierWhitelistInterface {
-    mapping(bytes32 => bool) public supported;
-
-    function addSupportedIdentifier(bytes32 identifier) external override {
-        supported[identifier] = true;
-    }
-
-    function removeSupportedIdentifier(bytes32 identifier) external override {
-        supported[identifier] = false;
-    }
-
-    function isIdentifierSupported(bytes32 identifier) external view override returns (bool) {
-        return supported[identifier];
-    }
-}
-
-contract MockFinder is FinderInterface {
-    mapping(bytes32 => address) public interfacesImplemented;
-
-    function changeImplementationAddress(bytes32 interfaceName, address implementationAddress) external override {
-        interfacesImplemented[interfaceName] = implementationAddress;
-    }
-
-    function getImplementationAddress(bytes32 interfaceName) external view override returns (address) {
-        address implementationAddress = interfacesImplemented[interfaceName];
-        require(implementationAddress != address(0), "Implementation not found");
-        return implementationAddress;
-    }
-}
+// Import shared mocks
+import {MockStore} from "./mocks/MockStore.sol";
+import {MockIdentifierWhitelist} from "./mocks/MockIdentifierWhitelist.sol";
+import {MockFinder} from "./mocks/MockFinder.sol";
 
 contract ManagedOptimisticOracleV2Test is Test {
     // Actors (assigned via makeAddr in setUp for clarity and determinism)
