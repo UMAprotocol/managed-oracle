@@ -41,6 +41,8 @@ abstract contract OptimisticOracleV2Interface {
     error RequestNotSettleable();
     /// @notice Thrown when trying to claim a non-existent settle payout.
     error NoSettlePayoutToClaim();
+    /// @notice Thrown when settle claim repayment address is zero.
+    error RepaymentAddressCannotBeZero();
 
     event RequestPrice(
         address indexed requester,

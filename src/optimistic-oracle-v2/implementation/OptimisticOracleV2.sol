@@ -546,6 +546,7 @@ contract OptimisticOracleV2 is
      * @param repaymentAddress address to which the payout will be sent.
      */
     function claimSettlePayout(IERC20 currency, address repaymentAddress) external {
+        if (repaymentAddress == address(0)) revert RepaymentAddressCannotBeZero();
         address settleRecipient = msg.sender;
         uint256 amount = accruedSettlePayouts[currency][settleRecipient];
         if (amount == 0) revert NoSettlePayoutToClaim();
