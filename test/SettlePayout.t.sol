@@ -629,6 +629,20 @@ contract SettlePayoutTest is Test {
         oo.claimSettlePayout(newToken, proposer);
     }
 
+    function testClaimSettlePayoutWithZeroRepaymentAddress() public {
+        // First create some accrued payout
+        uint256 timestamp = _makeRequest(blacklistToken);
+        _proposePrice(blacklistToken, timestamp, 100);
+        blacklistToken.setBlacklisted(proposer, true);
+        vm.warp(block.timestamp + LIVENESS + 1);
+        oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
+
+        // Try to claim payout with zero address as repayment address
+        vm.expectRevert(OptimisticOracleV2Interface.RepaymentAddressCannotBeZero.selector);
+        vm.prank(proposer);
+        oo.claimSettlePayout(blacklistToken, address(0));
+    }
+
     function testAccumulatingMultipleSettlements() public {
         // First settlement
         uint256 timestamp1 = _makeRequest(blacklistToken);
