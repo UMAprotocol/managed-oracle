@@ -151,12 +151,12 @@ contract SettlePayoutTest is Test {
         oo.requestPrice(IDENTIFIER, timestamp, ANCILLARY_DATA, currency, REWARD);
     }
 
-    function _proposePrice(IERC20 currency, uint256 timestamp, int256 price) internal {
+    function _proposePrice(uint256 timestamp, int256 price) internal {
         vm.prank(proposer);
         oo.proposePrice(requester, IDENTIFIER, timestamp, ANCILLARY_DATA, price);
     }
 
-    function _disputePrice(IERC20 currency, uint256 timestamp) internal {
+    function _disputePrice(uint256 timestamp) internal {
         vm.prank(disputer);
         oo.disputePrice(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
     }
@@ -165,7 +165,7 @@ contract SettlePayoutTest is Test {
 
     function testExpiredSettlementWithBlacklistedProposer() public {
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist the proposer before settlement
         blacklistToken.setBlacklisted(proposer, true);
@@ -192,8 +192,8 @@ contract SettlePayoutTest is Test {
 
     function testDisputedSettlementWithBlacklistedWinner() public {
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
-        _disputePrice(blacklistToken, timestamp);
+        _proposePrice(timestamp, 100);
+        _disputePrice(timestamp);
 
         // Mock DVM resolution (disputer wins) - set a different price than proposed
         // Use the stamped ancillary data that the oracle will check
@@ -224,7 +224,7 @@ contract SettlePayoutTest is Test {
 
     function testClaimSettlePayoutToSameAddress() public {
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
@@ -254,7 +254,7 @@ contract SettlePayoutTest is Test {
 
     function testClaimSettlePayoutToDifferentAddress() public {
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
@@ -286,7 +286,7 @@ contract SettlePayoutTest is Test {
 
     function testExpiredSettlementWithRevertingReasonToken() public {
         uint256 timestamp = _makeRequest(revertingReasonToken);
-        _proposePrice(revertingReasonToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist the proposer before settlement
         revertingReasonToken.setBlacklisted(proposer, true);
@@ -306,7 +306,7 @@ contract SettlePayoutTest is Test {
 
     function testClaimSettlePayoutWithRevertingReasonToken() public {
         uint256 timestamp = _makeRequest(revertingReasonToken);
-        _proposePrice(revertingReasonToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist proposer and settle
         revertingReasonToken.setBlacklisted(proposer, true);
@@ -335,7 +335,7 @@ contract SettlePayoutTest is Test {
 
     function testExpiredSettlementWithRevertingToken() public {
         uint256 timestamp = _makeRequest(revertingToken);
-        _proposePrice(revertingToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist the proposer before settlement
         revertingToken.setBlacklisted(proposer, true);
@@ -355,7 +355,7 @@ contract SettlePayoutTest is Test {
 
     function testClaimSettlePayoutWithRevertingToken() public {
         uint256 timestamp = _makeRequest(revertingToken);
-        _proposePrice(revertingToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist proposer and settle
         revertingToken.setBlacklisted(proposer, true);
@@ -383,14 +383,14 @@ contract SettlePayoutTest is Test {
     function testMultipleCurrenciesAccruedPayouts() public {
         // Test with blacklist token
         uint256 timestamp1 = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp1, 100);
+        _proposePrice(timestamp1, 100);
         blacklistToken.setBlacklisted(proposer, true);
         vm.warp(block.timestamp + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp1, ANCILLARY_DATA);
 
         // Test with reverting token
         uint256 timestamp2 = _makeRequest(revertingReasonToken);
-        _proposePrice(revertingReasonToken, timestamp2, 200);
+        _proposePrice(timestamp2, 200);
         revertingReasonToken.setBlacklisted(proposer, true);
         vm.warp(block.timestamp + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp2, ANCILLARY_DATA);
@@ -417,7 +417,7 @@ contract SettlePayoutTest is Test {
     function testMultipleRecipientsAccruedPayouts() public {
         // First request - proposer gets blacklisted
         uint256 timestamp1 = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp1, 100);
+        _proposePrice(timestamp1, 100);
         blacklistToken.setBlacklisted(proposer, true);
         vm.warp(block.timestamp + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp1, ANCILLARY_DATA);
@@ -426,8 +426,8 @@ contract SettlePayoutTest is Test {
         // Unblacklist proposer first
         blacklistToken.setBlacklisted(proposer, false);
         uint256 timestamp2 = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp2, 200);
-        _disputePrice(blacklistToken, timestamp2);
+        _proposePrice(timestamp2, 200);
+        _disputePrice(timestamp2);
 
         // Set oracle price for disputed settlement
         bytes memory stampedAncillary2 = oo.stampAncillaryData(ANCILLARY_DATA, requester);
@@ -460,7 +460,7 @@ contract SettlePayoutTest is Test {
 
     function testExpiredSettlementHappyPath() public {
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Fast forward to expiration
         vm.warp(block.timestamp + LIVENESS + 1);
@@ -482,8 +482,8 @@ contract SettlePayoutTest is Test {
 
     function testDisputedSettlementHappyPathProposerWins() public {
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
-        _disputePrice(blacklistToken, timestamp);
+        _proposePrice(timestamp, 100);
+        _disputePrice(timestamp);
 
         // Mock DVM resolution (proposer wins) - set the same price as proposed
         bytes memory stampedAncillary = oo.stampAncillaryData(ANCILLARY_DATA, requester);
@@ -511,8 +511,8 @@ contract SettlePayoutTest is Test {
 
     function testDisputedSettlementHappyPathDisputerWins() public {
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
-        _disputePrice(blacklistToken, timestamp);
+        _proposePrice(timestamp, 100);
+        _disputePrice(timestamp);
 
         // Mock DVM resolution (disputer wins) - set a different price than proposed
         bytes memory stampedAncillary = oo.stampAncillaryData(ANCILLARY_DATA, requester);
@@ -540,7 +540,7 @@ contract SettlePayoutTest is Test {
 
     function testHappyPathWithRevertingReasonToken() public {
         uint256 timestamp = _makeRequest(revertingReasonToken);
-        _proposePrice(revertingReasonToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Fast forward to expiration
         vm.warp(block.timestamp + LIVENESS + 1);
@@ -562,7 +562,7 @@ contract SettlePayoutTest is Test {
 
     function testHappyPathWithRevertingToken() public {
         uint256 timestamp = _makeRequest(revertingToken);
-        _proposePrice(revertingToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Fast forward to expiration
         vm.warp(block.timestamp + LIVENESS + 1);
@@ -590,7 +590,7 @@ contract SettlePayoutTest is Test {
         vm.prank(requester);
         oo.setBond(IDENTIFIER, timestamp, ANCILLARY_DATA, customBond);
 
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Fast forward to expiration
         vm.warp(block.timestamp + LIVENESS + 1);
@@ -632,7 +632,7 @@ contract SettlePayoutTest is Test {
     function testClaimSettlePayoutWithZeroRepaymentAddress() public {
         // First create some accrued payout
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
         blacklistToken.setBlacklisted(proposer, true);
         vm.warp(block.timestamp + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
@@ -646,7 +646,7 @@ contract SettlePayoutTest is Test {
     function testAccumulatingMultipleSettlements() public {
         // First settlement
         uint256 timestamp1 = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp1, 100);
+        _proposePrice(timestamp1, 100);
         blacklistToken.setBlacklisted(proposer, true);
         vm.warp(block.timestamp + LIVENESS + 1);
         vm.prank(requester);
@@ -660,7 +660,7 @@ contract SettlePayoutTest is Test {
         // Unblacklist proposer for the second request
         blacklistToken.setBlacklisted(proposer, false);
         uint256 timestamp2 = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp2, 200);
+        _proposePrice(timestamp2, 200);
         // Blacklist proposer again before settlement
         blacklistToken.setBlacklisted(proposer, true);
         vm.warp(block.timestamp + LIVENESS + 1);
@@ -679,7 +679,7 @@ contract SettlePayoutTest is Test {
 
     function testSettlePayoutAccruedEvent() public {
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
@@ -694,7 +694,7 @@ contract SettlePayoutTest is Test {
 
     function testClaimedSettlePayoutEvent() public {
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
@@ -718,7 +718,7 @@ contract SettlePayoutTest is Test {
     function testFullWorkflowWithBlacklistRecovery() public {
         // 1. Make request and propose
         uint256 timestamp = _makeRequest(blacklistToken);
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // 2. Blacklist proposer before settlement
         blacklistToken.setBlacklisted(proposer, true);
@@ -754,7 +754,7 @@ contract SettlePayoutTest is Test {
         vm.prank(requester);
         oo.setBond(IDENTIFIER, timestamp, ANCILLARY_DATA, customBond);
 
-        _proposePrice(blacklistToken, timestamp, 100);
+        _proposePrice(timestamp, 100);
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
