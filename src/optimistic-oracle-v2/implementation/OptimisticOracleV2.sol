@@ -540,7 +540,7 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Claims the deferred payout for a given currency to the provided repayment address.
-     * @dev This is used to claim reward refund or settle payouts that were accrued due to failed transfer call. Only
+     * @dev This is used to claim reward refund or settle payouts that were deferred due to failed transfer call. Only
      * can be called by the original recipient.
      * @param currency ERC20 token used for the deferred payout.
      * @param repaymentAddress address to which the payout will be sent (can be different from the deferred recipient).
