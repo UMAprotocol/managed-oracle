@@ -334,6 +334,13 @@ abstract contract OptimisticOracleV2Interface {
         returns (uint256 payout);
 
     /**
+     * @notice Claims the deferred payout for a given currency to the provided repayment address.
+     * @param currency ERC20 token used for the deferred payout.
+     * @param repaymentAddress address to which the payout will be sent (can be different from the deferred recipient).
+     */
+    function claimDeferredPayout(IERC20 currency, address repaymentAddress) external virtual;
+
+    /**
      * @notice Gets the current data structure containing all information about a price request.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
