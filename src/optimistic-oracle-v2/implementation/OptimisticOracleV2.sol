@@ -545,7 +545,7 @@ contract OptimisticOracleV2 is
      * @param currency ERC20 token used for the deferred payout.
      * @param repaymentAddress address to which the payout will be sent (can be different from the deferred recipient).
      */
-    function claimDeferredPayout(IERC20 currency, address repaymentAddress) external override {
+    function claimDeferredPayout(IERC20 currency, address repaymentAddress) external override nonReentrant {
         if (repaymentAddress == address(0)) revert RepaymentAddressCannotBeZero();
         address deferredRecipient = msg.sender;
         uint256 amount = deferredPayouts[currency][deferredRecipient];
