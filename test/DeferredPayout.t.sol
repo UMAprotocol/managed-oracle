@@ -772,4 +772,80 @@ contract DeferredPayoutTest is Test {
         uint256 accruedAmount = oo.deferredPayouts(blacklistToken, proposer);
         assertEq(accruedAmount, expectedPayout);
     }
+
+    // -------------------- Reward Refund Repayment Tests -------------
+
+    function testRewardRefundRepaymentHappyPath() public {
+        uint256 timestamp = _makeRequest(blacklistToken);
+
+        // Set refund on dispute
+        vm.prank(requester);
+        oo.setRefundOnDispute(IDENTIFIER, timestamp, ANCILLARY_DATA);
+
+        _proposePrice(timestamp, 100);
+
+        // Check balances before dispute
+        uint256 requesterBalanceBefore = blacklistToken.balanceOf(requester);
+        uint256 contractBalanceBefore = blacklistToken.balanceOf(address(oo));
+
+        _disputePrice(timestamp);
+
+        // The refund should be the reward amount
+        uint256 expectedRefund = REWARD;
+
+        // Check balances - requester should receive refund directly
+        assertEq(blacklistToken.balanceOf(requester), requesterBalanceBefore + expectedRefund);
+        // Contract balance should increase by disputer's bond but decrease by refund
+        assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore + TOTAL_BOND - expectedRefund);
+
+        // Check no deferred payout for requester
+        assertEq(oo.deferredPayouts(blacklistToken, requester), 0);
+    }
+
+    function testRewardRefundRepaymentWithBlacklistedRequester() public {
+        uint256 timestamp = _makeRequest(blacklistToken);
+
+        // Set refund on dispute
+        vm.prank(requester);
+        oo.setRefundOnDispute(IDENTIFIER, timestamp, ANCILLARY_DATA);
+
+        _proposePrice(timestamp, 100);
+
+        // Blacklist the requester before dispute
+        blacklistToken.setBlacklisted(requester, true);
+
+        // Check balances before dispute
+        uint256 requesterBalanceBefore = blacklistToken.balanceOf(requester);
+        uint256 contractBalanceBefore = blacklistToken.balanceOf(address(oo));
+
+        _disputePrice(timestamp);
+
+        // The refund should be the reward amount
+        uint256 expectedRefund = REWARD;
+
+        // Check balances - requester should not receive tokens directly
+        assertEq(blacklistToken.balanceOf(requester), requesterBalanceBefore);
+        assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore + TOTAL_BOND);
+
+        // Check deferred payout
+        assertEq(oo.deferredPayouts(blacklistToken, requester), expectedRefund);
+
+        // Remove blacklist and claim
+        blacklistToken.setBlacklisted(requester, false);
+
+        uint256 requesterBalanceBeforeClaim = blacklistToken.balanceOf(requester);
+        uint256 contractBalanceBeforeClaim = blacklistToken.balanceOf(address(oo));
+
+        vm.expectEmit(true, true, true, true);
+        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(
+            address(blacklistToken), requester, requester, expectedRefund
+        );
+        vm.prank(requester);
+        oo.claimDeferredPayout(blacklistToken, requester);
+
+        // Check balances after claim
+        assertEq(blacklistToken.balanceOf(requester), requesterBalanceBeforeClaim + expectedRefund);
+        assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBeforeClaim - expectedRefund);
+        assertEq(oo.deferredPayouts(blacklistToken, requester), 0);
+    }
 }
