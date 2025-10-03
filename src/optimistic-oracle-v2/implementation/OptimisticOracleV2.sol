@@ -91,10 +91,10 @@ contract OptimisticOracleV2 is
     uint256 public constant OO_ANCILLARY_DATA_LIMIT = ancillaryBytesLimit - MAX_ADDED_ANCILLARY_DATA;
     int256 public constant TOO_EARLY_RESPONSE = type(int256).min;
 
-    // Mapping of collateral currency to settle recipient (proposer or disputer) and to their outstanding settle
-    // payouts. Used when settle payout fails for some reason (e.g. the recipient is blacklisted) to track their
-    // outstanding liability, thereby letting them claim it later.
-    mapping(IERC20 currency => mapping(address settleRecipient => uint256)) public accruedSettlePayouts;
+    // Mapping of collateral currency to deferred payout recipient and to their outstanding payouts. Used when reward
+    // refund or settle payout fails for some reason (e.g. the recipient is blacklisted) to track their outstanding
+    // liability, thereby letting them claim it later.
+    mapping(IERC20 currency => mapping(address deferredRecipient => uint256)) public deferredPayouts;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -464,7 +464,7 @@ contract OptimisticOracleV2 is
         if (request.reward > 0 && request.requestSettings.refundOnDispute) {
             refund = request.reward;
             request.reward = 0;
-            request.currency.safeTransfer(requester, refund);
+            _transferOrDeferPayout(request.currency, requester, refund);
         }
 
         emit DisputePrice(
@@ -539,21 +539,21 @@ contract OptimisticOracleV2 is
     }
 
     /**
-     * @notice Claims the settle payout for a given currency to the provided repayment address.
-     * @dev This is used to claim settle payouts that were accrued due to failed transfer call. Only can be called by
-     * the original settle recipient (proposer or disputer).
-     * @param currency ERC20 token used for the settle payout.
-     * @param repaymentAddress address to which the payout will be sent.
+     * @notice Claims the deferred payout for a given currency to the provided repayment address.
+     * @dev This is used to claim reward refund or settle payouts that were accrued due to failed transfer call. Only
+     * can be called by the original recipient.
+     * @param currency ERC20 token used for the deferred payout.
+     * @param repaymentAddress address to which the payout will be sent (can be different from the deferred recipient).
      */
-    function claimSettlePayout(IERC20 currency, address repaymentAddress) external {
+    function claimDeferredPayout(IERC20 currency, address repaymentAddress) external {
         if (repaymentAddress == address(0)) revert RepaymentAddressCannotBeZero();
-        address settleRecipient = msg.sender;
-        uint256 amount = accruedSettlePayouts[currency][settleRecipient];
-        if (amount == 0) revert NoSettlePayoutToClaim();
-        accruedSettlePayouts[currency][settleRecipient] = 0;
+        address deferredRecipient = msg.sender;
+        uint256 amount = deferredPayouts[currency][deferredRecipient];
+        if (amount == 0) revert NoDeferredPayoutToClaim();
+        deferredPayouts[currency][deferredRecipient] = 0;
         currency.safeTransfer(repaymentAddress, amount);
 
-        emit ClaimedSettlePayout(address(currency), settleRecipient, repaymentAddress, amount);
+        emit ClaimedDeferredPayout(address(currency), deferredRecipient, repaymentAddress, amount);
     }
 
     /**
@@ -648,7 +648,7 @@ contract OptimisticOracleV2 is
             // In the expiry case, just pay back the proposer's bond and final fee along with the reward.
             request.resolvedPrice = request.proposedPrice;
             payout = request.requestSettings.bond + request.finalFee + request.reward;
-            _trySettlePayout(request.currency, request.proposer, payout);
+            _transferOrDeferPayout(request.currency, request.proposer, payout);
         } else if (state == State.Resolved) {
             // In the Resolved case, pay either the disputer or the proposer the entire payout (+ bond and reward).
             request.resolvedPrice = _getOracle().getPrice(
@@ -668,7 +668,7 @@ contract OptimisticOracleV2 is
             // - Their final fee back.
             // - The request reward (if not already refunded -- if refunded, it will be set to 0).
             payout = bond + unburnedBond + request.finalFee + request.reward;
-            _trySettlePayout(request.currency, disputeSuccess ? request.disputer : request.proposer, payout);
+            _transferOrDeferPayout(request.currency, disputeSuccess ? request.disputer : request.proposer, payout);
         } else {
             revert RequestNotSettleable();
         }
@@ -693,12 +693,12 @@ contract OptimisticOracleV2 is
         _endReentrantGuardDisabled();
     }
 
-    // Attempts to transfer a settle payout for a recipient. If the payout fails, it accrues the payout amount to the
-    // recipient for later claiming.
-    function _trySettlePayout(IERC20 currency, address recipient, uint256 amount) private {
+    // Attempts to transfer a payout for a recipient. If the payout fails, it accrues the payout amount to the recipient
+    // for later claiming.
+    function _transferOrDeferPayout(IERC20 currency, address recipient, uint256 amount) private {
         if (!currency.trySafeTransfer(recipient, amount)) {
-            accruedSettlePayouts[currency][recipient] += amount;
-            emit SettlePayoutAccrued(address(currency), recipient, amount);
+            deferredPayouts[currency][recipient] += amount;
+            emit PayoutDeferred(address(currency), recipient, amount);
         }
     }
 

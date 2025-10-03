@@ -28,7 +28,7 @@ import {BlacklistERC20Mock} from "./mocks/BlacklistERC20Mock.sol";
 import {RevertingReasonBlacklistERC20Mock} from "./mocks/RevertingReasonBlacklistERC20Mock.sol";
 import {RevertingBlacklistERC20Mock} from "./mocks/RevertingBlacklistERC20Mock.sol";
 
-contract SettlePayoutTest is Test {
+contract DeferredPayoutTest is Test {
     // Actors
     address internal upgradeAdmin;
     address internal requester;
@@ -179,15 +179,15 @@ contract SettlePayoutTest is Test {
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.SettlePayoutAccrued(address(blacklistToken), proposer, expectedPayout);
+        emit OptimisticOracleV2Interface.PayoutDeferred(address(blacklistToken), proposer, expectedPayout);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         // Check balances - proposer should not receive tokens directly
         assertEq(blacklistToken.balanceOf(proposer), proposerBalanceBefore);
         assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore);
 
-        // Check accrued payout
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), expectedPayout);
+        // Check deferred payout
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), expectedPayout);
     }
 
     function testDisputedSettlementWithBlacklistedWinner() public {
@@ -211,18 +211,18 @@ contract SettlePayoutTest is Test {
 
         uint256 expectedPayout = TOTAL_BOND + REWARD + DEFAULT_BOND / 2;
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.SettlePayoutAccrued(address(blacklistToken), disputer, expectedPayout);
+        emit OptimisticOracleV2Interface.PayoutDeferred(address(blacklistToken), disputer, expectedPayout);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         // Check balances - disputer should not receive tokens directly
         assertEq(blacklistToken.balanceOf(disputer), disputerBalanceBefore);
         assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore);
 
-        // Check accrued payout
-        assertEq(oo.accruedSettlePayouts(blacklistToken, disputer), expectedPayout);
+        // Check deferred payout
+        assertEq(oo.deferredPayouts(blacklistToken, disputer), expectedPayout);
     }
 
-    function testClaimSettlePayoutToSameAddress() public {
+    function testSettleClaimDeferredPayoutToSameAddress() public {
         uint256 timestamp = _makeRequest(blacklistToken);
         _proposePrice(timestamp, 100);
 
@@ -232,7 +232,7 @@ contract SettlePayoutTest is Test {
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
-        uint256 accruedAmount = oo.accruedSettlePayouts(blacklistToken, proposer);
+        uint256 accruedAmount = oo.deferredPayouts(blacklistToken, proposer);
         assertEq(accruedAmount, expectedPayout);
 
         // Remove blacklist and claim
@@ -242,17 +242,17 @@ contract SettlePayoutTest is Test {
         uint256 contractBalanceBefore = blacklistToken.balanceOf(address(oo));
 
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.ClaimedSettlePayout(address(blacklistToken), proposer, proposer, accruedAmount);
+        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(address(blacklistToken), proposer, proposer, accruedAmount);
         vm.prank(proposer);
-        oo.claimSettlePayout(blacklistToken, proposer);
+        oo.claimDeferredPayout(blacklistToken, proposer);
 
         // Check balances
         assertEq(blacklistToken.balanceOf(proposer), proposerBalanceBefore + accruedAmount);
         assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - accruedAmount);
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
     }
 
-    function testClaimSettlePayoutToDifferentAddress() public {
+    function testSettleClaimDeferredPayoutToDifferentAddress() public {
         uint256 timestamp = _makeRequest(blacklistToken);
         _proposePrice(timestamp, 100);
 
@@ -262,7 +262,7 @@ contract SettlePayoutTest is Test {
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
-        uint256 accruedAmount = oo.accruedSettlePayouts(blacklistToken, proposer);
+        uint256 accruedAmount = oo.deferredPayouts(blacklistToken, proposer);
         assertEq(accruedAmount, expectedPayout);
 
         // Claim to different address
@@ -270,16 +270,16 @@ contract SettlePayoutTest is Test {
         uint256 contractBalanceBefore = blacklistToken.balanceOf(address(oo));
 
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.ClaimedSettlePayout(
+        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(
             address(blacklistToken), proposer, otherAddress, accruedAmount
         );
         vm.prank(proposer);
-        oo.claimSettlePayout(blacklistToken, otherAddress);
+        oo.claimDeferredPayout(blacklistToken, otherAddress);
 
         // Check balances
         assertEq(blacklistToken.balanceOf(otherAddress), otherBalanceBefore + accruedAmount);
         assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - accruedAmount);
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
     }
 
     // -------------------- Reverting Token Tests (Reverts on transfer with a reason) ------
@@ -297,14 +297,14 @@ contract SettlePayoutTest is Test {
         // Settlement should succeed but payout should be accrued
         uint256 expectedPayout = TOTAL_BOND + REWARD;
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.SettlePayoutAccrued(address(revertingReasonToken), proposer, expectedPayout);
+        emit OptimisticOracleV2Interface.PayoutDeferred(address(revertingReasonToken), proposer, expectedPayout);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
-        // Check accrued payout
-        assertEq(oo.accruedSettlePayouts(revertingReasonToken, proposer), expectedPayout);
+        // Check deferred payout
+        assertEq(oo.deferredPayouts(revertingReasonToken, proposer), expectedPayout);
     }
 
-    function testClaimSettlePayoutWithRevertingReasonToken() public {
+    function testSettleClaimDeferredPayoutWithRevertingReasonToken() public {
         uint256 timestamp = _makeRequest(revertingReasonToken);
         _proposePrice(timestamp, 100);
 
@@ -314,21 +314,21 @@ contract SettlePayoutTest is Test {
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
-        uint256 accruedAmount = oo.accruedSettlePayouts(revertingReasonToken, proposer);
+        uint256 accruedAmount = oo.deferredPayouts(revertingReasonToken, proposer);
         assertEq(accruedAmount, expectedPayout);
 
         // Remove blacklist and claim
         revertingReasonToken.setBlacklisted(proposer, false);
 
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.ClaimedSettlePayout(
+        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(
             address(revertingReasonToken), proposer, proposer, accruedAmount
         );
         vm.prank(proposer);
-        oo.claimSettlePayout(revertingReasonToken, proposer);
+        oo.claimDeferredPayout(revertingReasonToken, proposer);
 
         // Check that payout was claimed
-        assertEq(oo.accruedSettlePayouts(revertingReasonToken, proposer), 0);
+        assertEq(oo.deferredPayouts(revertingReasonToken, proposer), 0);
     }
 
     // -------------------- Reverting Token Tests (Reverts on transfer without a reason) ---
@@ -346,14 +346,14 @@ contract SettlePayoutTest is Test {
         // Settlement should succeed but payout should be accrued
         uint256 expectedPayout = TOTAL_BOND + REWARD;
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.SettlePayoutAccrued(address(revertingToken), proposer, expectedPayout);
+        emit OptimisticOracleV2Interface.PayoutDeferred(address(revertingToken), proposer, expectedPayout);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
-        // Check accrued payout
-        assertEq(oo.accruedSettlePayouts(revertingToken, proposer), expectedPayout);
+        // Check deferred payout
+        assertEq(oo.deferredPayouts(revertingToken, proposer), expectedPayout);
     }
 
-    function testClaimSettlePayoutWithRevertingToken() public {
+    function testSettleClaimDeferredPayoutWithRevertingToken() public {
         uint256 timestamp = _makeRequest(revertingToken);
         _proposePrice(timestamp, 100);
 
@@ -363,19 +363,19 @@ contract SettlePayoutTest is Test {
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
-        uint256 accruedAmount = oo.accruedSettlePayouts(revertingToken, proposer);
+        uint256 accruedAmount = oo.deferredPayouts(revertingToken, proposer);
         assertEq(accruedAmount, expectedPayout);
 
         // Remove blacklist and claim
         revertingToken.setBlacklisted(proposer, false);
 
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.ClaimedSettlePayout(address(revertingToken), proposer, proposer, accruedAmount);
+        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(address(revertingToken), proposer, proposer, accruedAmount);
         vm.prank(proposer);
-        oo.claimSettlePayout(revertingToken, proposer);
+        oo.claimDeferredPayout(revertingToken, proposer);
 
         // Check that payout was claimed
-        assertEq(oo.accruedSettlePayouts(revertingToken, proposer), 0);
+        assertEq(oo.deferredPayouts(revertingToken, proposer), 0);
     }
 
     // -------------------- Multiple Currencies and Recipients Tests --------------------
@@ -395,23 +395,23 @@ contract SettlePayoutTest is Test {
         vm.warp(block.timestamp + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp2, ANCILLARY_DATA);
 
-        // Check both accrued payouts
+        // Check both deferred payouts
         uint256 expectedPayout = TOTAL_BOND + REWARD;
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), expectedPayout);
-        assertEq(oo.accruedSettlePayouts(revertingReasonToken, proposer), expectedPayout);
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), expectedPayout);
+        assertEq(oo.deferredPayouts(revertingReasonToken, proposer), expectedPayout);
 
         // Claim both
         blacklistToken.setBlacklisted(proposer, false);
         revertingReasonToken.setBlacklisted(proposer, false);
 
         vm.prank(proposer);
-        oo.claimSettlePayout(blacklistToken, proposer);
+        oo.claimDeferredPayout(blacklistToken, proposer);
         vm.prank(proposer);
-        oo.claimSettlePayout(revertingReasonToken, proposer);
+        oo.claimDeferredPayout(revertingReasonToken, proposer);
 
         // Check both are claimed
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
-        assertEq(oo.accruedSettlePayouts(revertingReasonToken, proposer), 0);
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
+        assertEq(oo.deferredPayouts(revertingReasonToken, proposer), 0);
     }
 
     function testMultipleRecipientsAccruedPayouts() public {
@@ -436,24 +436,24 @@ contract SettlePayoutTest is Test {
         blacklistToken.setBlacklisted(disputer, true);
         oo.settle(requester, IDENTIFIER, timestamp2, ANCILLARY_DATA);
 
-        // Check both accrued payouts
+        // Check both deferred payouts
         uint256 expectedProposerPayout = TOTAL_BOND + REWARD;
         uint256 expectedDisputerPayout = TOTAL_BOND + REWARD + DEFAULT_BOND / 2;
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), expectedProposerPayout);
-        assertEq(oo.accruedSettlePayouts(blacklistToken, disputer), expectedDisputerPayout);
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), expectedProposerPayout);
+        assertEq(oo.deferredPayouts(blacklistToken, disputer), expectedDisputerPayout);
 
         // Claim both
         blacklistToken.setBlacklisted(proposer, false);
         blacklistToken.setBlacklisted(disputer, false);
 
         vm.prank(proposer);
-        oo.claimSettlePayout(blacklistToken, proposer);
+        oo.claimDeferredPayout(blacklistToken, proposer);
         vm.prank(disputer);
-        oo.claimSettlePayout(blacklistToken, disputer);
+        oo.claimDeferredPayout(blacklistToken, disputer);
 
         // Check both are claimed
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
-        assertEq(oo.accruedSettlePayouts(blacklistToken, disputer), 0);
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
+        assertEq(oo.deferredPayouts(blacklistToken, disputer), 0);
     }
 
     // -------------------- Happy Path Tests (No Blacklist) --------------------
@@ -476,8 +476,8 @@ contract SettlePayoutTest is Test {
         assertEq(blacklistToken.balanceOf(proposer), proposerBalanceBefore + expectedPayout);
         assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
 
-        // Check no accrued payout
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
+        // Check no deferred payout
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
     }
 
     function testDisputedSettlementHappyPathProposerWins() public {
@@ -504,9 +504,9 @@ contract SettlePayoutTest is Test {
         assertEq(blacklistToken.balanceOf(disputer), disputerBalanceBefore); // disputer gets nothing
         assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
 
-        // Check no accrued payouts
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
-        assertEq(oo.accruedSettlePayouts(blacklistToken, disputer), 0);
+        // Check no deferred payouts
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
+        assertEq(oo.deferredPayouts(blacklistToken, disputer), 0);
     }
 
     function testDisputedSettlementHappyPathDisputerWins() public {
@@ -533,9 +533,9 @@ contract SettlePayoutTest is Test {
         assertEq(blacklistToken.balanceOf(disputer), disputerBalanceBefore + expectedPayout);
         assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
 
-        // Check no accrued payouts
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
-        assertEq(oo.accruedSettlePayouts(blacklistToken, disputer), 0);
+        // Check no deferred payouts
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
+        assertEq(oo.deferredPayouts(blacklistToken, disputer), 0);
     }
 
     function testHappyPathWithRevertingReasonToken() public {
@@ -556,8 +556,8 @@ contract SettlePayoutTest is Test {
         assertEq(revertingReasonToken.balanceOf(proposer), proposerBalanceBefore + expectedPayout);
         assertEq(revertingReasonToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
 
-        // Check no accrued payout
-        assertEq(oo.accruedSettlePayouts(revertingReasonToken, proposer), 0);
+        // Check no deferred payout
+        assertEq(oo.deferredPayouts(revertingReasonToken, proposer), 0);
     }
 
     function testHappyPathWithRevertingToken() public {
@@ -578,8 +578,8 @@ contract SettlePayoutTest is Test {
         assertEq(revertingToken.balanceOf(proposer), proposerBalanceBefore + expectedPayout);
         assertEq(revertingToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
 
-        // Check no accrued payout
-        assertEq(oo.accruedSettlePayouts(revertingToken, proposer), 0);
+        // Check no deferred payout
+        assertEq(oo.deferredPayouts(revertingToken, proposer), 0);
     }
 
     function testHappyPathWithCustomBond() public {
@@ -606,30 +606,30 @@ contract SettlePayoutTest is Test {
         assertEq(blacklistToken.balanceOf(proposer), proposerBalanceBefore + expectedPayout);
         assertEq(blacklistToken.balanceOf(address(oo)), contractBalanceBefore - expectedPayout);
 
-        // Check no accrued payout
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
+        // Check no deferred payout
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
     }
 
     // -------------------- Edge Cases and Error Tests --------------------
 
-    function testClaimSettlePayoutWithZeroAmount() public {
+    function testClaimDeferredPayoutWithZeroAmount() public {
         // Try to claim when no payout is accrued
-        vm.expectRevert(OptimisticOracleV2Interface.NoSettlePayoutToClaim.selector);
+        vm.expectRevert(OptimisticOracleV2Interface.NoDeferredPayoutToClaim.selector);
         vm.prank(proposer);
-        oo.claimSettlePayout(blacklistToken, proposer);
+        oo.claimDeferredPayout(blacklistToken, proposer);
     }
 
-    function testClaimSettlePayoutWithNonExistentCurrency() public {
+    function testClaimDeferredPayoutWithNonExistentCurrency() public {
         // Create a new token that's not whitelisted
         ERC20Mock newToken = new ERC20Mock();
 
         // Try to claim payout for non-existent currency
-        vm.expectRevert(OptimisticOracleV2Interface.NoSettlePayoutToClaim.selector);
+        vm.expectRevert(OptimisticOracleV2Interface.NoDeferredPayoutToClaim.selector);
         vm.prank(proposer);
-        oo.claimSettlePayout(newToken, proposer);
+        oo.claimDeferredPayout(newToken, proposer);
     }
 
-    function testClaimSettlePayoutWithZeroRepaymentAddress() public {
+    function testSettleClaimDeferredPayoutWithZeroRepaymentAddress() public {
         // First create some accrued payout
         uint256 timestamp = _makeRequest(blacklistToken);
         _proposePrice(timestamp, 100);
@@ -640,7 +640,7 @@ contract SettlePayoutTest is Test {
         // Try to claim payout with zero address as repayment address
         vm.expectRevert(OptimisticOracleV2Interface.RepaymentAddressCannotBeZero.selector);
         vm.prank(proposer);
-        oo.claimSettlePayout(blacklistToken, address(0));
+        oo.claimDeferredPayout(blacklistToken, address(0));
     }
 
     function testAccumulatingMultipleSettlements() public {
@@ -653,7 +653,7 @@ contract SettlePayoutTest is Test {
         oo.settle(requester, IDENTIFIER, timestamp1, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
-        uint256 firstAccrued = oo.accruedSettlePayouts(blacklistToken, proposer);
+        uint256 firstAccrued = oo.deferredPayouts(blacklistToken, proposer);
         assertEq(firstAccrued, expectedPayout);
 
         // Second settlement (before claiming first)
@@ -666,18 +666,18 @@ contract SettlePayoutTest is Test {
         vm.warp(block.timestamp + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp2, ANCILLARY_DATA);
 
-        uint256 secondAccrued = oo.accruedSettlePayouts(blacklistToken, proposer);
+        uint256 secondAccrued = oo.deferredPayouts(blacklistToken, proposer);
         assertEq(secondAccrued, firstAccrued + expectedPayout);
 
         // Claim all accumulated
         blacklistToken.setBlacklisted(proposer, false);
         vm.prank(proposer);
-        oo.claimSettlePayout(blacklistToken, proposer);
+        oo.claimDeferredPayout(blacklistToken, proposer);
 
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
     }
 
-    function testSettlePayoutAccruedEvent() public {
+    function testSettlePayoutDeferredEvent() public {
         uint256 timestamp = _makeRequest(blacklistToken);
         _proposePrice(timestamp, 100);
 
@@ -685,14 +685,14 @@ contract SettlePayoutTest is Test {
         blacklistToken.setBlacklisted(proposer, true);
         vm.warp(block.timestamp + LIVENESS + 1);
 
-        // Expect the SettlePayoutAccrued event
+        // Expect the PayoutDeferred event
         uint256 expectedPayout = TOTAL_BOND + REWARD;
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.SettlePayoutAccrued(address(blacklistToken), proposer, expectedPayout);
+        emit OptimisticOracleV2Interface.PayoutDeferred(address(blacklistToken), proposer, expectedPayout);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
     }
 
-    function testClaimedSettlePayoutEvent() public {
+    function testSettleClaimedDeferredPayoutEvent() public {
         uint256 timestamp = _makeRequest(blacklistToken);
         _proposePrice(timestamp, 100);
 
@@ -701,16 +701,16 @@ contract SettlePayoutTest is Test {
         vm.warp(block.timestamp + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
-        uint256 accruedAmount = oo.accruedSettlePayouts(blacklistToken, proposer);
+        uint256 accruedAmount = oo.deferredPayouts(blacklistToken, proposer);
 
         // Remove blacklist and claim
         blacklistToken.setBlacklisted(proposer, false);
 
-        // Expect the ClaimedSettlePayout event
+        // Expect the ClaimedDeferredPayout event
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.ClaimedSettlePayout(address(blacklistToken), proposer, proposer, accruedAmount);
+        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(address(blacklistToken), proposer, proposer, accruedAmount);
         vm.prank(proposer);
-        oo.claimSettlePayout(blacklistToken, proposer);
+        oo.claimDeferredPayout(blacklistToken, proposer);
     }
 
     // -------------------- Integration Tests --------------------
@@ -728,7 +728,7 @@ contract SettlePayoutTest is Test {
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
-        uint256 accruedAmount = oo.accruedSettlePayouts(blacklistToken, proposer);
+        uint256 accruedAmount = oo.deferredPayouts(blacklistToken, proposer);
         assertEq(accruedAmount, expectedPayout);
 
         // 4. Verify proposer can't receive tokens directly
@@ -738,12 +738,12 @@ contract SettlePayoutTest is Test {
         // 5. Remove blacklist and claim
         blacklistToken.setBlacklisted(proposer, false);
         vm.prank(proposer);
-        oo.claimSettlePayout(blacklistToken, proposer);
+        oo.claimDeferredPayout(blacklistToken, proposer);
 
         // 6. Verify final balance
         uint256 finalBalance = blacklistToken.balanceOf(proposer);
         assertEq(finalBalance, INITIAL_MINT + REWARD);
-        assertEq(oo.accruedSettlePayouts(blacklistToken, proposer), 0);
+        assertEq(oo.deferredPayouts(blacklistToken, proposer), 0);
     }
 
     function testSettlePayoutWithDifferentBondAmounts() public {
@@ -761,9 +761,9 @@ contract SettlePayoutTest is Test {
         vm.warp(block.timestamp + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
-        // Check accrued payout includes custom bond + final fee + reward
+        // Check deferred payout includes custom bond + final fee + reward
         uint256 expectedPayout = customBond + FINAL_FEE + REWARD;
-        uint256 accruedAmount = oo.accruedSettlePayouts(blacklistToken, proposer);
+        uint256 accruedAmount = oo.deferredPayouts(blacklistToken, proposer);
         assertEq(accruedAmount, expectedPayout);
     }
 }
