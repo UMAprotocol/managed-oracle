@@ -287,7 +287,7 @@ contract OptimisticOracleV2 is
      * 2. The proposer cannot propose the "too early" value (TOO_EARLY_RESPONSE). This is to ensure that a proposer who
      *    prematurely proposes a response loses their bond.
      *
-     * 3. RefundoOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
+     * 3. RefundOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
      *    the requesting contract.
      *
      * @param identifier price identifier to identify the existing request.
@@ -773,8 +773,8 @@ contract OptimisticOracleV2 is
     }
 
     /**
-     * @dev We don't handle specifically the case where `ancillaryData` is not already readily translateable in utf8.
-     * For those cases, we assume that the client will be able to strip out the utf8-translateable part of the
+     * @dev We don't handle specifically the case where `ancillaryData` is not already readily translatable in utf8.
+     * For those cases, we assume that the client will be able to strip out the utf8-translatable part of the
      * ancillary data that this contract stamps.
      */
     function _stampAncillaryData(bytes memory ancillaryData, address requester) private pure returns (bytes memory) {

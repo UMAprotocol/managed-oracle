@@ -206,7 +206,7 @@ abstract contract OptimisticOracleV2Interface {
      * 2. The proposer cannot propose the "too early" value (TOO_EARLY_RESPONSE). This is to ensure that a proposer who
      *    prematurely proposes a response loses their bond.
      *
-     * 3. RefundoOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
+     * 3. RefundOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
      *    the requesting contract.
      *
      * @param identifier price identifier to identify the existing request.
