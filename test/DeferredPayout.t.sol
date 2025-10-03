@@ -242,7 +242,9 @@ contract DeferredPayoutTest is Test {
         uint256 contractBalanceBefore = blacklistToken.balanceOf(address(oo));
 
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(address(blacklistToken), proposer, proposer, accruedAmount);
+        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(
+            address(blacklistToken), proposer, proposer, accruedAmount
+        );
         vm.prank(proposer);
         oo.claimDeferredPayout(blacklistToken, proposer);
 
@@ -370,7 +372,9 @@ contract DeferredPayoutTest is Test {
         revertingToken.setBlacklisted(proposer, false);
 
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(address(revertingToken), proposer, proposer, accruedAmount);
+        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(
+            address(revertingToken), proposer, proposer, accruedAmount
+        );
         vm.prank(proposer);
         oo.claimDeferredPayout(revertingToken, proposer);
 
@@ -708,7 +712,9 @@ contract DeferredPayoutTest is Test {
 
         // Expect the ClaimedDeferredPayout event
         vm.expectEmit(true, true, true, true);
-        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(address(blacklistToken), proposer, proposer, accruedAmount);
+        emit OptimisticOracleV2Interface.ClaimedDeferredPayout(
+            address(blacklistToken), proposer, proposer, accruedAmount
+        );
         vm.prank(proposer);
         oo.claimDeferredPayout(blacklistToken, proposer);
     }
