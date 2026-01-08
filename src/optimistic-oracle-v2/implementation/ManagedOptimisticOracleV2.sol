@@ -43,6 +43,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Request manager role is used to manage proposer whitelists, bonds, and liveness for individual requests.
     bytes32 public constant REQUEST_MANAGER_ROLE = keccak256("REQUEST_MANAGER_ROLE");
 
+    // Resolver role is used to permission the settlement of price requests.
+    bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
+
     // Default whitelist for proposers.
     AddressWhitelistInterface public defaultProposerWhitelist;
     AddressWhitelistInterface public requesterWhitelist;
@@ -62,6 +65,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     // Admin controlled minimum liveness that can be set by request managers.
     uint256 public minimumLiveness;
+
+    // Admin controlled minimum dispute window used in early resolutions.
+    uint256 public minimumDisputeWindow;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -106,6 +112,16 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Initializer for adding support for early resolutions.
+     * @param _minimumDisputeWindow minimum dispute window used in early resolutions.
+     */
+    function initializeV2(uint256 _minimumDisputeWindow) external reinitializer(2) onlyUpgradeAdmin {
+        _setRoleAdmin(RESOLVER_ROLE, CONFIG_ADMIN_ROLE);
+
+        _setMinimumDisputeWindow(_minimumDisputeWindow);
+    }
+
+    /**
      * @dev Throws if called by any account other than the config admin.
      */
     modifier onlyConfigAdmin() {
@@ -118,6 +134,14 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     modifier onlyRequestManager() {
         _checkRole(REQUEST_MANAGER_ROLE);
+        _;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the resolver.
+     */
+    modifier onlyResolver() {
+        _checkRole(RESOLVER_ROLE);
         _;
     }
 
@@ -137,6 +161,24 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function removeRequestManager(address requestManager) external nonReentrant {
         revokeRole(REQUEST_MANAGER_ROLE, requestManager);
+    }
+
+    /**
+     * @notice Adds a resolver.
+     * @dev Only callable by the config admin (checked in grantRole of AccessControlUpgradeable).
+     * @param resolver address of the resolver to set.
+     */
+    function addResolver(address resolver) external nonReentrant {
+        grantRole(RESOLVER_ROLE, resolver);
+    }
+
+    /**
+     * @notice Removes a resolver.
+     * @dev Only callable by the config admin (checked in revokeRole of AccessControlUpgradeable).
+     * @param resolver address of the resolver to remove.
+     */
+    function removeResolver(address resolver) external nonReentrant {
+        revokeRole(RESOLVER_ROLE, resolver);
     }
 
     /**
@@ -174,6 +216,14 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function setRequesterWhitelist(address whitelist) external nonReentrant onlyConfigAdmin {
         _setRequesterWhitelist(whitelist);
+    }
+
+    /**
+     * @notice Sets the minimum dispute window used in early resolutions.
+     * @param _minimumDisputeWindow new minimum dispute window period.
+     */
+    function setMinimumDisputeWindow(uint256 _minimumDisputeWindow) external nonReentrant onlyConfigAdmin {
+        _setMinimumDisputeWindow(_minimumDisputeWindow);
     }
 
     /**
@@ -306,6 +356,46 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Retrieves a price that was previously requested by a caller. Reverts if the request is not settled yet.
+     * @dev The naming of this method might be misleading as it does not actually settle the request, but it is required
+     * for compatibility with the overriden parent contract method and restrict the settlement to the resolver role.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return resolved price.
+     */
+    function settleAndGetPrice(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        external
+        override
+        nonReentrant
+        returns (int256)
+    {
+        require(_getState(msg.sender, identifier, timestamp, ancillaryData) == State.Settled, RequestNotSettled());
+
+        return _getRequest(msg.sender, identifier, timestamp, ancillaryData).resolvedPrice;
+    }
+
+    /**
+     * @notice Attempts to settle an outstanding price request. Will revert if it isn't settleable or called without
+     * the resolver privileges.
+     * @param requester sender of the initial price request.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return payout the amount that the "winner" (proposer or disputer) receives on settlement. This amount includes
+     * the returned bonds as well as additional rewards.
+     */
+    function settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        external
+        override
+        nonReentrant
+        onlyResolver
+        returns (uint256 payout)
+    {
+        return _settle(requester, identifier, timestamp, ancillaryData);
+    }
+
+    /**
      * @notice Gets the custom proposer whitelist for a request.
      * @dev This omits the timestamp from the key derivation, so the whitelist might have been set in advance of the
      * request.
@@ -406,6 +496,19 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Sets the minimum dispute window used in early resolutions.
+     * @dev Reverts if the minimum dispute window is larger than the default liveness or if it is 0.
+     * @param _minimumDisputeWindow new minimum dispute window period.
+     */
+    function _setMinimumDisputeWindow(uint256 _minimumDisputeWindow) private {
+        require(_minimumDisputeWindow <= defaultLiveness, MinimumDisputeWindowTooLarge());
+        require(_minimumDisputeWindow > 0, MinimumDisputeWindowCannotBeZero());
+
+        minimumDisputeWindow = _minimumDisputeWindow;
+        emit MinimumDisputeWindowUpdated(_minimumDisputeWindow);
+    }
+
+    /**
      * @notice Validates that the given address implements the AddressWhitelistInterface.
      * @dev Reverts if the address does not implement the interface.
      * @param whitelist address of the whitelist to validate.
@@ -463,10 +566,63 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Gets the state of a price request for settlement.
+     * @dev Overrides the parent method to allow early settlement by the permissioned resolver.
+     * @param requester The address that made the price request.
+     * @param identifier The identifier of the price request.
+     * @param timestamp The timestamp of the price request.
+     * @param ancillaryData Additional data used to uniquely identify the request.
+     * @return State of the price request in the context of a settlement.
+     */
+    function _getStateForSettle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        internal
+        view
+        override
+        returns (State)
+    {
+        State state = super._getState(requester, identifier, timestamp, ancillaryData);
+
+        // In order to support early settlement by the permissioned resolver we recalculate the expiration status based
+        // on the minimum dispute window for undisputed proposals.
+        if (state == State.Proposed) {
+            Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
+            uint256 customLiveness = request.requestSettings.customLiveness;
+            uint256 liveness = customLiveness != 0 ? customLiveness : defaultLiveness;
+            uint256 proposalTime = request.expirationTime - liveness;
+            state = proposalTime + minimumDisputeWindow <= getCurrentTime() ? State.Expired : State.Proposed;
+        }
+
+        return state;
+    }
+
+    /**
+     * @notice Gets the state of a price request.
+     * @dev Overrides the parent method to allow extending disputes till settlement.
+     * @param requester The address that made the price request.
+     * @param identifier The identifier of the price request.
+     * @param timestamp The timestamp of the price request.
+     * @param ancillaryData Additional data used to uniquely identify the request.
+     * @return State of the price request.
+     */
+    function _getState(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        internal
+        view
+        override
+        returns (State)
+    {
+        State state = super._getState(requester, identifier, timestamp, ancillaryData);
+
+        // As the settlement is permissioned, ignoring the expired state allows extending the disputes till settlement.
+        if (state == State.Expired) state = State.Proposed;
+
+        return state;
+    }
+
+    /**
      * @dev Reserve storage slots for future versions of this base contract to add state variables without affecting the
      * storage layout of child contracts. Decrement the size of __gap whenever state variables are added. This is at the
      * bottom of contract to make sure its always at the end of storage.
      * See https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable#storage-gaps
      */
-    uint256[993] private __gap;
+    uint256[992] private __gap;
 }

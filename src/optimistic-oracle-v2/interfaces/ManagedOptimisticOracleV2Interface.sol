@@ -27,11 +27,18 @@ abstract contract ManagedOptimisticOracleV2Interface {
     error UnsupportedWhitelistInterface();
     /// @notice Thrown when minimum bond is higher than maximum bond.
     error MinimumBondAboveMaximumBond();
+    /// @notice Thrown when minimum dispute window is larger than default liveness.
+    error MinimumDisputeWindowTooLarge();
+    /// @notice Thrown when minimum dispute window period cannot be zero.
+    error MinimumDisputeWindowCannotBeZero();
+    /// @notice Thrown in settleAndGetPrice if the request has not been settled by resolver.
+    error RequestNotSettled();
 
     event AllowedBondRangeUpdated(IERC20 indexed currency, uint256 newMinimumBond, uint256 newMaximumBond);
     event MinimumLivenessUpdated(uint256 newMinimumLiveness);
     event DefaultProposerWhitelistUpdated(address indexed newWhitelist);
     event RequesterWhitelistUpdated(address indexed newWhitelist);
+    event MinimumDisputeWindowUpdated(uint256 newMinimumDisputeWindow);
     event CustomBondSet(
         bytes32 indexed managedRequestId,
         address requester,
