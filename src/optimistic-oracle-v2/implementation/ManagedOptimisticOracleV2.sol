@@ -141,10 +141,10 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
-     * @dev Throws if called by any account other than the resolver.
+     * @dev Throws if called by any account other than the resolver if early resolver is enabled for the requester.
      */
-    modifier onlyResolver() {
-        _checkRole(RESOLVER_ROLE);
+    modifier onlyResolver(address requester) {
+        if (earlyResolverRequesters[requester]) _checkRole(RESOLVER_ROLE);
         _;
     }
 
@@ -394,7 +394,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Attempts to settle an outstanding price request. Will revert if it isn't settleable or called without
-     * the resolver privileges.
+     * the resolver privileges when early resolver is enabled for the requester.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
@@ -406,7 +406,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         external
         override
         nonReentrant
-        onlyResolver
+        onlyResolver(requester)
         returns (uint256 payout)
     {
         return _settle(requester, identifier, timestamp, ancillaryData);
