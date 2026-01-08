@@ -39,6 +39,10 @@ abstract contract OptimisticOracleV2Interface {
     error LivenessCannotBeZero();
     /// @notice Thrown when trying to settle a request that is not settleable.
     error RequestNotSettleable();
+    /// @notice Thrown when trying to claim a non-existent deferred payout.
+    error NoDeferredPayoutToClaim();
+    /// @notice Thrown when settle claim repayment address is zero.
+    error RepaymentAddressCannotBeZero();
 
     event RequestPrice(
         address indexed requester,
@@ -77,6 +81,10 @@ abstract contract OptimisticOracleV2Interface {
         bytes ancillaryData,
         int256 price,
         uint256 payout
+    );
+    event PayoutDeferred(address indexed currency, address indexed deferredRecipient, uint256 amount);
+    event ClaimedDeferredPayout(
+        address indexed currency, address indexed deferredRecipient, address indexed repaymentAddress, uint256 amount
     );
     // Struct representing the state of a price request.
 
@@ -198,7 +206,7 @@ abstract contract OptimisticOracleV2Interface {
      * 2. The proposer cannot propose the "too early" value (TOO_EARLY_RESPONSE). This is to ensure that a proposer who
      *    prematurely proposes a response loses their bond.
      *
-     * 3. RefundoOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
+     * 3. RefundOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
      *    the requesting contract.
      *
      * @param identifier price identifier to identify the existing request.
@@ -324,6 +332,13 @@ abstract contract OptimisticOracleV2Interface {
         external
         virtual
         returns (uint256 payout);
+
+    /**
+     * @notice Claims the deferred payout for a given currency to the provided repayment address.
+     * @param currency ERC20 token used for the deferred payout.
+     * @param repaymentAddress address to which the payout will be sent (can be different from the deferred recipient).
+     */
+    function claimDeferredPayout(IERC20 currency, address repaymentAddress) external virtual;
 
     /**
      * @notice Gets the current data structure containing all information about a price request.

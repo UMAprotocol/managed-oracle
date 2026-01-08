@@ -91,6 +91,11 @@ contract OptimisticOracleV2 is
     uint256 public constant OO_ANCILLARY_DATA_LIMIT = ancillaryBytesLimit - MAX_ADDED_ANCILLARY_DATA;
     int256 public constant TOO_EARLY_RESPONSE = type(int256).min;
 
+    // Mapping of collateral currency to deferred payout recipient and to their outstanding payouts. Used when reward
+    // refund or settle payout fails for some reason (e.g. the recipient is blacklisted) to track their outstanding
+    // liability, thereby letting them claim it later.
+    mapping(IERC20 currency => mapping(address deferredRecipient => uint256)) public deferredPayouts;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -282,7 +287,7 @@ contract OptimisticOracleV2 is
      * 2. The proposer cannot propose the "too early" value (TOO_EARLY_RESPONSE). This is to ensure that a proposer who
      *    prematurely proposes a response loses their bond.
      *
-     * 3. RefundoOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
+     * 3. RefundOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
      *    the requesting contract.
      *
      * @param identifier price identifier to identify the existing request.
@@ -459,7 +464,7 @@ contract OptimisticOracleV2 is
         if (request.reward > 0 && request.requestSettings.refundOnDispute) {
             refund = request.reward;
             request.reward = 0;
-            request.currency.safeTransfer(requester, refund);
+            _transferOrDeferPayout(request.currency, requester, refund);
         }
 
         emit DisputePrice(
@@ -531,6 +536,24 @@ contract OptimisticOracleV2 is
         returns (uint256 payout)
     {
         return _settle(requester, identifier, timestamp, ancillaryData);
+    }
+
+    /**
+     * @notice Claims the deferred payout for a given currency to the provided repayment address.
+     * @dev This is used to claim reward refund or settle payouts that were deferred due to failed transfer call. Only
+     * can be called by the original recipient.
+     * @param currency ERC20 token used for the deferred payout.
+     * @param repaymentAddress address to which the payout will be sent (can be different from the deferred recipient).
+     */
+    function claimDeferredPayout(IERC20 currency, address repaymentAddress) external override nonReentrant {
+        if (repaymentAddress == address(0)) revert RepaymentAddressCannotBeZero();
+        address deferredRecipient = msg.sender;
+        uint256 amount = deferredPayouts[currency][deferredRecipient];
+        if (amount == 0) revert NoDeferredPayoutToClaim();
+        deferredPayouts[currency][deferredRecipient] = 0;
+        currency.safeTransfer(repaymentAddress, amount);
+
+        emit ClaimedDeferredPayout(address(currency), deferredRecipient, repaymentAddress, amount);
     }
 
     /**
@@ -625,7 +648,7 @@ contract OptimisticOracleV2 is
             // In the expiry case, just pay back the proposer's bond and final fee along with the reward.
             request.resolvedPrice = request.proposedPrice;
             payout = request.requestSettings.bond + request.finalFee + request.reward;
-            request.currency.safeTransfer(request.proposer, payout);
+            _transferOrDeferPayout(request.currency, request.proposer, payout);
         } else if (state == State.Resolved) {
             // In the Resolved case, pay either the disputer or the proposer the entire payout (+ bond and reward).
             request.resolvedPrice = _getOracle().getPrice(
@@ -645,7 +668,7 @@ contract OptimisticOracleV2 is
             // - Their final fee back.
             // - The request reward (if not already refunded -- if refunded, it will be set to 0).
             payout = bond + unburnedBond + request.finalFee + request.reward;
-            request.currency.safeTransfer(disputeSuccess ? request.disputer : request.proposer, payout);
+            _transferOrDeferPayout(request.currency, disputeSuccess ? request.disputer : request.proposer, payout);
         } else {
             revert RequestNotSettleable();
         }
@@ -668,6 +691,15 @@ contract OptimisticOracleV2 is
             OptimisticRequester(requester).priceSettled(identifier, timestamp, ancillaryData, request.resolvedPrice);
         }
         _endReentrantGuardDisabled();
+    }
+
+    // Attempts to transfer a payout for a recipient. If the payout fails, it accrues the payout amount to the recipient
+    // for later claiming.
+    function _transferOrDeferPayout(IERC20 currency, address recipient, uint256 amount) private {
+        if (!currency.trySafeTransfer(recipient, amount)) {
+            deferredPayouts[currency][recipient] += amount;
+            emit PayoutDeferred(address(currency), recipient, amount);
+        }
     }
 
     function _getRequest(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
@@ -741,8 +773,8 @@ contract OptimisticOracleV2 is
     }
 
     /**
-     * @dev We don't handle specifically the case where `ancillaryData` is not already readily translateable in utf8.
-     * For those cases, we assume that the client will be able to strip out the utf8-translateable part of the
+     * @dev We don't handle specifically the case where `ancillaryData` is not already readily translatable in utf8.
+     * For those cases, we assume that the client will be able to strip out the utf8-translatable part of the
      * ancillary data that this contract stamps.
      */
     function _stampAncillaryData(bytes memory ancillaryData, address requester) private pure returns (bytes memory) {
@@ -761,5 +793,5 @@ contract OptimisticOracleV2 is
      * bottom of contract to make sure its always at the end of storage.
      * See https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable#storage-gaps
      */
-    uint256[998] private __gap;
+    uint256[997] private __gap;
 }
