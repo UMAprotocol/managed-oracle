@@ -39,6 +39,7 @@ abstract contract ManagedOptimisticOracleV2Interface {
     event DefaultProposerWhitelistUpdated(address indexed newWhitelist);
     event RequesterWhitelistUpdated(address indexed newWhitelist);
     event MinimumDisputeWindowUpdated(uint256 newMinimumDisputeWindow);
+    event EarlyResolverRequesterSet(address indexed requester, bool enabled);
     event CustomBondSet(
         bytes32 indexed managedRequestId,
         address requester,
