@@ -509,6 +509,7 @@ contract OptimisticOracleV2 is
      */
     function settleAndGetPrice(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         external
+        virtual
         override
         nonReentrant
         returns (int256)
@@ -531,6 +532,7 @@ contract OptimisticOracleV2 is
      */
     function settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         external
+        virtual
         override
         nonReentrant
         returns (uint256 payout)
@@ -635,10 +637,11 @@ contract OptimisticOracleV2 is
     }
 
     function _settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
-        private
+        internal
+        virtual
         returns (uint256 payout)
     {
-        State state = _getState(requester, identifier, timestamp, ancillaryData);
+        State state = _getStateForSettle(requester, identifier, timestamp, ancillaryData);
 
         // Set it to settled so this function can never be entered again.
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
@@ -720,9 +723,20 @@ contract OptimisticOracleV2 is
         require(_liveness > 0, LivenessCannotBeZero());
     }
 
-    function _getState(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
-        private
+    // This allows child contracts to selectively override the state retrieval only for the settle call.
+    function _getStateForSettle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        internal
         view
+        virtual
+        returns (State)
+    {
+        return _getState(requester, identifier, timestamp, ancillaryData);
+    }
+
+    function _getState(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        internal
+        view
+        virtual
         returns (State)
     {
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
