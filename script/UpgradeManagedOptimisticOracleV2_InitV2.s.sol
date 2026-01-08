@@ -22,7 +22,6 @@ import {UpgradeManagedOptimisticOracleV2Base} from "./UpgradeManagedOptimisticOr
  * - CONFIG_ADMIN_GRANTS:    Optional. JSON array of addresses to grant CONFIG_ADMIN_ROLE to.
  * - CONFIG_ADMIN_REVOKES:   Optional. JSON array of addresses to revoke CONFIG_ADMIN_ROLE from.
  */
-
 contract UpgradeManagedOptimisticOracleV2_InitV2 is UpgradeManagedOptimisticOracleV2Base {
     function run() external {
         uint256 minimumDisputeWindow = vm.envUint("MINIMUM_DISPUTE_WINDOW");
