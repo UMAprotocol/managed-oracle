@@ -9,16 +9,26 @@ import {Options} from "@openzeppelin/foundry-upgrades/Options.sol";
 import {ManagedOptimisticOracleV2} from "../src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol";
 
 /**
- * @title Upgrade script for ManagedOptimisticOracleV2
- * @notice Upgrades the ManagedOptimisticOracleV2 contract implementation using OZ Upgrades
+ * @title ManagedOptimisticOracleV2 upgrade script base
+ * @notice Shared upgrade runner for the ManagedOptimisticOracleV2 UUPS proxy.
+ * @dev
+ * This abstract script contains the common logic to:
+ *  - Deploy/prepare a new implementation using OpenZeppelin Foundry Upgrades
+ *  - Build an `upgradeToAndCall` transaction for a UUPS proxy
+ *  - Either:
+ *      (a) execute the upgrade directly when the local signer is the upgrade admin, or
+ *      (b) deploy the implementation and print multisig transaction data when the signer is NOT the upgrade admin
+ *
+ * The caller supplies `callData`, which is forwarded as the second argument to `upgradeToAndCall`.
+ * Use this to run post-upgrade initialization (e.g. `initializeV2(...)`) atomically with the upgrade.
  *
  * Environment variables:
  * - MNEMONIC: Required. The mnemonic phrase for the upgrade admin wallet
  * - PROXY_ADDRESS: Required. Address of the existing proxy contract to upgrade
  * - REFERENCE_BUILD_VERSION: Required. Integer version number to derive reference contract and build info dir (e.g., 1 for "build-info-v1:ManagedOptimisticOracleV2" and "old-builds/build-info-v1")
  */
-contract UpgradeManagedOptimisticOracleV2 is Script {
-    function run() external {
+abstract contract UpgradeManagedOptimisticOracleV2Base is Script {
+    function _runUpgrade(bytes memory callData) internal {
         uint256 deployerPrivateKey = _getDeployerPrivateKey();
         address deployerAddress = vm.addr(deployerPrivateKey);
 
@@ -43,6 +53,8 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
         console.log("Proxy Address:", proxyAddress);
         console.log("Reference Contract:", opts.referenceContract);
         console.log("Reference Build Info Dir:", opts.referenceBuildInfoDir);
+        console.log("Upgrade calldata:");
+        console.logBytes(callData);
 
         // Check if we need to impersonate or can execute directly
         bool shouldImpersonate = upgradeAdmin != deployerAddress;
@@ -63,7 +75,7 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
 
             // Generate upgrade transaction data
             bytes memory upgradeData =
-                abi.encodeWithSignature("upgradeToAndCall(address,bytes)", newImplementationAddress, bytes(""));
+                abi.encodeWithSignature("upgradeToAndCall(address,bytes)", newImplementationAddress, callData);
 
             // Simulate the upgrade transaction to verify it would succeed
             console.log("\n=== SIMULATING UPGRADE TRANSACTION ===");
@@ -98,7 +110,7 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
 
             // Upgrade the proxy
             Upgrades.upgradeProxy(
-                proxyAddress, "ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2", bytes(""), opts
+                proxyAddress, "ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2", callData, opts
             );
 
             vm.stopBroadcast();
@@ -120,5 +132,19 @@ contract UpgradeManagedOptimisticOracleV2 is Script {
         string memory mnemonic = vm.envString("MNEMONIC");
         // Derive the 0 index address from mnemonic
         return vm.deriveKey(mnemonic, 0);
+    }
+}
+
+/**
+ * @title ManagedOptimisticOracleV2 upgrade script (no initializer call)
+ * @notice Upgrades the ManagedOptimisticOracleV2 proxy implementation without executing any initializer call.
+ * @dev
+ * This is the default entrypoint that performs an upgrade with empty `callData`.
+ * For upgrades that require a reinitializer (e.g. `initializeV2(...)`), create a small script that
+ * inherits from `UpgradeManagedOptimisticOracleV2Base` and passes `abi.encodeCall(...)` into `_runUpgrade`.
+ */
+contract UpgradeManagedOptimisticOracleV2 is UpgradeManagedOptimisticOracleV2Base {
+    function run() external {
+        _runUpgrade(bytes(""));
     }
 }
