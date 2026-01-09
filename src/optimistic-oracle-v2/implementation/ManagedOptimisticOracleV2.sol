@@ -69,9 +69,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Admin controlled minimum dispute window used in early resolutions.
     uint256 public minimumDisputeWindow;
 
-    // Requesters that have been configured by the config admin to use permissioned early resolver.
-    mapping(address requester => bool) public earlyResolverRequesters;
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -141,10 +138,10 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
-     * @dev Throws if called by any account other than the resolver if early resolver is enabled for the requester.
+     * @dev Throws if called by any account other than the resolver.
      */
     modifier onlyResolver(address requester) {
-        if (earlyResolverRequesters[requester]) _checkRole(RESOLVER_ROLE);
+        _checkRole(RESOLVER_ROLE);
         _;
     }
 
@@ -227,20 +224,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function setMinimumDisputeWindow(uint256 _minimumDisputeWindow) external nonReentrant onlyConfigAdmin {
         _setMinimumDisputeWindow(_minimumDisputeWindow);
-    }
-
-    /**
-     * @notice Enables or disables usage of early resolver for a requester.
-     * @dev Only callable by the config admin.
-     * @param requester address of the requester to enable or disable early resolver for.
-     * @param enabled whether to enable or disable early resolver for the requester.
-     */
-    function setEarlyResolverRequester(address requester, bool enabled) external nonReentrant onlyConfigAdmin {
-        bool earlyResolverWasEnabled = earlyResolverRequesters[requester];
-        if (enabled == earlyResolverWasEnabled) return;
-
-        earlyResolverRequesters[requester] = enabled;
-        emit EarlyResolverRequesterSet(requester, enabled);
     }
 
     /**
@@ -599,8 +582,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     {
         State state = super._getState(requester, identifier, timestamp, ancillaryData);
 
-        if (!earlyResolverRequesters[requester]) return state;
-
         // In order to support early settlement by the permissioned resolver we recalculate the expiration status based
         // on the minimum dispute window for undisputed proposals.
         if (state == State.Proposed) {
@@ -631,8 +612,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     {
         State state = super._getState(requester, identifier, timestamp, ancillaryData);
 
-        if (!earlyResolverRequesters[requester]) return state;
-
         // As the settlement is permissioned, ignoring the expired state allows extending the disputes till settlement.
         if (state == State.Expired) state = State.Proposed;
 
@@ -645,5 +624,5 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * bottom of contract to make sure its always at the end of storage.
      * See https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable#storage-gaps
      */
-    uint256[991] private __gap;
+    uint256[992] private __gap;
 }
