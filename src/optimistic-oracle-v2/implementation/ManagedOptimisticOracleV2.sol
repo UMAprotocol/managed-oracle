@@ -66,9 +66,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Admin controlled minimum liveness that can be set by request managers.
     uint256 public minimumLiveness;
 
-    // Admin controlled minimum dispute window used in early resolutions.
-    uint256 public minimumDisputeWindow;
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -116,6 +113,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param _minimumDisputeWindow minimum dispute window used in early resolutions.
      */
     function initializeV2(uint256 _minimumDisputeWindow) external reinitializer(2) onlyUpgradeAdmin {
+        __OptimisticOracleV2_initV2_unchained();
+
+        // Config admin is managing the resolver role.
         _setRoleAdmin(RESOLVER_ROLE, CONFIG_ADMIN_ROLE);
 
         _setMinimumDisputeWindow(_minimumDisputeWindow);
@@ -451,6 +451,15 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Gets the minimum dispute window also used to set lower bounds for custom liveness.
+     * @dev This reuses defaultLiveness slot to be used as minimum dispute window.
+     * @return uint256 the minimum liveness period.
+     */
+    function minimumDisputeWindow() public view returns (uint256) {
+        return defaultLiveness;
+    }
+
+    /**
      * @notice Sets the bounds for a bond that can be set for a request.
      * @dev This can be used to limit the bond amount that can be set by request managers. Setting the minimum and
      * maximum both to 0 effectively blocks the request manager from overriding the bond for a given currency.
@@ -497,14 +506,15 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Sets the minimum dispute window used in early resolutions.
-     * @dev Reverts if the minimum dispute window is larger than the default liveness or if it is 0.
+     * @dev Reverts if the minimum dispute window is larger than the legacy default liveness or if it is 0.
      * @param _minimumDisputeWindow new minimum dispute window period.
      */
     function _setMinimumDisputeWindow(uint256 _minimumDisputeWindow) private {
-        require(_minimumDisputeWindow <= defaultLiveness, MinimumDisputeWindowTooLarge());
+        require(_minimumDisputeWindow <= legacyDefaultLiveness, MinimumDisputeWindowTooLarge());
         require(_minimumDisputeWindow > 0, MinimumDisputeWindowCannotBeZero());
 
-        minimumDisputeWindow = _minimumDisputeWindow;
+        // Reuses defaultLiveness slot to be used as minimum dispute window.
+        defaultLiveness = _minimumDisputeWindow;
         emit MinimumDisputeWindowUpdated(_minimumDisputeWindow);
     }
 
@@ -580,19 +590,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         override
         returns (State)
     {
-        State state = super._getState(requester, identifier, timestamp, ancillaryData);
+        return super._getState(requester, identifier, timestamp, ancillaryData);
 
-        // In order to support early settlement by the permissioned resolver we recalculate the expiration status based
-        // on the minimum dispute window for undisputed proposals.
-        if (state == State.Proposed) {
-            Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
-            uint256 customLiveness = request.requestSettings.customLiveness;
-            uint256 liveness = customLiveness != 0 ? customLiveness : defaultLiveness;
-            uint256 proposalTime = request.expirationTime - liveness;
-            state = proposalTime + minimumDisputeWindow <= getCurrentTime() ? State.Expired : State.Proposed;
-        }
-
-        return state;
     }
 
     /**
@@ -624,5 +623,5 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * bottom of contract to make sure its always at the end of storage.
      * See https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable#storage-gaps
      */
-    uint256[992] private __gap;
+    uint256[993] private __gap;
 }
