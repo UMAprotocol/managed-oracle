@@ -203,14 +203,6 @@ contract ManagedOptimisticOracleV2Test is Test {
         );
         moo.setAllowedBondRange(IERC20(address(currency)), ManagedOptimisticOracleV2.BondRange(1, 2));
 
-        // setMinimumLiveness as non-admin -> revert
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.CONFIG_ADMIN_ROLE()
-            )
-        );
-        moo.setMinimumLiveness(1);
-
         // setDefaultProposerWhitelist as non-admin -> revert
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -439,30 +431,6 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     // -------------------- Liveness Management --------------------
 
-    function testSetMinimumLivenessAndValidation() external {
-        // Only config admin
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.CONFIG_ADMIN_ROLE()
-            )
-        );
-        moo.setMinimumLiveness(2 hours);
-
-        // Invalid values
-        vm.prank(configAdmin);
-        vm.expectRevert(OptimisticOracleV2Interface.LivenessCannotBeZero.selector);
-        moo.setMinimumLiveness(0);
-
-        vm.prank(configAdmin);
-        vm.expectRevert(OptimisticOracleV2Interface.LivenessTooLarge.selector);
-        moo.setMinimumLiveness(type(uint256).max);
-
-        // Valid update
-        vm.prank(configAdmin);
-        moo.setMinimumLiveness(6 hours);
-        assertEq(moo.minimumLiveness(), 6 hours);
-    }
-
     function testRequestManagerSetCustomLivenessValidationAndEffect() external {
         uint256 t = block.timestamp;
         _makeRequest(requester, t, 0);
@@ -539,19 +507,10 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.upgradeToAndCall(address(impl2), "");
 
         // Upgrade admin can upgrade
-        uint256 prevMinLiveness = moo.minimumLiveness();
         vm.prank(upgradeAdmin);
         moo.upgradeToAndCall(address(impl2), "");
         // State preserved
-        assertEq(moo.minimumLiveness(), prevMinLiveness);
         assertEq(moo.defaultLiveness(), 2 days);
-    }
-
-    function testUpgradeAdminCannotCallConfigSetters() external {
-        // DEFAULT_ADMIN (upgrade admin) cannot call config-admin-only functions
-        vm.expectRevert();
-        vm.prank(upgradeAdmin);
-        moo.setMinimumLiveness(4 hours);
     }
 
     // -------------------- Additional Events & Validations --------------------
@@ -601,13 +560,6 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.expectEmit(true, false, false, true);
         emit ManagedOptimisticOracleV2Interface.AllowedBondRangeUpdated(IERC20(address(currency)), 2 ether, 3 ether);
         moo.setAllowedBondRange(IERC20(address(currency)), ManagedOptimisticOracleV2.BondRange(2 ether, 3 ether));
-    }
-
-    function testMinimumLivenessEvent() external {
-        vm.prank(configAdmin);
-        vm.expectEmit(false, false, false, true);
-        emit ManagedOptimisticOracleV2Interface.MinimumLivenessUpdated(8 hours);
-        moo.setMinimumLiveness(8 hours);
     }
 
     function testBondOverrideBlockedForWhitelistedButUnconfiguredCurrency() external {

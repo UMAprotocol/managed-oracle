@@ -63,8 +63,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Unset currency -> (0,0) range; manager-set custom bonds revert until explicitly set.
     mapping(IERC20 currency => BondRange) public allowedBondRanges;
 
-    // Admin controlled minimum liveness that can be set by request managers.
-    uint256 public minimumLiveness;
+    // Admin controlled minimum dispute window, enforced in early resolutions and setting custom liveness.
+    /// @custom:oz-renamed-from minimumLiveness
+    uint256 public minimumDisputeWindow;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -78,7 +79,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param _defaultProposerWhitelist address of the default whitelist.
      * @param _requesterWhitelist address of the requester whitelist.
      * @param _allowedBondRanges array of allowed bond ranges for different currencies.
-     * @param _minimumLiveness that can be overridden for a request.
      * @param configAdmin address, which is used for managing request managers and contract parameters.
      * @param upgradeAdmin address, which also can manage the config admin role.
      */
@@ -88,7 +88,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         address _defaultProposerWhitelist,
         address _requesterWhitelist,
         CurrencyBondRange[] calldata _allowedBondRanges,
-        uint256 _minimumLiveness,
         address configAdmin,
         address upgradeAdmin
     ) external initializer {
@@ -105,7 +104,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         for (uint256 i = 0; i < _allowedBondRanges.length; i++) {
             _setAllowedBondRange(_allowedBondRanges[i].currency, _allowedBondRanges[i].range);
         }
-        _setMinimumLiveness(_minimumLiveness);
     }
 
     /**
@@ -189,15 +187,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function setAllowedBondRange(IERC20 currency, BondRange calldata newRange) external nonReentrant onlyConfigAdmin {
         _setAllowedBondRange(currency, newRange);
-    }
-
-    /**
-     * @notice Sets the minimum liveness that can be set for a request.
-     * @dev This can be used to limit the liveness period that can be set by request managers, callable by the config admin.
-     * @param _minimumLiveness new minimum liveness period.
-     */
-    function setMinimumLiveness(uint256 _minimumLiveness) external nonReentrant onlyConfigAdmin {
-        _setMinimumLiveness(_minimumLiveness);
     }
 
     /**
@@ -451,15 +440,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
-     * @notice Gets the minimum dispute window also used to set lower bounds for custom liveness.
-     * @dev This reuses defaultLiveness slot to be used as minimum dispute window.
-     * @return uint256 the minimum liveness period.
-     */
-    function minimumDisputeWindow() public view returns (uint256) {
-        return defaultLiveness;
-    }
-
-    /**
      * @notice Sets the bounds for a bond that can be set for a request.
      * @dev This can be used to limit the bond amount that can be set by request managers. Setting the minimum and
      * maximum both to 0 effectively blocks the request manager from overriding the bond for a given currency.
@@ -471,17 +451,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         require(newRange.minimumBond <= newRange.maximumBond, MinimumBondAboveMaximumBond());
         allowedBondRanges[currency] = newRange;
         emit AllowedBondRangeUpdated(currency, newRange.minimumBond, newRange.maximumBond);
-    }
-
-    /**
-     * @notice Sets the minimum liveness that can be set for a request.
-     * @dev This can be used to limit the liveness period that can be set by request managers.
-     * @param _minimumLiveness new minimum liveness period.
-     */
-    function _setMinimumLiveness(uint256 _minimumLiveness) private {
-        super._validateLiveness(_minimumLiveness);
-        minimumLiveness = _minimumLiveness;
-        emit MinimumLivenessUpdated(_minimumLiveness);
     }
 
     /**
@@ -513,8 +482,12 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         require(_minimumDisputeWindow <= legacyDefaultLiveness, MinimumDisputeWindowTooLarge());
         require(_minimumDisputeWindow > 0, MinimumDisputeWindowCannotBeZero());
 
-        // Reuses defaultLiveness slot to be used as minimum dispute window.
+        // Prior versions of this contract had separate values for defaultLiveness and minimumLiveness (now renamed to
+        // to minimumDisputeWindow). Now the minimum dispute window is used both as floor for custom liveness values and
+        // and determines the earliest time the request can be resolved. Since defaultLiveness variable is stored in the
+        // parent contract we keep both variables and have their values synced.
         defaultLiveness = _minimumDisputeWindow;
+        minimumDisputeWindow = _minimumDisputeWindow;
         emit MinimumDisputeWindowUpdated(_minimumDisputeWindow);
     }
 
@@ -546,12 +519,12 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Validates the liveness period.
-     * @dev Reverts if the liveness period is less than the minimum liveness (controllable by the config admin) or
+     * @dev Reverts if the liveness period is less than the minimum dispute window (controllable by the config admin) or
      * above the maximum liveness (which is set in the parent contract).
      * @param liveness the liveness period to validate.
      */
     function _validateLiveness(uint256 liveness) internal view override {
-        require(liveness >= minimumLiveness, LivenessTooLow());
+        require(liveness >= minimumDisputeWindow, LivenessTooLow());
         super._validateLiveness(liveness);
     }
 
