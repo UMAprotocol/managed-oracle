@@ -591,7 +591,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         returns (State)
     {
         return super._getState(requester, identifier, timestamp, ancillaryData);
-
     }
 
     /**
