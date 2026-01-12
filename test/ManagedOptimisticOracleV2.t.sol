@@ -777,4 +777,25 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.requestManagerSetCustomLiveness(requester, IDENTIFIER, ANCILLARY, 2 hours);
         vm.stopPrank();
     }
+
+    function testOracleRequestTimeEventBasedDispute() external {
+        uint256 t = block.timestamp;
+        _makeRequest(requester, t, 0);
+        vm.prank(requester);
+        moo.setEventBased(IDENTIFIER, t, ANCILLARY);
+
+        uint256 proposalTime = t + 3600;
+        vm.warp(proposalTime);
+        _proposeFor(sender, proposer, requester, t, 42);
+        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).proposalTime, proposalTime);
+
+        // Dispute should result in Oracle price request with proposal timestamp
+        vm.expectCall(
+            address(oracle),
+            abi.encodeWithSelector(
+                MockOracle.requestPrice.selector, IDENTIFIER, proposalTime, moo.stampAncillaryData(ANCILLARY, requester)
+            )
+        );
+        _dispute(disputer, requester, t);
+    }
 }
