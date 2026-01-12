@@ -46,6 +46,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Resolver role is used to permission the settlement of price requests.
     bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
 
+    // Lowest bound for the minimum dispute window that the config admin can set.
+    uint256 public constant LOWEST_MINIMUM_DISPUTE_WINDOW = 5 minutes;
+
     // Default whitelist for proposers.
     AddressWhitelistInterface public defaultProposerWhitelist;
     AddressWhitelistInterface public requesterWhitelist;
@@ -475,12 +478,13 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Sets the minimum dispute window used in early resolutions.
-     * @dev Reverts if the minimum dispute window is larger than the legacy default liveness or if it is 0.
+     * @dev Reverts if the minimum dispute window is larger than the legacy default liveness or if it is smaller than
+     * the hard limit set in the contract.
      * @param _minimumDisputeWindow new minimum dispute window period.
      */
     function _setMinimumDisputeWindow(uint256 _minimumDisputeWindow) private {
         require(_minimumDisputeWindow <= legacyDefaultLiveness, MinimumDisputeWindowTooLarge());
-        require(_minimumDisputeWindow > 0, MinimumDisputeWindowCannotBeZero());
+        require(_minimumDisputeWindow >= LOWEST_MINIMUM_DISPUTE_WINDOW, MinimumDisputeWindowTooSmall());
 
         // Prior versions of this contract had separate values for defaultLiveness and minimumLiveness (now renamed to
         // to minimumDisputeWindow). Now the minimum dispute window is used both as floor for custom liveness values and

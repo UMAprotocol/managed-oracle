@@ -29,8 +29,8 @@ abstract contract ManagedOptimisticOracleV2Interface {
     error MinimumBondAboveMaximumBond();
     /// @notice Thrown when minimum dispute window is larger than default liveness.
     error MinimumDisputeWindowTooLarge();
-    /// @notice Thrown when minimum dispute window period cannot be zero.
-    error MinimumDisputeWindowCannotBeZero();
+    /// @notice Thrown when minimum dispute window is smaller than the hard limit set in the contract.
+    error MinimumDisputeWindowTooSmall();
     /// @notice Thrown in settleAndGetPrice if the request has not been settled by resolver.
     error RequestNotSettled();
 
