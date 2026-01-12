@@ -17,14 +17,14 @@ import {UpgradeManagedOptimisticOracleV2Base} from "./UpgradeManagedOptimisticOr
  * `upgradeToAndCall` transaction.
  *
  * Environment variables:
- * - MINIMUM_DISPUTE_WINDOW: Required. uint256 passed to initializeV2.
+ * - MINIMUM_DISPUTE_WINDOW: Optional. uint256 _minimumDisputeWindow passed to initializeV2, defaults to 5 minutes.
  * - RESOLVER_GRANTS:        Optional. JSON array of addresses to grant RESOLVER_ROLE to.
  * - CONFIG_ADMIN_GRANTS:    Optional. JSON array of addresses to grant CONFIG_ADMIN_ROLE to.
  * - CONFIG_ADMIN_REVOKES:   Optional. JSON array of addresses to revoke CONFIG_ADMIN_ROLE from.
  */
 contract UpgradeManagedOptimisticOracleV2_InitV2 is UpgradeManagedOptimisticOracleV2Base {
     function run() external {
-        uint256 minimumDisputeWindow = vm.envUint("MINIMUM_DISPUTE_WINDOW");
+        uint256 minimumDisputeWindow = vm.envOr("MINIMUM_DISPUTE_WINDOW", uint256(5 minutes)); // Default to 5 minutes
         address[] memory resolverGrants = _envAddressArray("RESOLVER_GRANTS");
         address[] memory configAdminGrants = _envAddressArray("CONFIG_ADMIN_GRANTS");
         address[] memory configAdminRevokes = _envAddressArray("CONFIG_ADMIN_REVOKES");
