@@ -369,7 +369,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Attempts to settle an outstanding price request. Will revert if it isn't settleable or called without
-     * the resolver privileges when early resolver is enabled for the requester.
+     * the resolver privileges.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
@@ -554,7 +554,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Gets the state of a price request in the context of potential dispute.
-     * @dev Overrides the parent method to allow extending disputes till settlement if enabled for the requester.
+     * @dev Overrides the parent method to allow extending disputes till settlement by the permissioned resolver.
      * @param requester The address that made the price request.
      * @param identifier The identifier of the price request.
      * @param timestamp The timestamp of the price request.
