@@ -457,6 +457,25 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Sets the minimum dispute window used in early resolutions.
+     * @dev Reverts if the minimum dispute window is larger than the legacy default liveness or if it is smaller than
+     * the hard limit set in the contract.
+     * @param _minimumDisputeWindow new minimum dispute window period.
+     */
+    function _setMinimumDisputeWindow(uint256 _minimumDisputeWindow) private {
+        require(_minimumDisputeWindow <= legacyDefaultLiveness, MinimumDisputeWindowTooLarge());
+        require(_minimumDisputeWindow >= LOWEST_MINIMUM_DISPUTE_WINDOW, MinimumDisputeWindowTooSmall());
+
+        // Prior versions of this contract had separate values for defaultLiveness and minimumLiveness (now renamed to
+        // to minimumDisputeWindow). Now the minimum dispute window is used both as floor for custom liveness values and
+        // and determines the earliest time the request can be resolved. Since defaultLiveness variable is stored in the
+        // parent contract we keep both variables and have their values synced.
+        defaultLiveness = _minimumDisputeWindow;
+        minimumDisputeWindow = _minimumDisputeWindow;
+        emit MinimumDisputeWindowUpdated(_minimumDisputeWindow);
+    }
+
+    /**
      * @notice Sets the default proposer whitelist.
      * @param whitelist address of the whitelist to set.
      */
@@ -474,25 +493,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         _validateWhitelistInterface(whitelist);
         requesterWhitelist = AddressWhitelistInterface(whitelist);
         emit RequesterWhitelistUpdated(whitelist);
-    }
-
-    /**
-     * @notice Sets the minimum dispute window used in early resolutions.
-     * @dev Reverts if the minimum dispute window is larger than the legacy default liveness or if it is smaller than
-     * the hard limit set in the contract.
-     * @param _minimumDisputeWindow new minimum dispute window period.
-     */
-    function _setMinimumDisputeWindow(uint256 _minimumDisputeWindow) private {
-        require(_minimumDisputeWindow <= legacyDefaultLiveness, MinimumDisputeWindowTooLarge());
-        require(_minimumDisputeWindow >= LOWEST_MINIMUM_DISPUTE_WINDOW, MinimumDisputeWindowTooSmall());
-
-        // Prior versions of this contract had separate values for defaultLiveness and minimumLiveness (now renamed to
-        // to minimumDisputeWindow). Now the minimum dispute window is used both as floor for custom liveness values and
-        // and determines the earliest time the request can be resolved. Since defaultLiveness variable is stored in the
-        // parent contract we keep both variables and have their values synced.
-        defaultLiveness = _minimumDisputeWindow;
-        minimumDisputeWindow = _minimumDisputeWindow;
-        emit MinimumDisputeWindowUpdated(_minimumDisputeWindow);
     }
 
     /**
