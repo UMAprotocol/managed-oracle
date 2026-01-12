@@ -193,6 +193,14 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Sets the minimum dispute window used in early resolutions.
+     * @param _minimumDisputeWindow new minimum dispute window period.
+     */
+    function setMinimumDisputeWindow(uint256 _minimumDisputeWindow) external nonReentrant onlyConfigAdmin {
+        _setMinimumDisputeWindow(_minimumDisputeWindow);
+    }
+
+    /**
      * @notice Sets the default proposer whitelist.
      * @dev Only callable by the config admin.
      * @param whitelist address of the whitelist to set.
@@ -208,14 +216,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function setRequesterWhitelist(address whitelist) external nonReentrant onlyConfigAdmin {
         _setRequesterWhitelist(whitelist);
-    }
-
-    /**
-     * @notice Sets the minimum dispute window used in early resolutions.
-     * @param _minimumDisputeWindow new minimum dispute window period.
-     */
-    function setMinimumDisputeWindow(uint256 _minimumDisputeWindow) external nonReentrant onlyConfigAdmin {
-        _setMinimumDisputeWindow(_minimumDisputeWindow);
     }
 
     /**
