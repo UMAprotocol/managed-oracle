@@ -467,9 +467,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         require(_minimumDisputeWindow >= LOWEST_MINIMUM_DISPUTE_WINDOW, MinimumDisputeWindowTooSmall());
 
         // Prior versions of this contract had separate values for defaultLiveness and minimumLiveness (now renamed to
-        // to minimumDisputeWindow). Now the minimum dispute window is used both as floor for custom liveness values and
-        // and determines the earliest time the request can be resolved. Since defaultLiveness variable is stored in the
-        // parent contract we keep both variables and have their values synced.
+        // minimumDisputeWindow). Now the minimum dispute window is used both as floor for custom liveness values and
+        // determines the earliest time the request can be resolved. Since defaultLiveness variable is stored and used
+        // in the parent contract we keep both variables and have their values synced here.
         defaultLiveness = _minimumDisputeWindow;
         minimumDisputeWindow = _minimumDisputeWindow;
         emit MinimumDisputeWindowUpdated(_minimumDisputeWindow);
