@@ -553,25 +553,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
-     * @notice Gets the state of a price request for settlement.
-     * @dev Overrides the parent method to allow early settlement by the permissioned resolver if enabled for the requester.
-     * @param requester The address that made the price request.
-     * @param identifier The identifier of the price request.
-     * @param timestamp The timestamp of the price request.
-     * @param ancillaryData Additional data used to uniquely identify the request.
-     * @return State of the price request in the context of a settlement.
-     */
-    function _getStateForSettle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
-        internal
-        view
-        override
-        returns (State)
-    {
-        return super._getState(requester, identifier, timestamp, ancillaryData);
-    }
-
-    /**
-     * @notice Gets the state of a price request.
+     * @notice Gets the state of a price request in the context of potential dispute.
      * @dev Overrides the parent method to allow extending disputes till settlement if enabled for the requester.
      * @param requester The address that made the price request.
      * @param identifier The identifier of the price request.
@@ -579,13 +561,13 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param ancillaryData Additional data used to uniquely identify the request.
      * @return State of the price request.
      */
-    function _getState(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+    function _getStateForDispute(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         internal
         view
         override
         returns (State)
     {
-        State state = super._getState(requester, identifier, timestamp, ancillaryData);
+        State state = _getState(requester, identifier, timestamp, ancillaryData);
 
         // As the settlement is permissioned, ignoring the expired state allows extending the disputes till settlement.
         if (state == State.Expired) state = State.Proposed;

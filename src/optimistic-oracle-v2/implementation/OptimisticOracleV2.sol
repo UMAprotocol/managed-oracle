@@ -452,7 +452,10 @@ contract OptimisticOracleV2 is
         bytes memory ancillaryData
     ) public override nonReentrant returns (uint256 totalBond) {
         require(disputer != address(0), DisputerAddressCannotBeZero());
-        require(_getState(requester, identifier, timestamp, ancillaryData) == State.Proposed, RequestStateNotProposed());
+        require(
+            _getStateForDispute(requester, identifier, timestamp, ancillaryData) == State.Proposed,
+            RequestStateNotProposed()
+        );
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
         request.disputer = disputer;
 
@@ -612,7 +615,8 @@ contract OptimisticOracleV2 is
         nonReentrantView
         returns (State)
     {
-        return _getState(requester, identifier, timestamp, ancillaryData);
+        // Child contract might need to alter the state before potential dispute.
+        return _getStateForDispute(requester, identifier, timestamp, ancillaryData);
     }
 
     /**
@@ -630,7 +634,8 @@ contract OptimisticOracleV2 is
         nonReentrantView
         returns (bool)
     {
-        State state = _getState(requester, identifier, timestamp, ancillaryData);
+        // Child contract might need to alter the state before potential dispute.
+        State state = _getStateForDispute(requester, identifier, timestamp, ancillaryData);
         return state == State.Settled || state == State.Resolved || state == State.Expired;
     }
 
@@ -662,7 +667,7 @@ contract OptimisticOracleV2 is
         virtual
         returns (uint256 payout)
     {
-        State state = _getStateForSettle(requester, identifier, timestamp, ancillaryData);
+        State state = _getState(requester, identifier, timestamp, ancillaryData);
 
         // Set it to settled so this function can never be entered again.
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
@@ -744,8 +749,8 @@ contract OptimisticOracleV2 is
         require(_liveness > 0, LivenessCannotBeZero());
     }
 
-    // This allows child contracts to selectively override the state retrieval only for the settle call.
-    function _getStateForSettle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+    // This allows child contracts to selectively override the state retrieval upon potential dispute.
+    function _getStateForDispute(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         internal
         view
         virtual
@@ -757,7 +762,6 @@ contract OptimisticOracleV2 is
     function _getState(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         internal
         view
-        virtual
         returns (State)
     {
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
