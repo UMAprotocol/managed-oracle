@@ -123,22 +123,24 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         bytes memory initData = abi.encodeWithSelector(
             ManagedOptimisticOracleV2.initialize.selector,
-            2 days,
+            2 hours,
             address(finder),
             address(defaultProposerWhitelist),
             address(requesterWhitelist),
             ranges,
-            1 hours,
             configAdmin,
             upgradeAdmin
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         moo = ManagedOptimisticOracleV2(address(proxy));
 
+        // V2 init
+        vm.prank(upgradeAdmin);
+        moo.initializeV2(5 minutes);
+
         // Grant request manager
-        vm.startPrank(configAdmin);
+        vm.prank(configAdmin);
         moo.addRequestManager(requestManager);
-        vm.stopPrank();
     }
 
     function _makeRequest(address _requester, uint256 _timestamp, uint256 reward)
@@ -202,6 +204,14 @@ contract ManagedOptimisticOracleV2Test is Test {
             )
         );
         moo.setAllowedBondRange(IERC20(address(currency)), ManagedOptimisticOracleV2.BondRange(1, 2));
+
+        // setMinimumDisputeWindow as non-admin -> revert
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.CONFIG_ADMIN_ROLE()
+            )
+        );
+        moo.setMinimumDisputeWindow(5 minutes);
 
         // setDefaultProposerWhitelist as non-admin -> revert
         vm.expectRevert(
@@ -431,6 +441,30 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     // -------------------- Liveness Management --------------------
 
+    function testSetMinimumDisputeWindowAndValidation() external {
+        // Only config admin
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.CONFIG_ADMIN_ROLE()
+            )
+        );
+        moo.setMinimumDisputeWindow(5 minutes);
+
+        // Invalid values
+        vm.prank(configAdmin);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.MinimumDisputeWindowTooSmall.selector);
+        moo.setMinimumDisputeWindow(5 minutes - 1);
+
+        vm.prank(configAdmin);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.MinimumDisputeWindowTooLarge.selector);
+        moo.setMinimumDisputeWindow(2 hours + 1);
+
+        // Valid update
+        vm.prank(configAdmin);
+        moo.setMinimumDisputeWindow(5 minutes);
+        assertEq(moo.minimumDisputeWindow(), 5 minutes);
+    }
+
     function testRequestManagerSetCustomLivenessValidationAndEffect() external {
         uint256 t = block.timestamp;
         _makeRequest(requester, t, 0);
@@ -507,10 +541,23 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.upgradeToAndCall(address(impl2), "");
 
         // Upgrade admin can upgrade
+        uint256 prevMinDisputeWindow = moo.minimumDisputeWindow();
         vm.prank(upgradeAdmin);
         moo.upgradeToAndCall(address(impl2), "");
         // State preserved
-        assertEq(moo.defaultLiveness(), 2 days);
+        assertEq(moo.minimumDisputeWindow(), prevMinDisputeWindow);
+        assertEq(moo.legacyDefaultLiveness(), 2 hours);
+    }
+
+    function testUpgradeAdminCannotCallConfigSetters() external {
+        // DEFAULT_ADMIN (upgrade admin) cannot call config-admin-only functions
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, upgradeAdmin, moo.CONFIG_ADMIN_ROLE()
+            )
+        );
+        vm.prank(upgradeAdmin);
+        moo.setMinimumDisputeWindow(1 hours);
     }
 
     // -------------------- Additional Events & Validations --------------------
@@ -560,6 +607,13 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.expectEmit(true, false, false, true);
         emit ManagedOptimisticOracleV2Interface.AllowedBondRangeUpdated(IERC20(address(currency)), 2 ether, 3 ether);
         moo.setAllowedBondRange(IERC20(address(currency)), ManagedOptimisticOracleV2.BondRange(2 ether, 3 ether));
+    }
+
+    function testMinimumDisputeWindowEvent() external {
+        vm.prank(configAdmin);
+        vm.expectEmit(false, false, false, true);
+        emit ManagedOptimisticOracleV2Interface.MinimumDisputeWindowUpdated(10 minutes);
+        moo.setMinimumDisputeWindow(10 minutes);
     }
 
     function testBondOverrideBlockedForWhitelistedButUnconfiguredCurrency() external {
