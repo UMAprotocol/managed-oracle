@@ -141,7 +141,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     /**
      * @dev Throws if called by any account other than the resolver.
      */
-    modifier onlyResolver(address requester) {
+    modifier onlyResolver() {
         _checkRole(RESOLVER_ROLE);
         _;
     }
@@ -381,7 +381,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         external
         override
         nonReentrant
-        onlyResolver(requester)
+        onlyResolver
         returns (uint256 payout)
     {
         return _settle(requester, identifier, timestamp, ancillaryData);
