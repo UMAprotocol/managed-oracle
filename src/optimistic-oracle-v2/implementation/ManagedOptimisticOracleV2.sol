@@ -114,8 +114,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param _minimumDisputeWindow minimum dispute window used in early resolutions.
      */
     function initializeV2(uint256 _minimumDisputeWindow) external reinitializer(2) onlyUpgradeAdmin {
-        __OptimisticOracleV2_initV2_unchained();
-
         // Config admin is managing the resolver role.
         _setRoleAdmin(RESOLVER_ROLE, CONFIG_ADMIN_ROLE);
 
@@ -463,7 +461,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param _minimumDisputeWindow new minimum dispute window period.
      */
     function _setMinimumDisputeWindow(uint256 _minimumDisputeWindow) private {
-        require(_minimumDisputeWindow <= legacyDefaultLiveness, MinimumDisputeWindowTooLarge());
+        require(_minimumDisputeWindow <= LEGACY_DEFAULT_LIVENESS, MinimumDisputeWindowTooLarge());
         require(_minimumDisputeWindow >= LOWEST_MINIMUM_DISPUTE_WINDOW, MinimumDisputeWindowTooSmall());
 
         // Prior versions of this contract had separate values for defaultLiveness and minimumLiveness (now renamed to

@@ -219,8 +219,6 @@ contract ManagedOptimisticOracleV2Test is Test {
         // request manager and resolver roles use config admin as its admin
         assertEq(moo.getRoleAdmin(REQUEST_MANAGER_ROLE), CONFIG_ADMIN_ROLE);
         assertEq(moo.getRoleAdmin(RESOLVER_ROLE), CONFIG_ADMIN_ROLE);
-        // legacyDefaultLiveness is set to the initial defaultLiveness value
-        assertEq(moo.legacyDefaultLiveness(), LEGACY_DEFAULT_LIVENESS);
         // minimumDisputeWindow is set and synced with defaultLiveness slot
         assertEq(moo.minimumDisputeWindow(), MINIMUM_DISPUTE_WINDOW);
         assertEq(moo.defaultLiveness(), MINIMUM_DISPUTE_WINDOW);

@@ -86,6 +86,9 @@ contract OptimisticOracleV2 is
     // Default liveness value for all price requests.
     uint256 public override defaultLiveness;
 
+    // Default liveness value used in legacy requests (before proposalTime was added), must not be modified.
+    uint256 internal constant LEGACY_DEFAULT_LIVENESS = 2 hours;
+
     // This is effectively the extra ancillary data to add ",ooRequester:0000000000000000000000000000000000000000".
     uint256 private constant MAX_ADDED_ANCILLARY_DATA = 53;
     uint256 public constant OO_ANCILLARY_DATA_LIMIT = ancillaryBytesLimit - MAX_ADDED_ANCILLARY_DATA;
@@ -95,9 +98,6 @@ contract OptimisticOracleV2 is
     // refund or settle payout fails for some reason (e.g. the recipient is blacklisted) to track their outstanding
     // liability, thereby letting them claim it later.
     mapping(IERC20 currency => mapping(address deferredRecipient => uint256)) public deferredPayouts;
-
-    // Default liveness value used in legacy requests (before proposalTime was added).
-    uint256 public legacyDefaultLiveness;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -138,21 +138,6 @@ contract OptimisticOracleV2 is
         finder = FinderInterface(_finderAddress);
         _validateLiveness(_liveness);
         defaultLiveness = _liveness;
-    }
-
-    /**
-     * @notice Initializer for storing the legacy default liveness (external).
-     * @dev Used only for standalone deployments of the OptimisticOracleV2Upgradeable contract.
-     */
-    function initializeV2() external reinitializer(2) onlyUpgradeAdmin {
-        __OptimisticOracleV2_initV2_unchained();
-    }
-
-    /**
-     * @notice Initializer for storing the legacy default liveness (internal, no parent initializers needed here).
-     */
-    function __OptimisticOracleV2_initV2_unchained() internal onlyInitializing {
-        legacyDefaultLiveness = defaultLiveness;
     }
 
     /**
@@ -809,7 +794,7 @@ contract OptimisticOracleV2 is
             // This is legacy request, recalculate proposal time using the legacy default liveness.
             uint256 liveness = request.requestSettings.customLiveness != 0
                 ? request.requestSettings.customLiveness
-                : legacyDefaultLiveness;
+                : LEGACY_DEFAULT_LIVENESS;
             return request.expirationTime - liveness;
         } else {
             return requestTimestamp;
@@ -837,5 +822,5 @@ contract OptimisticOracleV2 is
      * bottom of contract to make sure its always at the end of storage.
      * See https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable#storage-gaps
      */
-    uint256[996] private __gap;
+    uint256[997] private __gap;
 }
