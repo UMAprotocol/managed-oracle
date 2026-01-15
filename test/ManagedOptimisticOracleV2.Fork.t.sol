@@ -9,7 +9,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Upgrades, Options} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
 
 import {ManagedOptimisticOracleV2} from "../src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol";
-import {ManagedOptimisticOracleV2Interface} from "../src/optimistic-oracle-v2/interfaces/ManagedOptimisticOracleV2Interface.sol";
+import {ManagedOptimisticOracleV2Interface} from
+    "../src/optimistic-oracle-v2/interfaces/ManagedOptimisticOracleV2Interface.sol";
 import {AddressWhitelistInterface} from "../src/common/interfaces/AddressWhitelistInterface.sol";
 
 /**
@@ -129,7 +130,11 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
 
         // Verify upgrade
         assertEq(managedOOv2.minimumDisputeWindow(), minimumDisputeWindow, "Minimum dispute window not set");
-        assertEq(managedOOv2.defaultLiveness(), minimumDisputeWindow, "Default liveness should sync with minimum dispute window");
+        assertEq(
+            managedOOv2.defaultLiveness(),
+            minimumDisputeWindow,
+            "Default liveness should sync with minimum dispute window"
+        );
 
         console.log("  Minimum Dispute Window:", managedOOv2.minimumDisputeWindow());
         console.log("  Default Liveness:", managedOOv2.defaultLiveness());
@@ -334,13 +339,7 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         USDC_E.approve(address(managedOOv2), type(uint256).max);
 
         // Dispute should work even though expired because of _getStateForDispute override
-        managedOOv2.disputePriceFor(
-            disputer,
-            requester,
-            TEST_IDENTIFIER,
-            block.timestamp - 6 minutes,
-            ancillaryData
-        );
+        managedOOv2.disputePriceFor(disputer, requester, TEST_IDENTIFIER, block.timestamp - 6 minutes, ancillaryData);
         console.log("  + Dispute succeeded even after expiration");
         console.log("  This proves extended dispute window works!");
         vm.stopPrank();
@@ -437,27 +436,14 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         vm.startPrank(requester);
         USDC_E.approve(address(managedOOv2), type(uint256).max);
 
-        managedOOv2.requestPrice(
-            TEST_IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            USDC_E,
-            0
-        );
+        managedOOv2.requestPrice(TEST_IDENTIFIER, block.timestamp, ancillaryData, USDC_E, 0);
         vm.stopPrank();
 
         // Propose price
         vm.startPrank(proposer);
         USDC_E.approve(address(managedOOv2), type(uint256).max);
 
-        managedOOv2.proposePriceFor(
-            proposer,
-            requester,
-            TEST_IDENTIFIER,
-            block.timestamp,
-            ancillaryData,
-            1e18
-        );
+        managedOOv2.proposePriceFor(proposer, requester, TEST_IDENTIFIER, block.timestamp, ancillaryData, 1e18);
         vm.stopPrank();
     }
 }
