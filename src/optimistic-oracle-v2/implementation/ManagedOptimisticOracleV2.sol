@@ -173,7 +173,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Adds a resolver.
-     * @dev Only callable by the config admin (checked in grantRole of AccessControlUpgradeable).
+     * @dev Only callable by the resolver admin (checked in grantRole of AccessControlUpgradeable).
      * @param resolver address of the resolver to set.
      */
     function addResolver(address resolver) external nonReentrant {
@@ -182,7 +182,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Removes a resolver.
-     * @dev Only callable by the config admin (checked in revokeRole of AccessControlUpgradeable).
+     * @dev Only callable by the resolver admin (checked in revokeRole of AccessControlUpgradeable).
      * @param resolver address of the resolver to remove.
      */
     function removeResolver(address resolver) external nonReentrant {
