@@ -670,6 +670,8 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(moo.getRoleAdmin(moo.REQUEST_MANAGER_ROLE()), moo.CONFIG_ADMIN_ROLE());
         // RESOLVER_ROLE is administered by RESOLVER_ADMIN_ROLE
         assertEq(moo.getRoleAdmin(moo.RESOLVER_ROLE()), moo.RESOLVER_ADMIN_ROLE());
+        // RESOLVER_ADMIN_ROLE is self-governing (administered by itself)
+        assertEq(moo.getRoleAdmin(moo.RESOLVER_ADMIN_ROLE()), moo.RESOLVER_ADMIN_ROLE());
     }
 
     function testDefaultAdminManagesConfigAdminRole() external {
@@ -684,16 +686,34 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertFalse(moo.hasRole(moo.CONFIG_ADMIN_ROLE(), configAdmin));
     }
 
-    function testDefaultAdminManagesResolverAdminRole() external {
+    function testResolverAdminRoleIsSelfGoverning() external {
         address newResolverAdmin = makeAddr("newResolverAdmin");
-        // DEFAULT_ADMIN can grant RESOLVER_ADMIN_ROLE
-        vm.startPrank(upgradeAdmin);
-        moo.grantRole(moo.RESOLVER_ADMIN_ROLE(), newResolverAdmin);
-        // DEFAULT_ADMIN can revoke RESOLVER_ADMIN_ROLE
-        moo.revokeRole(moo.RESOLVER_ADMIN_ROLE(), resolverAdmin);
+        bytes32 resolverAdminRole = moo.RESOLVER_ADMIN_ROLE();
+
+        // RESOLVER_ADMIN_ROLE is self-governing, so DEFAULT_ADMIN cannot manage it
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, upgradeAdmin, resolverAdminRole
+            )
+        );
+        vm.prank(upgradeAdmin);
+        moo.grantRole(resolverAdminRole, newResolverAdmin);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, upgradeAdmin, resolverAdminRole
+            )
+        );
+        vm.prank(upgradeAdmin);
+        moo.revokeRole(resolverAdminRole, resolverAdmin);
+
+        // But RESOLVER_ADMIN can grant and revoke RESOLVER_ADMIN_ROLE
+        vm.startPrank(resolverAdmin);
+        moo.grantRole(resolverAdminRole, newResolverAdmin);
+        assertTrue(moo.hasRole(resolverAdminRole, newResolverAdmin));
+        moo.revokeRole(resolverAdminRole, newResolverAdmin);
+        assertFalse(moo.hasRole(resolverAdminRole, newResolverAdmin));
         vm.stopPrank();
-        assertTrue(moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), newResolverAdmin));
-        assertFalse(moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), resolverAdmin));
     }
 
     function testConfigAdminCannotManageResolvers() external {

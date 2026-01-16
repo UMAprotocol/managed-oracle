@@ -122,9 +122,11 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         reinitializer(2)
         onlyUpgradeAdmin
     {
-        // Resolver admin is managing the resolver role and grant resolver admin role to the initial resolver admin.
+        // Self-govening resolver admin is managing the resolver role and grant resolver admin role to the initial
+        // resolver admin.
         _grantRole(RESOLVER_ADMIN_ROLE, resolverAdmin);
         _setRoleAdmin(RESOLVER_ROLE, RESOLVER_ADMIN_ROLE);
+        _setRoleAdmin(RESOLVER_ADMIN_ROLE, RESOLVER_ADMIN_ROLE);
 
         _setMinimumDisputeWindow(_minimumDisputeWindow);
     }
