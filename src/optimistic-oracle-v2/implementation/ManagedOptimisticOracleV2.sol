@@ -46,6 +46,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Resolver role is used to permission the settlement of price requests.
     bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
 
+    // Resolver admin role is used to manage resolver role membership.
+    bytes32 public constant RESOLVER_ADMIN_ROLE = keccak256("RESOLVER_ADMIN_ROLE");
+
     // Lowest bound for the minimum dispute window that the config admin can set.
     uint256 public constant LOWEST_MINIMUM_DISPUTE_WINDOW = 5 minutes;
 
@@ -112,10 +115,16 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     /**
      * @notice Initializer for adding support for early resolutions.
      * @param _minimumDisputeWindow minimum dispute window used in early resolutions.
+     * @param resolverAdmin address, which is used for managing resolvers.
      */
-    function initializeV2(uint256 _minimumDisputeWindow) external reinitializer(2) onlyUpgradeAdmin {
-        // Config admin is managing the resolver role.
-        _setRoleAdmin(RESOLVER_ROLE, CONFIG_ADMIN_ROLE);
+    function initializeV2(uint256 _minimumDisputeWindow, address resolverAdmin)
+        external
+        reinitializer(2)
+        onlyUpgradeAdmin
+    {
+        // Resolver admin is managing the resolver role and grant resolver admin role to the initial resolver admin.
+        _grantRole(RESOLVER_ADMIN_ROLE, resolverAdmin);
+        _setRoleAdmin(RESOLVER_ROLE, RESOLVER_ADMIN_ROLE);
 
         _setMinimumDisputeWindow(_minimumDisputeWindow);
     }

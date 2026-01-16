@@ -118,7 +118,8 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
 
         // Prepare initializeV2 call with 5 minute minimum dispute window
         uint256 minimumDisputeWindow = 5 minutes;
-        bytes memory initData = abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (minimumDisputeWindow));
+        bytes memory initData =
+            abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (minimumDisputeWindow, upgradeAdmin));
 
         // Upgrade the proxy
         bytes memory upgradeData = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", newImpl, initData);
@@ -150,16 +151,13 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         address newImpl = address(new ManagedOptimisticOracleV2());
 
         // Prepare multicall data for upgrade + role setup
-        bytes[] memory calls = new bytes[](3);
+        bytes[] memory calls = new bytes[](2);
 
-        // 1. Initialize V2
-        calls[0] = abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (5 minutes));
+        // 1. Initialize V2 with minimum dispute window and upgrade admin as resolver admin
+        calls[0] = abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (5 minutes, upgradeAdmin));
 
-        // 2. Grant CONFIG_ADMIN_ROLE to upgrade admin (if not already)
-        calls[1] = abi.encodeCall(IAccessControl.grantRole, (CONFIG_ADMIN_ROLE, upgradeAdmin));
-
-        // 3. Add resolver
-        calls[2] = abi.encodeCall(ManagedOptimisticOracleV2.addResolver, (resolver));
+        // 2. Add resolver (upgradeAdmin now has RESOLVER_ADMIN_ROLE from initializeV2)
+        calls[1] = abi.encodeCall(ManagedOptimisticOracleV2.addResolver, (resolver));
 
         // Create multicall
         bytes memory multicallData = abi.encodeWithSignature("multicall(bytes[])", calls);
@@ -183,9 +181,9 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
 
         console.log("\n=== Testing Add/Remove Resolver ===");
 
-        // Impersonate upgrade admin to grant CONFIG_ADMIN_ROLE
+        // Impersonate upgrade admin to grant RESOLVER_ADMIN_ROLE
         vm.startPrank(upgradeAdmin);
-        managedOOv2.grantRole(CONFIG_ADMIN_ROLE, upgradeAdmin);
+        managedOOv2.grantRole(managedOOv2.RESOLVER_ADMIN_ROLE(), upgradeAdmin);
 
         // Add resolver
         managedOOv2.addResolver(resolver);
@@ -234,9 +232,9 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
 
         console.log("\n=== Testing Early Resolution with USDC.e ===");
 
-        // Setup roles
+        // Setup roles - grant resolver admin role and add resolver
         vm.startPrank(upgradeAdmin);
-        managedOOv2.grantRole(CONFIG_ADMIN_ROLE, upgradeAdmin);
+        managedOOv2.grantRole(managedOOv2.RESOLVER_ADMIN_ROLE(), upgradeAdmin);
         managedOOv2.addResolver(resolver);
 
         vm.stopPrank();
@@ -394,7 +392,8 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         vm.startPrank(upgradeAdmin);
 
         address newImpl = address(new ManagedOptimisticOracleV2());
-        bytes memory initData = abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (minimumDisputeWindow));
+        bytes memory initData =
+            abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (minimumDisputeWindow, upgradeAdmin));
         bytes memory upgradeData = abi.encodeWithSignature("upgradeToAndCall(address,bytes)", newImpl, initData);
 
         (bool success,) = PROXY_ADDRESS.call(upgradeData);
@@ -404,9 +403,9 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
     }
 
     function _setupPriceRequestAndProposal() internal {
-        // Setup roles
+        // Setup roles - grant resolver admin role and add resolver
         vm.startPrank(upgradeAdmin);
-        managedOOv2.grantRole(CONFIG_ADMIN_ROLE, upgradeAdmin);
+        managedOOv2.grantRole(managedOOv2.RESOLVER_ADMIN_ROLE(), upgradeAdmin);
         managedOOv2.addResolver(resolver);
         vm.stopPrank();
 

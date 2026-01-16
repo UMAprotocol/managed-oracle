@@ -34,6 +34,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     // Actors (assigned via makeAddr in setUp for clarity and determinism)
     address internal configAdmin;
     address internal upgradeAdmin;
+    address internal resolverAdmin;
     address internal requestManager;
     address internal requester;
     address internal nonRequester;
@@ -67,6 +68,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         // Addresses
         configAdmin = makeAddr("configAdmin");
         upgradeAdmin = makeAddr("upgradeAdmin");
+        resolverAdmin = makeAddr("resolverAdmin");
         requestManager = makeAddr("requestManager");
         requester = makeAddr("requester");
         nonRequester = makeAddr("nonRequester");
@@ -78,6 +80,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         disputer = makeAddr("disputer");
         vm.label(configAdmin, "CONFIG_ADMIN");
         vm.label(upgradeAdmin, "UPGRADE_ADMIN");
+        vm.label(resolverAdmin, "RESOLVER_ADMIN");
         vm.label(requestManager, "REQUEST_MANAGER");
         vm.label(requester, "REQUESTER");
         vm.label(nonRequester, "NON_REQUESTER");
@@ -148,13 +151,15 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         // V2 init
         vm.prank(upgradeAdmin);
-        moo.initializeV2(MINIMUM_DISPUTE_WINDOW);
+        moo.initializeV2(MINIMUM_DISPUTE_WINDOW, resolverAdmin);
 
-        // Grant request manager and resolver
-        vm.startPrank(configAdmin);
+        // Grant request manager (by config admin)
+        vm.prank(configAdmin);
         moo.addRequestManager(requestManager);
+
+        // Grant resolver (by resolver admin)
+        vm.prank(resolverAdmin);
         moo.addResolver(resolver);
-        vm.stopPrank();
     }
 
     function _makeRequest(address _requester, uint256 _timestamp, uint256 reward)
@@ -187,8 +192,9 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.startPrank(_disputer);
         currency.mint(_disputer, 10_000 ether);
         currency.approve(address(moo), type(uint256).max);
-        return moo.disputePrice(_requester, IDENTIFIER, _timestamp, ANCILLARY);
+        uint256 result = moo.disputePrice(_requester, IDENTIFIER, _timestamp, ANCILLARY);
         vm.stopPrank();
+        return result;
     }
 
     function _prepareFunds(address _msgSender) internal {
@@ -215,10 +221,12 @@ contract ManagedOptimisticOracleV2Test is Test {
         bytes32 CONFIG_ADMIN_ROLE = moo.CONFIG_ADMIN_ROLE();
         bytes32 REQUEST_MANAGER_ROLE = moo.REQUEST_MANAGER_ROLE();
         bytes32 RESOLVER_ROLE = moo.RESOLVER_ROLE();
+        bytes32 RESOLVER_ADMIN_ROLE = moo.RESOLVER_ADMIN_ROLE();
         assertTrue(moo.hasRole(CONFIG_ADMIN_ROLE, configAdmin));
-        // request manager and resolver roles use config admin as its admin
+        // request manager role uses config admin as its admin
         assertEq(moo.getRoleAdmin(REQUEST_MANAGER_ROLE), CONFIG_ADMIN_ROLE);
-        assertEq(moo.getRoleAdmin(RESOLVER_ROLE), CONFIG_ADMIN_ROLE);
+        // resolver role uses resolver admin as its admin
+        assertEq(moo.getRoleAdmin(RESOLVER_ROLE), RESOLVER_ADMIN_ROLE);
         // minimumDisputeWindow is set and synced with defaultLiveness slot
         assertEq(moo.minimumDisputeWindow(), MINIMUM_DISPUTE_WINDOW);
         assertEq(moo.defaultLiveness(), MINIMUM_DISPUTE_WINDOW);
@@ -294,23 +302,32 @@ contract ManagedOptimisticOracleV2Test is Test {
         address newResolver = address(0x1234);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.CONFIG_ADMIN_ROLE()
+                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.RESOLVER_ADMIN_ROLE()
             )
         );
         moo.addResolver(newResolver);
 
-        // Admin adds
-        vm.startPrank(configAdmin);
+        // Config admin cannot add resolver (only resolver admin can)
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, configAdmin, moo.RESOLVER_ADMIN_ROLE()
+            )
+        );
+        vm.prank(configAdmin);
+        moo.addResolver(newResolver);
+
+        // Resolver admin adds
+        vm.startPrank(resolverAdmin);
         vm.expectEmit(true, false, false, true);
-        emit IAccessControl.RoleGranted(RESOLVER_ROLE, newResolver, configAdmin);
+        emit IAccessControl.RoleGranted(RESOLVER_ROLE, newResolver, resolverAdmin);
         moo.addResolver(newResolver);
         vm.stopPrank();
         assertTrue(moo.hasRole(RESOLVER_ROLE, newResolver));
 
-        // Admin removes
-        vm.startPrank(configAdmin);
+        // Resolver admin removes
+        vm.startPrank(resolverAdmin);
         vm.expectEmit(true, false, false, true);
-        emit IAccessControl.RoleRevoked(RESOLVER_ROLE, newResolver, configAdmin);
+        emit IAccessControl.RoleRevoked(RESOLVER_ROLE, newResolver, resolverAdmin);
         moo.removeResolver(newResolver);
         vm.stopPrank();
         assertFalse(moo.hasRole(RESOLVER_ROLE, newResolver));
@@ -649,9 +666,10 @@ contract ManagedOptimisticOracleV2Test is Test {
         // CONFIG_ADMIN_ROLE is administered by DEFAULT_ADMIN_ROLE
         assertEq(moo.getRoleAdmin(moo.CONFIG_ADMIN_ROLE()), moo.DEFAULT_ADMIN_ROLE());
 
-        // REQUEST_MANAGER_ROLE and RESOLVER_ROLE is administered by CONFIG_ADMIN_ROLE (already tested elsewhere but double-check)
+        // REQUEST_MANAGER_ROLE is administered by CONFIG_ADMIN_ROLE (already tested elsewhere but double-check)
         assertEq(moo.getRoleAdmin(moo.REQUEST_MANAGER_ROLE()), moo.CONFIG_ADMIN_ROLE());
-        assertEq(moo.getRoleAdmin(moo.RESOLVER_ROLE()), moo.CONFIG_ADMIN_ROLE());
+        // RESOLVER_ROLE is administered by RESOLVER_ADMIN_ROLE
+        assertEq(moo.getRoleAdmin(moo.RESOLVER_ROLE()), moo.RESOLVER_ADMIN_ROLE());
     }
 
     function testDefaultAdminManagesConfigAdminRole() external {
@@ -664,6 +682,39 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.stopPrank();
         assertTrue(moo.hasRole(moo.CONFIG_ADMIN_ROLE(), newConfig));
         assertFalse(moo.hasRole(moo.CONFIG_ADMIN_ROLE(), configAdmin));
+    }
+
+    function testDefaultAdminManagesResolverAdminRole() external {
+        address newResolverAdmin = makeAddr("newResolverAdmin");
+        // DEFAULT_ADMIN can grant RESOLVER_ADMIN_ROLE
+        vm.startPrank(upgradeAdmin);
+        moo.grantRole(moo.RESOLVER_ADMIN_ROLE(), newResolverAdmin);
+        // DEFAULT_ADMIN can revoke RESOLVER_ADMIN_ROLE
+        moo.revokeRole(moo.RESOLVER_ADMIN_ROLE(), resolverAdmin);
+        vm.stopPrank();
+        assertTrue(moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), newResolverAdmin));
+        assertFalse(moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), resolverAdmin));
+    }
+
+    function testConfigAdminCannotManageResolvers() external {
+        address newResolver = makeAddr("newResolver");
+        // Config admin cannot add resolver (only resolver admin can)
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, configAdmin, moo.RESOLVER_ADMIN_ROLE()
+            )
+        );
+        vm.prank(configAdmin);
+        moo.addResolver(newResolver);
+
+        // Config admin cannot remove resolver (only resolver admin can)
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, configAdmin, moo.RESOLVER_ADMIN_ROLE()
+            )
+        );
+        vm.prank(configAdmin);
+        moo.removeResolver(resolver);
     }
 
     function testUpgradeAuthorization() external {
