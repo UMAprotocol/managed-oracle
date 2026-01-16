@@ -37,30 +37,30 @@ contract UpgradeManagedOptimisticOracleV2_InitV2 is UpgradeManagedOptimisticOrac
         // RESOLVER_ADMIN_ROLE() doesn't exist on non-upgraded implementation, compute it directly
         bytes32 resolverAdminRole = keccak256("RESOLVER_ADMIN_ROLE");
 
-        // Need temp resolver admin role if we have resolvers to grant but the new resolverAdmin is not the upgradeAdmin
-        bool tempGrantResolverAdminRole = resolverGrants.length > 0 && resolverAdmin != upgradeAdmin;
+        // If we need to add resolvers during upgrade and resolverAdmin != upgradeAdmin, we must temporarily
+        // make upgradeAdmin the resolverAdmin, add resolvers, then transfer to final resolverAdmin.
+        // This is because RESOLVER_ADMIN_ROLE is self-governing after initializeV2.
+        bool needTempResolverAdmin = resolverGrants.length > 0 && resolverAdmin != upgradeAdmin;
+        address initialResolverAdmin = needTempResolverAdmin ? upgradeAdmin : resolverAdmin;
 
         bytes[] memory calls = new bytes[](
-            1 + resolverGrants.length + (tempGrantResolverAdminRole ? 2 : 0) + configAdminGrants.length
+            1 + resolverGrants.length + (needTempResolverAdmin ? 2 : 0) + configAdminGrants.length
                 + configAdminRevokes.length
         );
         uint256 callIdx = 0;
 
-        // Initialize V2 with minimum dispute window and resolver admin
-        calls[callIdx++] = abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (minimumDisputeWindow, resolverAdmin));
+        // Initialize V2 with minimum dispute window and initial resolver admin (may be temporary)
+        calls[callIdx++] =
+            abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (minimumDisputeWindow, initialResolverAdmin));
 
-        // Temporarily grant resolver admin to upgradeAdmin if needed to add resolvers
-        if (tempGrantResolverAdminRole) {
-            calls[callIdx++] = abi.encodeCall(IAccessControl.grantRole, (resolverAdminRole, upgradeAdmin));
-        }
-
-        // Grant resolver role
+        // Grant resolver role (upgradeAdmin has RESOLVER_ADMIN_ROLE at this point if needTempResolverAdmin)
         for (uint256 i = 0; i < resolverGrants.length; i++) {
             calls[callIdx++] = abi.encodeCall(ManagedOptimisticOracleV2.addResolver, (resolverGrants[i]));
         }
 
-        // Revoke temporary resolver admin if it was granted
-        if (tempGrantResolverAdminRole) {
+        // Transfer RESOLVER_ADMIN_ROLE to final resolverAdmin and revoke from upgradeAdmin
+        if (needTempResolverAdmin) {
+            calls[callIdx++] = abi.encodeCall(IAccessControl.grantRole, (resolverAdminRole, resolverAdmin));
             calls[callIdx++] = abi.encodeCall(IAccessControl.revokeRole, (resolverAdminRole, upgradeAdmin));
         }
 
