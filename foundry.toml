@@ -7,7 +7,6 @@ ast = true
 build_info = true
 extra_output = ["storageLayout"]
 optimizer = true
-revert_strings = "strip"
 via_ir = true
 
 # Fork testing configuration
