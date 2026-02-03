@@ -25,7 +25,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * - CONFIG_ADMIN: Optional. Address of the config admin (defaults to deployer if not provided)
  * - UPGRADE_ADMIN: Optional. Address of the upgrade admin (defaults to deployer if not provided)
  * - DEFAULT_LIVENESS: Optional. Default liveness period in seconds (defaults to 7200 if not provided)
- * - MINIMUM_LIVENESS: Optional. Minimum liveness period in seconds (defaults to 3600 if not provided)
  * - CUSTOM_CURRENCY: Optional. Address of a custom currency bond range to initialize
  * - MINIMUM_BOND_AMOUNT: Optional. Minimum bond amount for the custom currency
  * - MAXIMUM_BOND_AMOUNT: Optional. Maximum bond amount for the custom currency
@@ -45,7 +44,6 @@ contract DeployManagedOptimisticOracleV2 is Script {
         address requesterWhitelist = vm.envAddress("REQUESTER_WHITELIST");
 
         uint256 defaultLiveness = vm.envOr("DEFAULT_LIVENESS", uint256(7200)); // Default to 2 hours (7200 seconds)
-        uint256 minimumLiveness = vm.envOr("MINIMUM_LIVENESS", uint256(3600)); // Default to 1 hour (3600 seconds)
 
         address customCurrency = vm.envOr("CUSTOM_CURRENCY", address(0));
         uint128 minimumBondAmount = uint128(vm.envOr("MINIMUM_BOND_AMOUNT", uint256(0)));
@@ -75,7 +73,6 @@ contract DeployManagedOptimisticOracleV2 is Script {
         console.log("Config Admin:", configAdmin);
         console.log("Upgrade Admin:", upgradeAdmin);
         console.log("Default Liveness:", defaultLiveness);
-        console.log("Minimum Liveness:", minimumLiveness);
 
         // Start broadcasting transactions with the derived private key
         vm.startBroadcast(deployerPrivateKey);
@@ -92,7 +89,6 @@ contract DeployManagedOptimisticOracleV2 is Script {
                         defaultProposerWhitelist,
                         requesterWhitelist,
                         currencyBondRanges,
-                        minimumLiveness,
                         configAdmin,
                         upgradeAdmin
                     )
@@ -111,7 +107,6 @@ contract DeployManagedOptimisticOracleV2 is Script {
         console.log("Config Admin:", configAdmin);
         console.log("Upgrade Admin:", upgradeAdmin);
         console.log("Default Liveness:", defaultLiveness);
-        console.log("Minimum Liveness:", minimumLiveness);
         console.log("Default Proposer Whitelist:", defaultProposerWhitelist);
         console.log("Requester Whitelist:", requesterWhitelist);
 

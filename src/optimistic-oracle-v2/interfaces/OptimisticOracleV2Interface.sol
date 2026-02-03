@@ -121,6 +121,7 @@ abstract contract OptimisticOracleV2Interface {
         uint256 expirationTime; // Time at which the request auto-settles without a dispute.
         uint256 reward; // Amount of the currency to pay to the proposer on settlement.
         uint256 finalFee; // Final fee to pay to the Store upon request to the DVM.
+        uint256 proposalTime; // Time of the proposal.
     }
 
     // This value must be <= the Voting contract's `ancillaryBytesLimit` value otherwise it is possible

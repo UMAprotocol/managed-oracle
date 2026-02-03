@@ -86,6 +86,9 @@ contract OptimisticOracleV2 is
     // Default liveness value for all price requests.
     uint256 public override defaultLiveness;
 
+    // Default liveness value used in legacy requests (before proposalTime was added), must not be modified.
+    uint256 internal constant LEGACY_DEFAULT_LIVENESS = 2 hours;
+
     // This is effectively the extra ancillary data to add ",ooRequester:0000000000000000000000000000000000000000".
     uint256 private constant MAX_ADDED_ANCILLARY_DATA = 53;
     uint256 public constant OO_ANCILLARY_DATA_LIMIT = ancillaryBytesLimit - MAX_ADDED_ANCILLARY_DATA;
@@ -198,7 +201,8 @@ contract OptimisticOracleV2 is
             resolvedPrice: 0,
             expirationTime: 0,
             reward: reward,
-            finalFee: finalFee
+            finalFee: finalFee,
+            proposalTime: 0
         });
 
         if (reward > 0) {
@@ -363,9 +367,11 @@ contract OptimisticOracleV2 is
         }
         request.proposer = proposer;
         request.proposedPrice = proposedPrice;
+        uint256 proposalTime = getCurrentTime();
+        request.proposalTime = proposalTime;
 
         // If a custom liveness has been set, use it instead of the default.
-        request.expirationTime = getCurrentTime()
+        request.expirationTime = proposalTime
             + (request.requestSettings.customLiveness != 0 ? request.requestSettings.customLiveness : defaultLiveness);
 
         totalBond = request.requestSettings.bond + request.finalFee;
@@ -431,7 +437,10 @@ contract OptimisticOracleV2 is
         bytes memory ancillaryData
     ) public override nonReentrant returns (uint256 totalBond) {
         require(disputer != address(0), DisputerAddressCannotBeZero());
-        require(_getState(requester, identifier, timestamp, ancillaryData) == State.Proposed, RequestStateNotProposed());
+        require(
+            _getStateForDispute(requester, identifier, timestamp, ancillaryData) == State.Proposed,
+            RequestStateNotProposed()
+        );
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
         request.disputer = disputer;
 
@@ -509,6 +518,7 @@ contract OptimisticOracleV2 is
      */
     function settleAndGetPrice(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         external
+        virtual
         override
         nonReentrant
         returns (int256)
@@ -531,6 +541,7 @@ contract OptimisticOracleV2 is
      */
     function settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         external
+        virtual
         override
         nonReentrant
         returns (uint256 payout)
@@ -589,7 +600,8 @@ contract OptimisticOracleV2 is
         nonReentrantView
         returns (State)
     {
-        return _getState(requester, identifier, timestamp, ancillaryData);
+        // Child contract might need to alter the state before potential dispute.
+        return _getStateForDispute(requester, identifier, timestamp, ancillaryData);
     }
 
     /**
@@ -607,7 +619,8 @@ contract OptimisticOracleV2 is
         nonReentrantView
         returns (bool)
     {
-        State state = _getState(requester, identifier, timestamp, ancillaryData);
+        // Child contract might need to alter the state before potential dispute.
+        State state = _getStateForDispute(requester, identifier, timestamp, ancillaryData);
         return state == State.Settled || state == State.Resolved || state == State.Expired;
     }
 
@@ -635,7 +648,8 @@ contract OptimisticOracleV2 is
     }
 
     function _settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
-        private
+        internal
+        virtual
         returns (uint256 payout)
     {
         State state = _getState(requester, identifier, timestamp, ancillaryData);
@@ -720,8 +734,18 @@ contract OptimisticOracleV2 is
         require(_liveness > 0, LivenessCannotBeZero());
     }
 
+    // This allows child contracts to selectively override the state retrieval upon potential dispute.
+    function _getStateForDispute(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        internal
+        view
+        virtual
+        returns (State)
+    {
+        return _getState(requester, identifier, timestamp, ancillaryData);
+    }
+
     function _getState(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
-        private
+        internal
         view
         returns (State)
     {
@@ -764,8 +788,13 @@ contract OptimisticOracleV2 is
         returns (uint256)
     {
         if (request.requestSettings.eventBased) {
-            uint256 liveness =
-                request.requestSettings.customLiveness != 0 ? request.requestSettings.customLiveness : defaultLiveness;
+            uint256 proposalTime = request.proposalTime;
+            if (proposalTime > 0) return proposalTime;
+
+            // This is legacy request, recalculate proposal time using the legacy default liveness.
+            uint256 liveness = request.requestSettings.customLiveness != 0
+                ? request.requestSettings.customLiveness
+                : LEGACY_DEFAULT_LIVENESS;
             return request.expirationTime - liveness;
         } else {
             return requestTimestamp;

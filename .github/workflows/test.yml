@@ -19,6 +19,8 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.3.6
 
       - name: Show Forge version
         run: |
@@ -36,5 +38,32 @@ jobs:
 
       - name: Run Forge tests
         run: |
-          forge test -vvv
+          forge test -vvv --no-match-contract ".*Fork.*"
         id: test
+
+  fork-tests:
+    name: Fork Tests (Polygon)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.3.6
+
+      - name: Show Forge version
+        run: |
+          forge --version
+
+      - name: Run Forge build
+        run: |
+          forge build --sizes
+
+      - name: Run fork tests
+        run: |
+          forge test --match-contract ".*Fork.*" --fork-url polygon -vvv
+        env:
+          NODE_URL_137: ${{ secrets.NODE_URL_137 }}

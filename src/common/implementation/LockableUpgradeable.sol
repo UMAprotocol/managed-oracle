@@ -34,8 +34,7 @@ abstract contract LockableUpgradeable is Initializable {
      * function that does the actual state modification.
      */
     modifier nonReentrant() {
-        _preEntranceCheck();
-        _preEntranceSet();
+        _preEntranceCheckAndSet();
         _;
         _postEntranceReset();
     }
@@ -53,6 +52,11 @@ abstract contract LockableUpgradeable is Initializable {
     // re-entered. Then, if the function modifies state, it should call `_postEntranceSet()`, perform its logic, and
     // then call `_postEntranceReset()`.
     // View-only methods can simply call `_preEntranceCheck()` to make sure that it is not being re-entered.
+    function _preEntranceCheckAndSet() internal {
+        _preEntranceCheck();
+        _preEntranceSet();
+    }
+
     function _preEntranceCheck() internal view {
         // On the first call to nonReentrant, _notEntered will be true
         require(_notEntered, ReentrancyGuardReentrantCall());
