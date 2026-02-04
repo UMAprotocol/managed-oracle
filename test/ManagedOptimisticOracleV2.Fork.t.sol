@@ -109,6 +109,9 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
     function testForkUpgradeToV2() public {
         console.log("\n=== Testing Upgrade to V2 ===");
 
+        // Capture pre-upgrade state
+        uint256 prevDefaultLiveness = managedOOv2.defaultLiveness();
+
         // Impersonate the upgrade admin
         vm.startPrank(upgradeAdmin);
 
@@ -130,7 +133,6 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         vm.stopPrank();
 
         // Verify upgrade
-        uint256 prevDefaultLiveness = managedOOv2.defaultLiveness();
         assertEq(managedOOv2.minimumDisputeWindow(), minimumDisputeWindow, "Minimum dispute window not set");
         assertEq(managedOOv2.defaultLiveness(), prevDefaultLiveness, "Default liveness should be preserved");
 
