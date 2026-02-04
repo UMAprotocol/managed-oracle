@@ -123,7 +123,6 @@ contract ManagedOptimisticOracleV2ForkScenariosTest is Test {
         request = oracle.getRequest(REQUESTER, YES_OR_NO_QUERY, REQUESTED_TIMESTAMP, requestedAncillary);
         assertEq(request.proposer, proposerAddr, "Should have proposer");
         assertEq(request.proposedPrice, 1e18, "Should have proposed price");
-        assertEq(request.proposalTime, proposalTimestamp, "V2 requests track proposal time");
         assertEq(request.requestSettings.customLiveness, 10 minutes, "Custom liveness should be applied on proposal");
 
         state = oracle.getState(REQUESTER, YES_OR_NO_QUERY, REQUESTED_TIMESTAMP, requestedAncillary);
@@ -163,8 +162,6 @@ contract ManagedOptimisticOracleV2ForkScenariosTest is Test {
         assertEq(request.proposer, PROPOSER, "Should have correct proposer");
         assertFalse(request.settled, "Should not be settled yet");
 
-        // V1 requests have proposalTime = 0, so early settlement based on minimumDisputeWindow won't work.
-        // For V1 requests, resolver must wait until natural expiration.
         // Warp past expiration time to allow settlement.
         vm.warp(request.expirationTime);
 

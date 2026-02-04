@@ -467,19 +467,14 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Sets the minimum dispute window used in early resolutions.
-     * @dev Reverts if the minimum dispute window is larger than the legacy default liveness or if it is smaller than
+     * @dev Reverts if the minimum dispute window is larger than the default liveness or if it is smaller than
      * the hard limit set in the contract.
      * @param _minimumDisputeWindow new minimum dispute window period.
      */
     function _setMinimumDisputeWindow(uint256 _minimumDisputeWindow) private {
-        require(_minimumDisputeWindow <= LEGACY_DEFAULT_LIVENESS, MinimumDisputeWindowTooLarge());
+        require(_minimumDisputeWindow <= defaultLiveness, MinimumDisputeWindowTooLarge());
         require(_minimumDisputeWindow >= LOWEST_MINIMUM_DISPUTE_WINDOW, MinimumDisputeWindowTooSmall());
 
-        // Prior versions of this contract had separate values for defaultLiveness and minimumLiveness (now renamed to
-        // minimumDisputeWindow). Now the minimum dispute window is used both as floor for custom liveness values and
-        // determines the earliest time the request can be resolved. Since defaultLiveness variable is stored and used
-        // in the parent contract we keep both variables and have their values synced here.
-        defaultLiveness = _minimumDisputeWindow;
         minimumDisputeWindow = _minimumDisputeWindow;
         emit MinimumDisputeWindowUpdated(_minimumDisputeWindow);
     }

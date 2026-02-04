@@ -61,7 +61,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     // Common constants
     bytes32 internal constant IDENTIFIER = keccak256("PRICE_ID");
     bytes internal constant ANCILLARY = bytes(":memo: test");
-    uint256 internal constant LEGACY_DEFAULT_LIVENESS = 2 hours;
+    uint256 internal constant DEFAULT_LIVENESS = 2 hours;
     uint256 internal constant MINIMUM_DISPUTE_WINDOW = 5 minutes;
 
     function setUp() public {
@@ -138,7 +138,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         bytes memory initData = abi.encodeWithSelector(
             ManagedOptimisticOracleV2.initialize.selector,
-            LEGACY_DEFAULT_LIVENESS,
+            DEFAULT_LIVENESS,
             address(finder),
             address(defaultProposerWhitelist),
             address(requesterWhitelist),
@@ -227,9 +227,8 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(moo.getRoleAdmin(REQUEST_MANAGER_ROLE), CONFIG_ADMIN_ROLE);
         // resolver role uses resolver admin as its admin
         assertEq(moo.getRoleAdmin(RESOLVER_ROLE), RESOLVER_ADMIN_ROLE);
-        // minimumDisputeWindow is set and synced with defaultLiveness slot
+        // minimumDisputeWindow is set
         assertEq(moo.minimumDisputeWindow(), MINIMUM_DISPUTE_WINDOW);
-        assertEq(moo.defaultLiveness(), MINIMUM_DISPUTE_WINDOW);
     }
 
     function testOnlyConfigAdminSetters() external {
@@ -609,7 +608,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         vm.prank(configAdmin);
         vm.expectRevert(ManagedOptimisticOracleV2Interface.MinimumDisputeWindowTooLarge.selector);
-        moo.setMinimumDisputeWindow(LEGACY_DEFAULT_LIVENESS + 1);
+        moo.setMinimumDisputeWindow(DEFAULT_LIVENESS + 1);
 
         // Valid update
         vm.prank(configAdmin);
@@ -643,6 +642,31 @@ contract ManagedOptimisticOracleV2Test is Test {
         _proposeFor(sender, proposer, requester, t, 123);
         OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
         assertEq(req.expirationTime, block.timestamp + 3 hours);
+    }
+
+    function testRequesterSetCustomLivenessValidation() external {
+        uint256 t = block.timestamp;
+        _makeRequest(requester, t, 0);
+
+        // Below minimum -> revert
+        vm.prank(requester);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.LivenessTooLow.selector);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 1);
+
+        // Above base max -> revert
+        vm.prank(requester);
+        vm.expectRevert(OptimisticOracleV2Interface.LivenessTooLarge.selector);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 5200 weeks);
+
+        // Valid set at minimum dispute window
+        vm.prank(requester);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, MINIMUM_DISPUTE_WINDOW);
+
+        // Propose and check expiration time = now + MINIMUM_DISPUTE_WINDOW
+        vm.warp(t + 10);
+        _proposeFor(sender, proposer, requester, t, 123);
+        OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
+        assertEq(req.expirationTime, block.timestamp + MINIMUM_DISPUTE_WINDOW);
     }
 
     // -------------------- Utility --------------------
@@ -749,11 +773,12 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         // Upgrade admin can upgrade
         uint256 prevMinDisputeWindow = moo.minimumDisputeWindow();
+        uint256 prevDefaultLiveness = moo.defaultLiveness();
         vm.prank(upgradeAdmin);
         moo.upgradeToAndCall(address(impl2), "");
         // State preserved
         assertEq(moo.minimumDisputeWindow(), prevMinDisputeWindow);
-        assertEq(moo.defaultLiveness(), prevMinDisputeWindow);
+        assertEq(moo.defaultLiveness(), prevDefaultLiveness);
     }
 
     function testUpgradeAdminCannotCallConfigSetters() external {
@@ -856,7 +881,6 @@ contract ManagedOptimisticOracleV2Test is Test {
         uint256 proposalTime = t + 3600;
         vm.warp(proposalTime);
         _proposeFor(sender, proposer, requester, t, 42);
-        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).proposalTime, proposalTime);
 
         // Dispute should result in Oracle price request with proposal timestamp
         vm.expectCall(

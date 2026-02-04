@@ -86,9 +86,6 @@ contract OptimisticOracleV2 is
     // Default liveness value for all price requests.
     uint256 public override defaultLiveness;
 
-    // Default liveness value used in legacy requests (before proposalTime was added), must not be modified.
-    uint256 internal constant LEGACY_DEFAULT_LIVENESS = 2 hours;
-
     // This is effectively the extra ancillary data to add ",ooRequester:0000000000000000000000000000000000000000".
     uint256 private constant MAX_ADDED_ANCILLARY_DATA = 53;
     uint256 public constant OO_ANCILLARY_DATA_LIMIT = ancillaryBytesLimit - MAX_ADDED_ANCILLARY_DATA;
@@ -201,8 +198,7 @@ contract OptimisticOracleV2 is
             resolvedPrice: 0,
             expirationTime: 0,
             reward: reward,
-            finalFee: finalFee,
-            proposalTime: 0
+            finalFee: finalFee
         });
 
         if (reward > 0) {
@@ -367,11 +363,9 @@ contract OptimisticOracleV2 is
         }
         request.proposer = proposer;
         request.proposedPrice = proposedPrice;
-        uint256 proposalTime = getCurrentTime();
-        request.proposalTime = proposalTime;
 
         // If a custom liveness has been set, use it instead of the default.
-        request.expirationTime = proposalTime
+        request.expirationTime = getCurrentTime()
             + (request.requestSettings.customLiveness != 0 ? request.requestSettings.customLiveness : defaultLiveness);
 
         totalBond = request.requestSettings.bond + request.finalFee;
@@ -788,13 +782,8 @@ contract OptimisticOracleV2 is
         returns (uint256)
     {
         if (request.requestSettings.eventBased) {
-            uint256 proposalTime = request.proposalTime;
-            if (proposalTime > 0) return proposalTime;
-
-            // This is legacy request, recalculate proposal time using the legacy default liveness.
-            uint256 liveness = request.requestSettings.customLiveness != 0
-                ? request.requestSettings.customLiveness
-                : LEGACY_DEFAULT_LIVENESS;
+            uint256 liveness =
+                request.requestSettings.customLiveness != 0 ? request.requestSettings.customLiveness : defaultLiveness;
             return request.expirationTime - liveness;
         } else {
             return requestTimestamp;

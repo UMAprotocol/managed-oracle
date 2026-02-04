@@ -130,12 +130,9 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         vm.stopPrank();
 
         // Verify upgrade
+        uint256 prevDefaultLiveness = managedOOv2.defaultLiveness();
         assertEq(managedOOv2.minimumDisputeWindow(), minimumDisputeWindow, "Minimum dispute window not set");
-        assertEq(
-            managedOOv2.defaultLiveness(),
-            minimumDisputeWindow,
-            "Default liveness should sync with minimum dispute window"
-        );
+        assertEq(managedOOv2.defaultLiveness(), prevDefaultLiveness, "Default liveness should be preserved");
 
         console.log("  Minimum Dispute Window:", managedOOv2.minimumDisputeWindow());
         console.log("  Default Liveness:", managedOOv2.defaultLiveness());
@@ -212,7 +209,7 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         managedOOv2.setMinimumDisputeWindow(4 minutes);
         console.log("  + Reverts when < 5 minutes");
 
-        // Should revert if above LEGACY_DEFAULT_LIVENESS (2 hours)
+        // Should revert if above defaultLiveness (2 hours)
         vm.expectRevert(ManagedOptimisticOracleV2Interface.MinimumDisputeWindowTooLarge.selector);
         managedOOv2.setMinimumDisputeWindow(3 hours);
         console.log("  + Reverts when > 2 hours");
@@ -220,7 +217,6 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         // Should succeed with valid value
         managedOOv2.setMinimumDisputeWindow(30 minutes);
         assertEq(managedOOv2.minimumDisputeWindow(), 30 minutes);
-        assertEq(managedOOv2.defaultLiveness(), 30 minutes, "Should sync with defaultLiveness");
         console.log("  + Accepts valid value (30 minutes)");
 
         vm.stopPrank();
@@ -275,7 +271,7 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         console.log("  Bond Amount:", bondAmount);
         console.log("  Token: USDC.e", address(USDC_E));
 
-        // Request price
+        // Request price and opt-in for early resolution
         vm.startPrank(requester);
         USDC_E.approve(address(managedOOv2), type(uint256).max);
 
@@ -287,6 +283,8 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
             0 // no reward
         );
         console.log("  + Price request created");
+        uint256 customLiveness = 5 minutes;
+        managedOOv2.setCustomLiveness(TEST_IDENTIFIER, block.timestamp, ancillaryData, customLiveness);
         vm.stopPrank();
 
         // Propose price
@@ -305,11 +303,11 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         vm.stopPrank();
 
         // Wait for minimum dispute window
-        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.warp(block.timestamp + customLiveness + 1);
 
         // Resolver settles early
         vm.prank(resolver);
-        managedOOv2.settle(requester, TEST_IDENTIFIER, block.timestamp - 5 minutes - 1, ancillaryData);
+        managedOOv2.settle(requester, TEST_IDENTIFIER, block.timestamp - customLiveness - 1, ancillaryData);
         console.log("  + Resolver settled after minimum dispute window");
     }
 
