@@ -202,6 +202,19 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Sets the default liveness for all price requests.
+     * @dev Reverts if the default liveness is lower than the minimum dispute window or larger than the maximum allowed
+     * liveness. If you need to set a lower default liveness, first decrease the minimum dispute window.
+     * @param _defaultLiveness new default liveness period.
+     */
+    function setDefaultLiveness(uint256 _defaultLiveness) external nonReentrant onlyConfigAdmin {
+        _validateLiveness(_defaultLiveness);
+
+        defaultLiveness = _defaultLiveness;
+        emit DefaultLivenessUpdated(_defaultLiveness);
+    }
+
+    /**
      * @notice Sets the minimum dispute window used in early resolutions.
      * @param _minimumDisputeWindow new minimum dispute window period.
      */

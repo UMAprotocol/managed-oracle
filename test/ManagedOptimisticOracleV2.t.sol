@@ -616,6 +616,73 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(moo.minimumDisputeWindow(), MINIMUM_DISPUTE_WINDOW);
     }
 
+    function testSetDefaultLivenessAndValidation() external {
+        // Only config admin can call
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.CONFIG_ADMIN_ROLE()
+            )
+        );
+        moo.setDefaultLiveness(1 hours);
+
+        // Below minimumDisputeWindow -> revert
+        vm.prank(configAdmin);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.LivenessTooLow.selector);
+        moo.setDefaultLiveness(MINIMUM_DISPUTE_WINDOW - 1);
+
+        // Above max liveness -> revert
+        vm.prank(configAdmin);
+        vm.expectRevert(OptimisticOracleV2Interface.LivenessTooLarge.selector);
+        moo.setDefaultLiveness(5200 weeks);
+
+        // Valid update and event emission
+        uint256 newDefaultLiveness = 3 hours;
+        vm.expectEmit(true, true, true, true);
+        emit ManagedOptimisticOracleV2Interface.DefaultLivenessUpdated(newDefaultLiveness);
+
+        vm.prank(configAdmin);
+        moo.setDefaultLiveness(newDefaultLiveness);
+        assertEq(moo.defaultLiveness(), newDefaultLiveness);
+    }
+
+    function testSetDefaultLivenessAppliedToNewRequests() external {
+        // Set a new default liveness
+        uint256 newDefaultLiveness = 3 hours;
+        vm.prank(configAdmin);
+        moo.setDefaultLiveness(newDefaultLiveness);
+
+        // Create a request without custom liveness
+        uint256 t = block.timestamp;
+        _makeRequest(requester, t, 0);
+
+        // Propose and check that new default liveness is applied
+        vm.warp(t + 10);
+        _proposeFor(sender, proposer, requester, t, 123);
+
+        OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
+        assertEq(req.expirationTime, block.timestamp + newDefaultLiveness);
+    }
+
+    function testSetDefaultLivenessRequiresLoweringMinimumDisputeWindowFirst() external {
+        // First set minimum dispute window to 30 minutes
+        vm.prank(configAdmin);
+        moo.setMinimumDisputeWindow(30 minutes);
+
+        // Try to set default liveness lower than minimum dispute window -> should fail
+        vm.prank(configAdmin);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.LivenessTooLow.selector);
+        moo.setDefaultLiveness(20 minutes);
+
+        // Lower minimum dispute window first
+        vm.prank(configAdmin);
+        moo.setMinimumDisputeWindow(15 minutes);
+
+        // Now setting defaultLiveness to 20 minutes should work
+        vm.prank(configAdmin);
+        moo.setDefaultLiveness(20 minutes);
+        assertEq(moo.defaultLiveness(), 20 minutes);
+    }
+
     function testRequestManagerSetCustomLivenessValidationAndEffect() external {
         uint256 t = block.timestamp;
         _makeRequest(requester, t, 0);
@@ -881,6 +948,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         uint256 proposalTime = t + 3600;
         vm.warp(proposalTime);
         _proposeFor(sender, proposer, requester, t, 42);
+        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).proposalTime, proposalTime);
 
         // Dispute should result in Oracle price request with proposal timestamp
         vm.expectCall(
