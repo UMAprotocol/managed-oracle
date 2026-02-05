@@ -252,7 +252,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Set the proposal bond associated with a price request.
-     * @dev This would also override any subsequent calls to setBond() by the requester.
+     * @dev Can be called before the request exists (pre-configuration) or after. Settings are applied when
+     * proposePriceFor() is called. This would also override any subsequent calls to setBond() by the requester.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -276,7 +277,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     /**
      * @notice Sets a custom liveness value for the request. Liveness is the amount of time a proposal must wait before
      * being auto-resolved.
-     * @dev This would also override any subsequent calls to setLiveness() by the requester.
+     * @dev Can be called before the request exists (pre-configuration) or after. Settings are applied when
+     * proposePriceFor() is called. This would also override any subsequent calls to setCustomLiveness() by the requester.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -320,6 +322,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     /**
      * @notice Proposes a price value on another address' behalf. Note: this address will receive any rewards that come
      * from this proposal. However, any bonds are pulled from the caller.
+     * @dev Applies any pre-configured Request Manager settings (bond, liveness, whitelist) before calling parent
+     * proposePriceFor(). This ensures pre-configured settings cannot be front-run.
      * @param proposer address to set as the proposer.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
@@ -437,7 +441,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Gets the ID for a managed request.
-     * @dev This omits the timestamp from the key derivation, so it can be used for managed requests in advance.
+     * @dev This omits the timestamp from the key derivation, enabling pre-configuration of settings before a request
+     * is created. This prevents front-running by allowing Request Manager to configure settings in advance.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.

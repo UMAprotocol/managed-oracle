@@ -156,6 +156,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Requests a new price.
+     * @dev Settings can be modified via setBond(), setCustomLiveness(), etc. until a proposal is made. Requesters
+     * should configure settings atomically (within the same transaction) to prevent front-running by proposers.
      * @param identifier price identifier being requested.
      * @param timestamp timestamp of the price being requested.
      * @param ancillaryData ancillary data representing additional args being passed with the price request.
@@ -218,6 +220,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Set the proposal bond associated with a price request.
+     * @dev Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -245,6 +249,8 @@ contract OptimisticOracleV2 is
      * @notice Sets the request to refund the reward if the proposal is disputed. This can help to "hedge" the caller
      * in the event of a dispute-caused delay. Note: in the event of a dispute, the winner still receives the other's
      * bond, so there is still profit to be made even if the reward is refunded.
+     * @dev Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -263,6 +269,8 @@ contract OptimisticOracleV2 is
     /**
      * @notice Sets a custom liveness value for the request. Liveness is the amount of time a proposal must wait before
      * being auto-resolved.
+     * @dev Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -294,6 +302,9 @@ contract OptimisticOracleV2 is
      * 3. RefundOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
      *    the requesting contract.
      *
+     * Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
+     *
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -313,6 +324,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Sets which callbacks should be enabled for the request.
+     * @dev Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -340,6 +353,8 @@ contract OptimisticOracleV2 is
     /**
      * @notice Proposes a price value on another address' behalf. Note: this address will receive any rewards that come
      * from this proposal. However, any bonds are pulled from the caller.
+     * @dev Transitions request to State.Proposed, locking in all request settings. Requesters can no longer modify
+     * bond, liveness, or other parameters after this call.
      * @param proposer address to set as the proposer.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
@@ -399,6 +414,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Proposes a price value for an existing price request.
+     * @dev Transitions request to State.Proposed, locking in all request settings. Requesters can no longer modify
+     * bond, liveness, or other parameters after this call.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
