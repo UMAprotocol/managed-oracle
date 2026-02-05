@@ -49,7 +49,9 @@ interface OptimisticRequester {
      * @param identifier price identifier being requested.
      * @param timestamp timestamp of the price being requested.
      * @param ancillaryData ancillary data of the price being requested.
-     * @param refund refund received in the case that refundOnDispute was enabled.
+     * @param refund refund amount in the case that refundOnDispute was enabled. Note that the refund may be deferred
+     * instead of received immediately if the transfer fails (e.g., recipient is blacklisted). In such cases, the
+     * refund can be claimed later via claimDeferredPayout.
      */
     function priceDisputed(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData, uint256 refund)
         external;
@@ -247,8 +249,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Sets the request to refund the reward if the proposal is disputed. This can help to "hedge" the caller
-     * in the event of a dispute-caused delay. Note: in the event of a dispute, the winner still receives the other's
-     * bond, so there is still profit to be made even if the reward is refunded.
+     * in the event of a dispute-caused delay. Note: in the event of a dispute, the winner still gets the other's
+     * bond (though it may be deferred if transfer fails), so there is still profit to be made even if the reward is refunded.
      * @dev Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
      * to prevent front-running.
      * @param identifier price identifier to identify the existing request.
@@ -553,8 +555,9 @@ contract OptimisticOracleV2 is
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
-     * @return payout the amount that the "winner" (proposer or disputer) receives on settlement. This amount includes
-     * the returned bonds as well as additional rewards.
+     * @return payout the amount that the "winner" (proposer or disputer) is entitled to on settlement. This amount includes
+     * the returned bonds as well as additional rewards. Note that the payout may be deferred instead of transferred immediately
+     * if the transfer fails (e.g., recipient is blacklisted). In such cases, it can be claimed later via claimDeferredPayout.
      */
     function settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         external

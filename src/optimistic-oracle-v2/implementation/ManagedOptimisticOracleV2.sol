@@ -387,8 +387,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
-     * @return payout the amount that the "winner" (proposer or disputer) receives on settlement. This amount includes
-     * the returned bonds as well as additional rewards.
+     * @return payout the amount that the "winner" (proposer or disputer) is entitled to on settlement. This amount includes
+     * the returned bonds as well as additional rewards. Note that the payout may be deferred instead of transferred immediately
+     * if the transfer fails (e.g., recipient is blacklisted). In such cases, it can be claimed later via claimDeferredPayout.
      */
     function settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         external
