@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Ported from https://github.com/UMAprotocol/protocol/blob/%40uma/core%402.62.0/packages/core/contracts/common/implementation/MultiCaller.sol
-// to be compatible for use in upgradeable contracts.
+// Originally ported from https://github.com/UMAprotocol/protocol/blob/%40uma/core%402.62.0/packages/core/contracts/common/implementation/MultiCaller.sol
+// to be compatible for use in upgradeable contracts. Error handling has been modified to properly preserve custom errors.
 
 pragma solidity ^0.8.0;
 
 /**
  * @title MultiCaller
- * @notice Logic is 100% copied from "@uma/core/contracts/common/implementation/MultiCaller.sol" but a
- * comment is added to clarify why we allow delegatecall() in this contract, which is typically unsafe for use in
- * upgradeable implementation contracts.
+ * @notice Ported from "@uma/core/contracts/common/implementation/MultiCaller.sol" with modifications:
+ * 1. Added comments to clarify why we allow delegatecall() in this contract, which is typically unsafe for use in
+ *    upgradeable implementation contracts.
+ * 2. Modified error handling to bubble raw revert data instead of attempting to decode as Error(string),
+ *    ensuring custom errors and panic codes are properly preserved.
  * @dev See https://docs.openzeppelin.com/upgrades-plugins/1.x/faq#delegatecall-selfdestruct for more details.
  */
 abstract contract MultiCaller {
@@ -25,12 +27,10 @@ abstract contract MultiCaller {
             (bool success, bytes memory result) = address(this).delegatecall(data[i]);
 
             if (!success) {
-                // Next 5 lines from https://ethereum.stackexchange.com/a/83577
-                if (result.length < 68) revert();
+                // Bubble up the raw revert data to preserve custom errors and panic codes
                 assembly {
-                    result := add(result, 0x04)
+                    revert(add(result, 0x20), mload(result))
                 }
-                revert(abi.decode(result, (string)));
             }
 
             results[i] = result;

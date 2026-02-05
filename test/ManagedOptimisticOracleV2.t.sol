@@ -867,4 +867,19 @@ contract ManagedOptimisticOracleV2Test is Test {
         );
         _dispute(disputer, requester, t);
     }
+
+    function testMulticallPreservesCustomErrors() external {
+        // Test that multicall properly bubbles custom errors instead of corrupting them
+        uint256 t = block.timestamp;
+
+        // Create a multicall that should revert with RequesterNotWhitelisted()
+        bytes[] memory calls = new bytes[](1);
+        calls[0] =
+            abi.encodeWithSelector(moo.requestPrice.selector, IDENTIFIER, t, ANCILLARY, IERC20(address(currency)), 0);
+
+        // nonRequester is not whitelisted, so this should revert with RequesterNotWhitelisted()
+        vm.prank(nonRequester);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.RequesterNotWhitelisted.selector);
+        moo.multicall(calls);
+    }
 }
