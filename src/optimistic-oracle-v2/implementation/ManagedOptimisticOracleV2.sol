@@ -122,7 +122,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         reinitializer(2)
         onlyUpgradeAdmin
     {
-        // Self-govening resolver admin is managing the resolver role and grant resolver admin role to the initial
+        // Self-governing resolver admin manages the resolver role and grants resolver admin role to the initial
         // resolver admin.
         _grantRole(RESOLVER_ADMIN_ROLE, resolverAdmin);
         _setRoleAdmin(RESOLVER_ROLE, RESOLVER_ADMIN_ROLE);
@@ -363,7 +363,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     /**
      * @notice Retrieves a price that was previously requested by a caller. Reverts if the request is not settled yet.
      * @dev The naming of this method might be misleading as it does not actually settle the request, but it is required
-     * for compatibility with the overriden parent contract method and restrict the settlement to the resolver role.
+     * for compatibility with the overridden parent contract method and restricts the settlement to the resolver role.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.

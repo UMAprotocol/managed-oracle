@@ -827,7 +827,7 @@ contract OptimisticOracleV2 is
      * ancillary data that this contract stamps.
      */
     function _stampAncillaryData(bytes memory ancillaryData, address requester) private pure returns (bytes memory) {
-        // Since this contract will be the one to formally submit DVM price requests, its useful for voters to know who
+        // Since this contract will be the one to formally submit DVM price requests, it's useful for voters to know who
         // the original requester was.
         return AncillaryData.appendKeyValueAddress(ancillaryData, "ooRequester", requester);
     }
