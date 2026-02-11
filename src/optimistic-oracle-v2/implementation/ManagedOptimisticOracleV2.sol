@@ -114,6 +114,11 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Initializer for adding support for early resolutions.
+     * @dev Upgrade Consideration: This function requires _minimumDisputeWindow to be >= 5 minutes
+     * (LOWEST_MINIMUM_DISPUTE_WINDOW) and <= defaultLiveness. If upgrading a deployment where defaultLiveness < 5 minutes,
+     * a direct upgradeToAndCall(initializeV2) will revert. In such cases, use upgradeToAndCall(multicall) to batch
+     * increasing defaultLiveness before calling initializeV2. Note that this workaround requires temporarily granting
+     * the CONFIG_ADMIN_ROLE to the upgrade authority to allow calling setDefaultLiveness within the multicall.
      * @param _minimumDisputeWindow minimum dispute window used in early resolutions.
      * @param resolverAdmin address, which is used for managing resolvers.
      */
