@@ -49,6 +49,7 @@ contract ManagedOptimisticOracleV2ForkScenariosTest is Test {
     // "DN SOOPers Challengers to win 2 games?" - has proposal, not expired
     uint256 constant PROPOSED_TIMESTAMP = 1767864653;
     address constant PROPOSER = 0x9A025dF44E9a5e0660E7603F649cd4b55C0128EC;
+    uint256 constant PROPOSED_EXPIRATION_TIME = 1768494796; // Actual expiration time from V1 state at fork block
     bytes proposedAncillary =
         hex"713a207469746c653a20444e20534f4f50657273204368616c6c656e6765727320746f2077696e20322067616d65733f2c206465736372697074696f6e3a20496e20746865207570636f6d696e67206d61746368206265747765656e20444e20534f4f50657273204368616c6c656e6765727320616e6420424e4b20466561725820596f75746820696e20746865204c434b204368616c6c656e67657273204c6561677565204b69636b6f66662047726f75702053746167652c207363686564756c656420666f72204a616e756172792031352061742031323a3030616d2045543a0a0a496620444e20534f4f50657273204368616c6c656e676572732077696e732065786163746c7920322067616d657320696e2074686973207365726965732c2074686973206d61726b65742077696c6c207265736f6c766520746f2022596573222e0a0a4f74686572776973652c2069742077696c6c207265736f6c766520746f20224e6f222e0a0a496620746865206d6174636820697320706f7374706f6e65642c2074686973206d61726b65742077696c6c2072656d61696e206f70656e20756e74696c20746865206d6174636820686173206265656e20636f6d706c657465642e0a0a496620746865206d617463682069732063616e63656c656420656e746972656c792077697468206e6f206d616b652d7570206d617463682c2074686973206d61726b65742077696c6c207265736f6c76652035302d35302e206d61726b65745f69643a2031313335303032207265735f646174613a2070313a20302c2070323a20312c2070333a20302e352e20576865726520703120636f72726573706f6e647320746f204e6f2c20703220746f205965732c20703320746f20756e6b6e6f776e2f35302d35302e2055706461746573206d61646520627920746865207175657374696f6e2063726561746f7220766961207468652062756c6c6574696e20626f61726420617420307836353037304245393134373734363044384137416545623934656639326665303536433266324137206173206465736372696265642062792068747470733a2f2f706f6c79676f6e7363616e2e636f6d2f74782f3078613134663031623131356334393133363234666333663530386639363066346465613235323735386537336332386635663037663865313964376263613036362073686f756c6420626520636f6e736964657265642e2c696e697469616c697a65723a39313433306361643264333937353736363439393731376661306436366137386438313465356335";
 
@@ -223,6 +224,78 @@ contract ManagedOptimisticOracleV2ForkScenariosTest is Test {
             uint256(OptimisticOracleV2Interface.State.Disputed),
             "Should be Disputed after extended window"
         );
+    }
+
+    /**
+     * @notice Test that proposals in liveness during upgrade preserve their expiration and transition correctly.
+     * @dev This test explicitly verifies that:
+     * 1. Proposals that were in liveness (Proposed state) when V2 was deployed keep their original expiration timestamp
+     * 2. After upgrade, they can only be settled by resolver (not permissionlessly)
+     * 3. Resolver can settle them after their original expiration time
+     *
+     * This test uses a REAL Polymarket proposal that was in Proposed state at the fork block (before any V2 upgrade).
+     * The setUp() has already performed the V2 upgrade, simulating the mainnet upgrade scenario.
+     */
+    function testForkProposalPreservesExpirationAndRequiresResolverSettlement() public {
+        // This request was in PROPOSED state at fork block 81683818 (Jan 15, 2026), BEFORE V2 upgrade
+        // The setUp() has already performed the V2 upgrade, so we're now in post-upgrade state
+
+        // VERIFICATION 1: The pre-existing V1 proposal still has its exact expiration timestamp from before upgrade
+        OptimisticOracleV2Interface.Request memory request =
+            oracle.getRequest(REQUESTER, YES_OR_NO_QUERY, PROPOSED_TIMESTAMP, proposedAncillary);
+
+        assertEq(
+            request.expirationTime,
+            PROPOSED_EXPIRATION_TIME,
+            "Expiration time must be preserved from V1 (proves storage compatibility)"
+        );
+        assertEq(request.proposer, PROPOSER, "Should have preserved proposer from V1");
+        assertFalse(request.settled, "Should not be settled yet");
+
+        // State should still be Proposed since we haven't reached expiration
+        OptimisticOracleV2Interface.State stateBefore =
+            oracle.getState(REQUESTER, YES_OR_NO_QUERY, PROPOSED_TIMESTAMP, proposedAncillary);
+        assertEq(uint256(stateBefore), uint256(OptimisticOracleV2Interface.State.Proposed), "Should be Proposed");
+
+        // VERIFICATION 2: After the original expiration time, non-resolver CANNOT settle (permissionless settlement blocked)
+        vm.warp(PROPOSED_EXPIRATION_TIME);
+
+        // Important: Due to the extended dispute window feature in ManagedOptimisticOracleV2,
+        // getState() will still return Proposed even after expiration (to allow continued disputes).
+        // This is by design - _getStateForDispute overrides Expired → Proposed.
+        OptimisticOracleV2Interface.State stateAfterExpiration =
+            oracle.getState(REQUESTER, YES_OR_NO_QUERY, PROPOSED_TIMESTAMP, proposedAncillary);
+        assertEq(
+            uint256(stateAfterExpiration),
+            uint256(OptimisticOracleV2Interface.State.Proposed),
+            "State should still appear as Proposed due to extended dispute window"
+        );
+
+        // Non-resolver cannot settle (permissionless settlement is blocked)
+        address nonResolver = makeAddr("nonResolver");
+        bytes32 resolverRole = oracle.RESOLVER_ROLE();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, nonResolver, resolverRole)
+        );
+        vm.prank(nonResolver);
+        oracle.settle(REQUESTER, YES_OR_NO_QUERY, PROPOSED_TIMESTAMP, proposedAncillary);
+
+        // VERIFICATION 3: Resolver CAN settle after the original expiration time
+        vm.prank(resolver);
+        uint256 payout = oracle.settle(REQUESTER, YES_OR_NO_QUERY, PROPOSED_TIMESTAMP, proposedAncillary);
+
+        assertTrue(payout > 0, "Payout should be non-zero");
+
+        // Verify final settled state
+        OptimisticOracleV2Interface.Request memory settledRequest =
+            oracle.getRequest(REQUESTER, YES_OR_NO_QUERY, PROPOSED_TIMESTAMP, proposedAncillary);
+        assertTrue(settledRequest.settled, "Should be settled by resolver");
+        assertEq(settledRequest.resolvedPrice, request.proposedPrice, "Resolved price should match proposal");
+
+        OptimisticOracleV2Interface.State finalState =
+            oracle.getState(REQUESTER, YES_OR_NO_QUERY, PROPOSED_TIMESTAMP, proposedAncillary);
+        assertEq(uint256(finalState), uint256(OptimisticOracleV2Interface.State.Settled), "Should be Settled");
     }
 
     /**
