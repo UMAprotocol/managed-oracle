@@ -437,6 +437,141 @@ forge verify-contract <NEW_IMPLEMENTATION_ADDRESS> src/optimistic-oracle-v2/impl
    forge verify-contract 0xNEW_IMPLEMENTATION_ADDRESS src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
    ```
 
+## ManagedOptimisticOracleV2 Upgrade with V2 Initialization
+
+The `UpgradeManagedOptimisticOracleV2_InitV2.s.sol` script upgrades the `ManagedOptimisticOracleV2` contract implementation and runs `initializeV2` with optional role migrations in a single atomic transaction.
+
+### When to Use This Script
+
+Use this script when you need to:
+- Upgrade to a version that includes `initializeV2` functionality
+- Initialize the V2 features (minimum dispute window, resolver admin role)
+- Optionally grant/revoke CONFIG_ADMIN_ROLE during the upgrade
+- Optionally grant RESOLVER_ROLE to initial resolvers during the upgrade
+- Ensure all changes happen atomically in a single transaction
+
+### Prerequisites
+
+Same as the base upgrade script - see the "ManagedOptimisticOracleV2 Upgrade" section above for details on generating build info.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MNEMONIC` | Yes | The mnemonic phrase for the upgrade admin wallet (uses 0 index address) |
+| `PROXY_ADDRESS` | Yes | Address of the existing proxy contract to upgrade |
+| `REFERENCE_BUILD_VERSION` | Yes | Integer version number to derive reference contract and build info dir (e.g., 1 for "build-info-v1:ManagedOptimisticOracleV2" and "old-builds/build-info-v1") |
+| `MINIMUM_DISPUTE_WINDOW` | No | Minimum dispute window in seconds for initializeV2 (defaults to 3600 = 1 hour) |
+| `RESOLVER_ADMIN` | Yes | Address to grant RESOLVER_ADMIN_ROLE to in initializeV2 |
+| `RESOLVER_GRANTS` | No | JSON array of addresses to grant RESOLVER_ROLE to (e.g., `["0x1234...","0x5678..."]`) |
+| `CONFIG_ADMIN_GRANTS` | No | JSON array of addresses to grant CONFIG_ADMIN_ROLE to (e.g., `["0x1234...","0x5678..."]`) |
+| `CONFIG_ADMIN_REVOKES` | No | JSON array of addresses to revoke CONFIG_ADMIN_ROLE from (e.g., `["0x1234...","0x5678..."]`) |
+
+### Usage Examples
+
+```bash
+# Basic upgrade with V2 initialization (single resolver admin)
+RESOLVER_ADMIN=0x1234567890123456789012345678901234567890 forge script script/UpgradeManagedOptimisticOracleV2_InitV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Upgrade with custom minimum dispute window
+MINIMUM_DISPUTE_WINDOW=7200 RESOLVER_ADMIN=0x1234567890123456789012345678901234567890 forge script script/UpgradeManagedOptimisticOracleV2_InitV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Upgrade and grant resolver role to multiple addresses
+RESOLVER_ADMIN=0x1234567890123456789012345678901234567890 \
+RESOLVER_GRANTS='["0x1111111111111111111111111111111111111111","0x2222222222222222222222222222222222222222"]' \
+forge script script/UpgradeManagedOptimisticOracleV2_InitV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Upgrade with role migrations (grant and revoke config admins)
+RESOLVER_ADMIN=0x1234567890123456789012345678901234567890 \
+CONFIG_ADMIN_GRANTS='["0x3333333333333333333333333333333333333333"]' \
+CONFIG_ADMIN_REVOKES='["0x4444444444444444444444444444444444444444"]' \
+forge script script/UpgradeManagedOptimisticOracleV2_InitV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+
+# Full example with all options
+MINIMUM_DISPUTE_WINDOW=7200 \
+RESOLVER_ADMIN=0x1234567890123456789012345678901234567890 \
+RESOLVER_GRANTS='["0x1111111111111111111111111111111111111111","0x2222222222222222222222222222222222222222"]' \
+CONFIG_ADMIN_GRANTS='["0x3333333333333333333333333333333333333333"]' \
+CONFIG_ADMIN_REVOKES='["0x4444444444444444444444444444444444444444"]' \
+forge script script/UpgradeManagedOptimisticOracleV2_InitV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+```
+
+### Features
+
+- **Atomic execution**: All operations (upgrade, initialization, role grants/revokes) happen in a single transaction via multicall
+- **V2 initialization**: Calls `initializeV2` with minimum dispute window and resolver admin
+- **Role management**: Optionally grants/revokes CONFIG_ADMIN_ROLE during upgrade
+- **Resolver setup**: Optionally grants RESOLVER_ROLE to initial resolvers during upgrade
+- **Smart resolver admin handling**: Automatically handles temporary resolver admin grants when needed
+- **UUPS upgradeable**: Uses UUPS (Universal Upgradeable Proxy Standard) pattern
+- **Upgrade validation**: Uses reference contracts for upgrade safety validation
+- **Dual execution modes**: Supports both direct execution and multisig transaction data generation
+- **Detailed logging**: Provides comprehensive upgrade information and status updates
+
+### Important Notes
+
+1. **Atomic Operations**: This script uses multicall to ensure all operations happen atomically. If any operation fails, the entire transaction reverts.
+
+2. **Resolver Admin Logic**: If you need to grant RESOLVER_ROLE during the upgrade and the `RESOLVER_ADMIN` is different from the upgrade admin:
+   - The script temporarily makes the upgrade admin the resolver admin
+   - Grants RESOLVER_ROLE to the specified addresses
+   - Transfers RESOLVER_ADMIN_ROLE to the final resolver admin
+   - Revokes RESOLVER_ADMIN_ROLE from the upgrade admin
+
+   This is necessary because RESOLVER_ADMIN_ROLE is self-governing after `initializeV2`.
+
+3. **JSON Array Format**: When providing arrays of addresses, use JSON array syntax:
+   ```bash
+   RESOLVER_GRANTS='["0xAddress1","0xAddress2","0xAddress3"]'
+   ```
+   - Must be valid JSON
+   - Use double quotes around addresses
+   - No spaces between elements (or use proper JSON spacing)
+
+4. **Multisig Support**: Like the base upgrade script, this supports multisig execution. If the MNEMONIC doesn't correspond to the actual upgrade admin, the script will generate transaction data for manual multisig execution.
+
+5. **Default Values**:
+   - `MINIMUM_DISPUTE_WINDOW` defaults to 3600 seconds (1 hour)
+   - Empty arrays are used if optional role grant/revoke variables are not provided
+
+6. **Testing**: Always test upgrades on a forked mainnet or testnet before executing on mainnet.
+
+### Etherscan Verification
+
+After upgrading, verify the new implementation contract on Etherscan (same as base upgrade script):
+
+```bash
+forge verify-contract <NEW_IMPLEMENTATION_ADDRESS> src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+```
+
+### Example Upgrade Process
+
+#### Direct Execution (Single Signer)
+1. **Prepare the upgrade**:
+   ```bash
+   # Set environment variables
+   export MNEMONIC="your mnemonic phrase here"
+   export PROXY_ADDRESS="0x2c0367a9db231ddebd88a94b4f6461a6e47c58b1"
+   export REFERENCE_BUILD_VERSION="1"
+   export MINIMUM_DISPUTE_WINDOW="3600"
+   export RESOLVER_ADMIN="0x1234567890123456789012345678901234567890"
+   export RESOLVER_GRANTS='["0x1111111111111111111111111111111111111111","0x2222222222222222222222222222222222222222"]'
+   ```
+
+2. **Run the upgrade**:
+   ```bash
+   forge script script/UpgradeManagedOptimisticOracleV2_InitV2.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+   ```
+
+3. **Verify the new implementation**:
+   ```bash
+   # Use the new implementation address from the upgrade summary
+   forge verify-contract 0xNEW_IMPLEMENTATION_ADDRESS src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2 --chain-id 137 --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+   ```
+
+#### Multisig Execution
+Follow the same process as the base upgrade script - see the "ManagedOptimisticOracleV2 Upgrade" section above for multisig execution details.
+
 ## UpdateManagedOptimisticOracleV2Whitelists
 
 The `UpdateManagedOptimisticOracleV2Whitelists.s.sol` script updates the default proposer and/or requester whitelists for an existing `ManagedOptimisticOracleV2` contract using the `CONFIG_ADMIN_ROLE`.
