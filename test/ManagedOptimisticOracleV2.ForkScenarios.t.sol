@@ -163,8 +163,6 @@ contract ManagedOptimisticOracleV2ForkScenariosTest is Test {
         assertEq(request.proposer, PROPOSER, "Should have correct proposer");
         assertFalse(request.settled, "Should not be settled yet");
 
-        // V1 requests have proposalTime = 0, so early settlement based on minimumDisputeWindow won't work.
-        // For V1 requests, resolver must wait until natural expiration.
         // Warp past expiration time to allow settlement.
         vm.warp(request.expirationTime);
 

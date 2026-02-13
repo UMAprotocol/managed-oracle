@@ -114,6 +114,11 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Initializer for adding support for early resolutions.
+     * @dev Upgrade Consideration: This function requires _minimumDisputeWindow to be >= 5 minutes
+     * (LOWEST_MINIMUM_DISPUTE_WINDOW) and <= defaultLiveness. If upgrading a deployment where defaultLiveness < 5 minutes,
+     * a direct upgradeToAndCall(initializeV2) will revert. In such cases, use upgradeToAndCall(multicall) to batch
+     * increasing defaultLiveness before calling initializeV2. Note that this workaround requires temporarily granting
+     * the CONFIG_ADMIN_ROLE to the upgrade authority to allow calling setDefaultLiveness within the multicall.
      * @param _minimumDisputeWindow minimum dispute window used in early resolutions.
      * @param resolverAdmin address, which is used for managing resolvers.
      */
@@ -199,6 +204,19 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     function setAllowedBondRange(IERC20 currency, BondRange calldata newRange) external nonReentrant onlyConfigAdmin {
         _setAllowedBondRange(currency, newRange);
+    }
+
+    /**
+     * @notice Sets the default liveness for all price requests.
+     * @dev Reverts if the default liveness is lower than the minimum dispute window or larger than the maximum allowed
+     * liveness. If you need to set a lower default liveness, first decrease the minimum dispute window.
+     * @param _defaultLiveness new default liveness period.
+     */
+    function setDefaultLiveness(uint256 _defaultLiveness) external nonReentrant onlyConfigAdmin {
+        _validateLiveness(_defaultLiveness);
+
+        defaultLiveness = _defaultLiveness;
+        emit DefaultLivenessUpdated(_defaultLiveness);
     }
 
     /**
@@ -473,19 +491,14 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Sets the minimum dispute window used in early resolutions.
-     * @dev Reverts if the minimum dispute window is larger than the legacy default liveness or if it is smaller than
+     * @dev Reverts if the minimum dispute window is larger than the default liveness or if it is smaller than
      * the hard limit set in the contract.
      * @param _minimumDisputeWindow new minimum dispute window period.
      */
     function _setMinimumDisputeWindow(uint256 _minimumDisputeWindow) private {
-        require(_minimumDisputeWindow <= LEGACY_DEFAULT_LIVENESS, MinimumDisputeWindowTooLarge());
+        require(_minimumDisputeWindow <= defaultLiveness, MinimumDisputeWindowTooLarge());
         require(_minimumDisputeWindow >= LOWEST_MINIMUM_DISPUTE_WINDOW, MinimumDisputeWindowTooSmall());
 
-        // Prior versions of this contract had separate values for defaultLiveness and minimumLiveness (now renamed to
-        // minimumDisputeWindow). Now the minimum dispute window is used both as floor for custom liveness values and
-        // determines the earliest time the request can be resolved. Since defaultLiveness variable is stored and used
-        // in the parent contract we keep both variables and have their values synced here.
-        defaultLiveness = _minimumDisputeWindow;
         minimumDisputeWindow = _minimumDisputeWindow;
         emit MinimumDisputeWindowUpdated(_minimumDisputeWindow);
     }

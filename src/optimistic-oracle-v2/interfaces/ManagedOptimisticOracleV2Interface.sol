@@ -35,6 +35,7 @@ abstract contract ManagedOptimisticOracleV2Interface {
     error RequestNotSettled();
 
     event AllowedBondRangeUpdated(IERC20 indexed currency, uint256 newMinimumBond, uint256 newMaximumBond);
+    event DefaultLivenessUpdated(uint256 newDefaultLiveness);
     event MinimumDisputeWindowUpdated(uint256 newMinimumDisputeWindow);
     event DefaultProposerWhitelistUpdated(address indexed newWhitelist);
     event RequesterWhitelistUpdated(address indexed newWhitelist);
