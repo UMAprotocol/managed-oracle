@@ -2,6 +2,7 @@
 pragma solidity ^0.8.4;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelistInterface.sol";
 
 /**
  * @title Events and Errors for the ManagedOptimisticOracleV2 contract.
@@ -61,4 +62,12 @@ abstract contract ManagedOptimisticOracleV2Interface {
         bytes ancillaryData,
         address indexed newWhitelist
     );
+
+    function defaultProposerWhitelist() external view virtual returns (AddressWhitelistInterface);
+
+    function getCustomProposerWhitelist(address requester, bytes32 identifier, bytes memory ancillaryData)
+        external
+        view
+        virtual
+        returns (AddressWhitelistInterface);
 }

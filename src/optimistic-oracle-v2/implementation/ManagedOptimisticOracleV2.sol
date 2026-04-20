@@ -53,7 +53,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     uint256 public constant LOWEST_MINIMUM_DISPUTE_WINDOW = 5 minutes;
 
     // Default whitelist for proposers.
-    AddressWhitelistInterface public defaultProposerWhitelist;
+    AddressWhitelistInterface public override defaultProposerWhitelist;
     AddressWhitelistInterface public requesterWhitelist;
 
     // Custom bonds set by request managers for specific request and currency combinations.
@@ -431,6 +431,7 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     function getCustomProposerWhitelist(address requester, bytes32 identifier, bytes memory ancillaryData)
         external
         view
+        override
         nonReentrantView
         returns (AddressWhitelistInterface)
     {
