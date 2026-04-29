@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AddressWhitelistInterface} from "src/common/interfaces/AddressWhitelistInterface.sol";
+import {OptimisticOracleV2Interface} from "src/optimistic-oracle-v2/interfaces/OptimisticOracleV2Interface.sol";
 
 interface IMaliciousSignedProposerOracle {
     function attemptDrain() external;
@@ -96,6 +97,14 @@ contract MaliciousSignedProposerOracle is IMaliciousSignedProposerOracle {
         returns (AddressWhitelistInterface)
     {
         return whitelist;
+    }
+
+    function getRequest(address, bytes32, uint256, bytes memory)
+        external
+        view
+        returns (OptimisticOracleV2Interface.Request memory request)
+    {
+        request.currency = token;
     }
 
     function proposePriceFor(address, address, bytes32, uint256, bytes memory, int256) external returns (uint256) {

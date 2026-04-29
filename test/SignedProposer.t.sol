@@ -187,8 +187,16 @@ contract SignedProposerTest is Test {
         view
         returns (ISignatureTransfer.PermitTransferFrom memory)
     {
+        return _buildPermitForToken(address(currency), amount, nonce, deadline);
+    }
+
+    function _buildPermitForToken(address token, uint256 amount, uint256 nonce, uint256 deadline)
+        internal
+        pure
+        returns (ISignatureTransfer.PermitTransferFrom memory)
+    {
         return ISignatureTransfer.PermitTransferFrom({
-            permitted: ISignatureTransfer.TokenPermissions({token: address(currency), amount: amount}),
+            permitted: ISignatureTransfer.TokenPermissions({token: token, amount: amount}),
             nonce: nonce,
             deadline: deadline
         });
@@ -258,6 +266,36 @@ contract SignedProposerTest is Test {
 
         assertEq(balanceBefore - currency.balanceOf(proposer), TOTAL_BOND);
         assertEq(currency.balanceOf(address(signedProposer)), 0);
+    }
+
+    function test_revert_propose_permitTokenMismatch() public {
+        uint256 timestamp = block.timestamp;
+        _makeRequest(timestamp, 0);
+        _setBond();
+
+        ERC20Mock otherCurrency = new ERC20Mock();
+        uint256 permitAmount = TOTAL_BOND;
+        SignedProposer.Proposal memory proposal = _buildProposal(timestamp, 1 ether);
+        ISignatureTransfer.PermitTransferFrom memory permit =
+            _buildPermitForToken(address(otherCurrency), permitAmount, 0, block.timestamp + 1 hours);
+
+        otherCurrency.mint(proposer, permitAmount);
+        vm.prank(proposer);
+        otherCurrency.approve(address(mockPermit2), permitAmount);
+        uint256 proposerBalanceBefore = otherCurrency.balanceOf(proposer);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SignedProposer.PermitTokenMismatch.selector, address(currency), address(otherCurrency)
+            )
+        );
+        vm.prank(relayer);
+        signedProposer.propose(proposal, proposer, permit, "", 0);
+
+        assertEq(mockPermit2.lastOwner(), address(0));
+        assertEq(mockPermit2.lastWitness(), bytes32(0));
+        assertEq(otherCurrency.balanceOf(proposer), proposerBalanceBefore);
+        assertEq(otherCurrency.balanceOf(address(signedProposer)), 0);
     }
 
     function test_witnessHash_matchesExpected() public view {

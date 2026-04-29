@@ -84,6 +84,7 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
     event PaymentWithdrawn(address indexed token, address indexed to, uint256 amount);
 
     error PaymentExceedsMaxPayment();
+    error PermitTokenMismatch(address requestCurrency, address permitToken);
     error CannotRemoveSelfFromWhitelist();
     error NewOwnerNotWhitelisted(address newOwner);
 
@@ -107,10 +108,11 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
      * `permit.permitted.amount` is the proposer's aggregate spend cap covering both `totalBond`
      * and `payment`.
      *
-     * Permit2 first transfers `permit.permitted.amount` to this contract. The oracle then pulls
-     * the exact bond during `proposePriceFor`, and any excess above `totalBond + payment` is
-     * refunded to the proposer. The call reverts if `payment > proposal.maxPayment` or if
-     * `payment + totalBond > permit.permitted.amount`.
+     * Before the Permit2 transfer, this contract verifies that the permit token matches the
+     * request currency recorded by the oracle. Permit2 then transfers `permit.permitted.amount`
+     * to this contract. The oracle then pulls the exact bond during `proposePriceFor`, and any
+     * excess above `totalBond + payment` is refunded to the proposer. The call reverts if
+     * `payment > proposal.maxPayment` or if `payment + totalBond > permit.permitted.amount`.
      *
      * @param proposal The proposal parameters (oracle-specific fields only).
      * @param proposer Address of the proposer / token owner (verified by Permit2).
@@ -128,12 +130,22 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
         uint256 payment
     ) external onlyRole(DELEGATED_PROPOSER_ROLE) nonReentrant returns (uint256 totalBond) {
         if (payment > proposal.maxPayment) revert PaymentExceedsMaxPayment();
+        IERC20 currency = _getRequestCurrency(proposal);
+        if (address(currency) != permit.permitted.token) {
+            revert PermitTokenMismatch(address(currency), permit.permitted.token);
+        }
         _permit2Transfer(proposal, permit, proposer, signature);
-        totalBond =
-            _executeProposal(proposal, proposer, IERC20(permit.permitted.token), permit.permitted.amount, payment);
+        totalBond = _executeProposal(proposal, proposer, currency, permit.permitted.amount, payment);
     }
 
     // ─── Internals ────────────────────────────────────────────────────────────────
+
+    function _getRequestCurrency(Proposal calldata proposal) internal view returns (IERC20) {
+        OptimisticOracleV2Interface.Request memory request = OptimisticOracleV2Interface(proposal.oracle).getRequest(
+            proposal.requester, proposal.identifier, proposal.timestamp, proposal.ancillaryData
+        );
+        return request.currency;
+    }
 
     function _permit2Transfer(
         Proposal calldata proposal,
