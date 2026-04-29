@@ -84,6 +84,7 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
     event PaymentWithdrawn(address indexed token, address indexed to, uint256 amount);
 
     error PaymentExceedsMaxPayment();
+    error PermitTransferAmountMismatch(uint256 expectedAmount, uint256 receivedAmount);
     error PermitTokenMismatch(address requestCurrency, address permitToken);
     error CannotRemoveSelfFromWhitelist();
     error NewOwnerNotWhitelisted(address newOwner);
@@ -153,6 +154,9 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
         address proposer,
         bytes calldata signature
     ) internal {
+        IERC20 currency = IERC20(permit.permitted.token);
+        uint256 balanceBefore = currency.balanceOf(address(this));
+
         bytes32 witness = keccak256(
             abi.encode(
                 PROPOSAL_TYPEHASH,
@@ -174,6 +178,12 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
             WITNESS_TYPE_STRING,
             signature
         );
+
+        uint256 balanceAfter = currency.balanceOf(address(this));
+        uint256 received = balanceAfter >= balanceBefore ? balanceAfter - balanceBefore : 0;
+        if (received != permit.permitted.amount) {
+            revert PermitTransferAmountMismatch(permit.permitted.amount, received);
+        }
     }
 
     function _executeProposal(

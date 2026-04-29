@@ -26,6 +26,22 @@ import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+contract ShortTransferERC20Mock is ERC20Mock {
+    uint256 internal constant TRANSFER_FEE_BPS = 1_000;
+    uint256 internal constant BPS = 10_000;
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (from == address(0) || to == address(0)) {
+            super._update(from, to, value);
+            return;
+        }
+
+        uint256 fee = value * TRANSFER_FEE_BPS / BPS;
+        super._update(from, address(0), fee);
+        super._update(from, to, value - fee);
+    }
+}
+
 contract SignedProposerTest is Test {
     SignedProposer internal signedProposer;
     ManagedOptimisticOracleV2 internal moo;
@@ -154,6 +170,14 @@ contract SignedProposerTest is Test {
     function _setBond() internal {
         vm.prank(requestManager);
         moo.requestManagerSetBond(requester, IDENTIFIER, ANCILLARY, IERC20(address(currency)), BOND);
+    }
+
+    function _setAllowedBondRange() internal {
+        vm.prank(configAdmin);
+        moo.setAllowedBondRange(
+            IERC20(address(currency)),
+            ManagedOptimisticOracleV2.BondRange({minimumBond: uint128(1 ether), maximumBond: uint128(1_000 ether)})
+        );
     }
 
     function _fundAndApproveProposer(uint256 amount) internal {
@@ -801,6 +825,60 @@ contract SignedProposerTest is Test {
         // Proposer paid bond + payment, got excess back.
         assertEq(balanceBefore - currency.balanceOf(proposer), TOTAL_BOND + payment);
         assertEq(currency.balanceOf(address(signedProposer)), payment);
+    }
+
+    function test_propose_paymentCanBeLessThanMaxPayment() public {
+        uint256 timestamp = block.timestamp;
+        _makeRequest(timestamp, 0);
+        _setBond();
+
+        uint256 maxPayment = 20 ether;
+        uint256 payment = 5 ether;
+        uint256 permitAmount = TOTAL_BOND + maxPayment;
+
+        SignedProposer.Proposal memory proposal = _buildProposal(timestamp, 1 ether, maxPayment);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(permitAmount, 0, block.timestamp + 1 hours);
+        _fundAndApproveProposer(permitAmount);
+        uint256 balanceBefore = currency.balanceOf(proposer);
+
+        vm.prank(relayer);
+        uint256 totalBond = signedProposer.propose(proposal, proposer, permit, "", payment);
+
+        assertEq(totalBond, TOTAL_BOND);
+        assertEq(balanceBefore - currency.balanceOf(proposer), TOTAL_BOND + payment);
+        assertEq(currency.balanceOf(address(signedProposer)), payment);
+    }
+
+    function test_revert_propose_permitTransferAmountMismatch() public {
+        currency = new ShortTransferERC20Mock();
+        collateralWhitelist.addToWhitelist(address(currency));
+        store.setFinalFee(address(currency), FINAL_FEE);
+        _setAllowedBondRange();
+
+        uint256 retainedBalance = 25 ether;
+        uint256 timestamp = block.timestamp;
+        currency.mint(address(signedProposer), retainedBalance);
+        _makeRequest(timestamp, 0);
+        _setBond();
+
+        uint256 payment = 5 ether;
+        uint256 permitAmount = TOTAL_BOND + payment;
+        SignedProposer.Proposal memory proposal = _buildProposal(timestamp, 1 ether, payment);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(permitAmount, 0, block.timestamp + 1 hours);
+        _fundAndApproveProposer(permitAmount);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                SignedProposer.PermitTransferAmountMismatch.selector, permitAmount, permitAmount * 9_000 / 10_000
+            )
+        );
+        vm.prank(relayer);
+        signedProposer.propose(proposal, proposer, permit, "", payment);
+
+        assertEq(currency.balanceOf(address(signedProposer)), retainedBalance);
+
+        OptimisticOracleV2Interface.Request memory request = moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY);
+        assertEq(request.proposer, address(0));
     }
 
     function test_revert_propose_paymentExceedsPermit() public {
