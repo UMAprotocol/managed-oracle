@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {OptimisticOracleV2Interface} from "../interfaces/OptimisticOracleV2Interface.sol";
 import {ManagedOptimisticOracleV2Interface} from "../interfaces/ManagedOptimisticOracleV2Interface.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
@@ -32,7 +33,7 @@ import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelis
  * - `DELEGATED_PROPOSER_ROLE` — may call `propose`.
  * - `WHITELIST_ADMIN_ROLE` — may directly add/remove entries on whitelists owned by this contract.
  */
-contract SignedProposer is AccessControl, Multicall {
+contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ─── Structs ──────────────────────────────────────────────────────────────────
@@ -123,7 +124,7 @@ contract SignedProposer is AccessControl, Multicall {
         ISignatureTransfer.PermitTransferFrom calldata permit,
         bytes calldata signature,
         uint256 payment
-    ) external onlyRole(DELEGATED_PROPOSER_ROLE) returns (uint256 totalBond) {
+    ) external onlyRole(DELEGATED_PROPOSER_ROLE) nonReentrant returns (uint256 totalBond) {
         if (payment > proposal.maxPayment) revert PaymentExceedsMaxPayment();
         _permit2Transfer(proposal, permit, proposer, signature);
         totalBond =

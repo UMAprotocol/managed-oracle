@@ -24,6 +24,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract SignedProposerTest is Test {
     SignedProposer internal signedProposer;
@@ -276,6 +277,36 @@ contract SignedProposerTest is Test {
         );
 
         assertEq(_computeWitnessHash(proposal), expected);
+    }
+
+    function test_propose_blocksReentrantCallbackPropose() public {
+        ReentrantSignedProposerRequester callbackRequester =
+            new ReentrantSignedProposerRequester(moo, signedProposer, IERC20(address(currency)));
+        requester = address(callbackRequester);
+        requesterWhitelist.addToWhitelist(requester);
+
+        vm.prank(admin);
+        signedProposer.addDelegatedProposer(requester);
+
+        uint256 timestamp = block.timestamp;
+        callbackRequester.requestWithProposalCallback(IDENTIFIER, timestamp, ANCILLARY);
+        _setBond();
+
+        SignedProposer.Proposal memory proposal = _buildProposal(timestamp, 1 ether);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
+        callbackRequester.setReentrantProposal(proposal, proposer, permit, "", 0);
+        _fundAndApproveProposer(TOTAL_BOND);
+
+        vm.prank(relayer);
+        uint256 totalBond = signedProposer.propose(proposal, proposer, permit, "", 0);
+
+        assertEq(totalBond, TOTAL_BOND);
+        assertTrue(callbackRequester.attemptedReentrantPropose());
+        assertFalse(callbackRequester.reentrantProposeSucceeded());
+        assertEq(
+            callbackRequester.reentrantRevertData(),
+            abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector)
+        );
     }
 
     // ─── Delegated proposer role tests ───────────────────────────────────────────
@@ -769,5 +800,59 @@ contract SignedProposerTest is Test {
         );
         vm.prank(nobody);
         signedProposer.withdrawPayments(IERC20(address(currency)), nobody, 1 ether);
+    }
+}
+
+contract ReentrantSignedProposerRequester {
+    ManagedOptimisticOracleV2 internal immutable oracle;
+    SignedProposer internal immutable signedProposer;
+    IERC20 internal immutable currency;
+
+    SignedProposer.Proposal internal reentrantProposal;
+    ISignatureTransfer.PermitTransferFrom internal reentrantPermit;
+    address internal reentrantProposer;
+    bytes internal reentrantSignature;
+    uint256 internal reentrantPayment;
+
+    bool public attemptedReentrantPropose;
+    bool public reentrantProposeSucceeded;
+    bytes public reentrantRevertData;
+
+    constructor(ManagedOptimisticOracleV2 _oracle, SignedProposer _signedProposer, IERC20 _currency) {
+        oracle = _oracle;
+        signedProposer = _signedProposer;
+        currency = _currency;
+    }
+
+    function requestWithProposalCallback(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData) external {
+        oracle.requestPrice(identifier, timestamp, ancillaryData, currency, 0);
+        oracle.setCallbacks(identifier, timestamp, ancillaryData, true, false, false);
+    }
+
+    function setReentrantProposal(
+        SignedProposer.Proposal calldata proposal,
+        address proposer,
+        ISignatureTransfer.PermitTransferFrom calldata permit,
+        bytes calldata signature,
+        uint256 payment
+    ) external {
+        reentrantProposal = proposal;
+        reentrantProposer = proposer;
+        reentrantPermit = permit;
+        reentrantSignature = signature;
+        reentrantPayment = payment;
+    }
+
+    function priceProposed(bytes32, uint256, bytes memory) external {
+        require(msg.sender == address(oracle), "ReentrantRequester: unauthorized");
+
+        attemptedReentrantPropose = true;
+        try signedProposer.propose(
+            reentrantProposal, reentrantProposer, reentrantPermit, reentrantSignature, reentrantPayment
+        ) returns (uint256) {
+            reentrantProposeSucceeded = true;
+        } catch (bytes memory reason) {
+            reentrantRevertData = reason;
+        }
     }
 }
