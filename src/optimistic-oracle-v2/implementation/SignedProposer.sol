@@ -25,9 +25,10 @@ import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelis
  * before the oracle call and remove them immediately after. This requires SignedProposer to be
  * authorized by the resolved whitelist.
  *
- * It is assumed delegated proposers only relay proposals for a limited set of supported oracle
- * instances. If a delegated proposer fails this check, the resulting risk is limited to the
- * signer-approved Permit2 amount for that proposal.
+ * It is assumed signers and delegated proposers verify `proposal.oracle` is an intended oracle
+ * instance before signing or relaying. That oracle address is used as both the ERC20 allowance
+ * spender and the `proposePriceFor` call target, so executing an unintended oracle can spend up to
+ * the signer-approved Permit2 amount for that proposal.
  *
  * The contract is permissioned:
  * - `DELEGATED_PROPOSER_ROLE` — may call `propose`.
