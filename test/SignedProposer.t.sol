@@ -550,6 +550,22 @@ contract SignedProposerTest is Test {
         assertFalse(wl.isOnWhitelist(target));
     }
 
+    function test_revert_removeFromWhitelist_self() public {
+        address whitelistAdmin = makeAddr("whitelistAdmin");
+        vm.prank(admin);
+        signedProposer.addWhitelistAdmin(whitelistAdmin);
+
+        AddressWhitelist wl = new AddressWhitelist();
+        wl.addToWhitelist(address(signedProposer));
+        wl.transferOwnership(address(signedProposer));
+
+        vm.expectRevert(SignedProposer.CannotRemoveSelfFromWhitelist.selector);
+        vm.prank(whitelistAdmin);
+        signedProposer.removeFromWhitelist(wl, address(signedProposer));
+
+        assertTrue(wl.isOnWhitelist(address(signedProposer)));
+    }
+
     function test_addAndRemoveWhitelistAdmin() public {
         address whitelistAdmin = makeAddr("whitelistAdmin");
 
@@ -603,9 +619,10 @@ contract SignedProposerTest is Test {
 
     function test_defaultAdmin_canTransferWhitelistOwnership() public {
         AddressWhitelist wl = new AddressWhitelist();
-        wl.transferOwnership(address(signedProposer));
-
         address newOwner = makeAddr("newOwner");
+
+        wl.addToWhitelist(newOwner);
+        wl.transferOwnership(address(signedProposer));
 
         vm.prank(admin);
         signedProposer.transferWhitelistOwnership(wl, newOwner);
@@ -632,18 +649,32 @@ contract SignedProposerTest is Test {
 
     function test_revert_transferWhitelistOwnership_whenWhitelistNotOwnedBySignedProposer() public {
         AddressWhitelist wl = new AddressWhitelist();
+        address newOwner = makeAddr("newOwner");
+        wl.addToWhitelist(newOwner);
 
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(signedProposer)));
         vm.prank(admin);
-        signedProposer.transferWhitelistOwnership(wl, makeAddr("newOwner"));
+        signedProposer.transferWhitelistOwnership(wl, newOwner);
+    }
+
+    function test_revert_transferWhitelistOwnership_whenNewOwnerNotWhitelisted() public {
+        AddressWhitelist wl = new AddressWhitelist();
+        wl.transferOwnership(address(signedProposer));
+        address newOwner = makeAddr("newOwner");
+
+        vm.expectRevert(abi.encodeWithSelector(SignedProposer.NewOwnerNotWhitelisted.selector, newOwner));
+        vm.prank(admin);
+        signedProposer.transferWhitelistOwnership(wl, newOwner);
     }
 
     function test_transferWhitelistOwnership_toReplacementSignedProposer() public {
         defaultProposerWhitelist.removeFromWhitelist(proposer);
-        defaultProposerWhitelist.transferOwnership(address(signedProposer));
 
         address replacementAdmin = makeAddr("replacementAdmin");
         SignedProposer replacement = new SignedProposer(ISignatureTransfer(address(mockPermit2)), replacementAdmin);
+
+        defaultProposerWhitelist.addToWhitelist(address(replacement));
+        defaultProposerWhitelist.transferOwnership(address(signedProposer));
 
         vm.prank(replacementAdmin);
         replacement.addDelegatedProposer(relayer);

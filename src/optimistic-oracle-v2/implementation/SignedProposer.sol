@@ -84,6 +84,8 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
     event PaymentWithdrawn(address indexed token, address indexed to, uint256 amount);
 
     error PaymentExceedsMaxPayment();
+    error CannotRemoveSelfFromWhitelist();
+    error NewOwnerNotWhitelisted(address newOwner);
 
     // ─── Constructor ──────────────────────────────────────────────────────────────
 
@@ -282,11 +284,14 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
      * @param account The address to remove.
      */
     function removeFromWhitelist(AddressWhitelist whitelist, address account) external onlyRole(WHITELIST_ADMIN_ROLE) {
+        if (account == address(this)) revert CannotRemoveSelfFromWhitelist();
         whitelist.removeFromWhitelist(account);
     }
 
     /**
      * @notice Transfer ownership of a whitelist owned by this contract.
+     * @dev `newOwner` must be on the whitelist before ownership transfer so replacement relays
+     * can continue to satisfy ManagedOptimisticOracleV2's sender whitelist check.
      * @param whitelist The AddressWhitelist contract to transfer.
      * @param newOwner The new owner of the whitelist.
      */
@@ -294,6 +299,7 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
         external
         onlyRole(DEFAULT_ADMIN_ROLE)
     {
+        if (!whitelist.isOnWhitelist(newOwner)) revert NewOwnerNotWhitelisted(newOwner);
         whitelist.transferOwnership(newOwner);
     }
 
