@@ -49,7 +49,9 @@ interface OptimisticRequester {
      * @param identifier price identifier being requested.
      * @param timestamp timestamp of the price being requested.
      * @param ancillaryData ancillary data of the price being requested.
-     * @param refund refund received in the case that refundOnDispute was enabled.
+     * @param refund refund amount in the case that refundOnDispute was enabled. Note that the refund may be deferred
+     * instead of received immediately if the transfer fails (e.g., recipient is blacklisted). In such cases, the
+     * refund can be claimed later via claimDeferredPayout.
      */
     function priceDisputed(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData, uint256 refund)
         external;
@@ -86,10 +88,18 @@ contract OptimisticOracleV2 is
     // Default liveness value for all price requests.
     uint256 public override defaultLiveness;
 
+    // Default liveness value used in legacy requests (before proposalTime was added), must not be modified.
+    uint256 internal constant LEGACY_DEFAULT_LIVENESS = 2 hours;
+
     // This is effectively the extra ancillary data to add ",ooRequester:0000000000000000000000000000000000000000".
     uint256 private constant MAX_ADDED_ANCILLARY_DATA = 53;
     uint256 public constant OO_ANCILLARY_DATA_LIMIT = ancillaryBytesLimit - MAX_ADDED_ANCILLARY_DATA;
     int256 public constant TOO_EARLY_RESPONSE = type(int256).min;
+
+    // Mapping of collateral currency to deferred payout recipient and to their outstanding payouts. Used when reward
+    // refund or settle payout fails for some reason (e.g. the recipient is blacklisted) to track their outstanding
+    // liability, thereby letting them claim it later.
+    mapping(IERC20 currency => mapping(address deferredRecipient => uint256)) public deferredPayouts;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -148,6 +158,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Requests a new price.
+     * @dev Settings can be modified via setBond(), setCustomLiveness(), etc. until a proposal is made. Requesters
+     * should configure settings atomically (within the same transaction) to prevent front-running by proposers.
      * @param identifier price identifier being requested.
      * @param timestamp timestamp of the price being requested.
      * @param ancillaryData ancillary data representing additional args being passed with the price request.
@@ -193,7 +205,8 @@ contract OptimisticOracleV2 is
             resolvedPrice: 0,
             expirationTime: 0,
             reward: reward,
-            finalFee: finalFee
+            finalFee: finalFee,
+            proposalTime: 0
         });
 
         if (reward > 0) {
@@ -209,6 +222,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Set the proposal bond associated with a price request.
+     * @dev Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -234,8 +249,10 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Sets the request to refund the reward if the proposal is disputed. This can help to "hedge" the caller
-     * in the event of a dispute-caused delay. Note: in the event of a dispute, the winner still receives the other's
-     * bond, so there is still profit to be made even if the reward is refunded.
+     * in the event of a dispute-caused delay. Note: in the event of a dispute, the winner still gets the other's
+     * bond (though it may be deferred if transfer fails), so there is still profit to be made even if the reward is refunded.
+     * @dev Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -254,6 +271,8 @@ contract OptimisticOracleV2 is
     /**
      * @notice Sets a custom liveness value for the request. Liveness is the amount of time a proposal must wait before
      * being auto-resolved.
+     * @dev Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -282,8 +301,11 @@ contract OptimisticOracleV2 is
      * 2. The proposer cannot propose the "too early" value (TOO_EARLY_RESPONSE). This is to ensure that a proposer who
      *    prematurely proposes a response loses their bond.
      *
-     * 3. RefundoOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
+     * 3. RefundOnDispute is automatically set, meaning disputes trigger the reward to be automatically refunded to
      *    the requesting contract.
+     *
+     * Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
      *
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
@@ -304,6 +326,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Sets which callbacks should be enabled for the request.
+     * @dev Only callable when request is in State.Requested (before any proposal). Call atomically with requestPrice()
+     * to prevent front-running.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -331,6 +355,8 @@ contract OptimisticOracleV2 is
     /**
      * @notice Proposes a price value on another address' behalf. Note: this address will receive any rewards that come
      * from this proposal. However, any bonds are pulled from the caller.
+     * @dev Transitions request to State.Proposed, locking in all request settings. Requesters can no longer modify
+     * bond, liveness, or other parameters after this call.
      * @param proposer address to set as the proposer.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
@@ -358,9 +384,11 @@ contract OptimisticOracleV2 is
         }
         request.proposer = proposer;
         request.proposedPrice = proposedPrice;
+        uint256 proposalTime = getCurrentTime();
+        request.proposalTime = proposalTime;
 
         // If a custom liveness has been set, use it instead of the default.
-        request.expirationTime = getCurrentTime()
+        request.expirationTime = proposalTime
             + (request.requestSettings.customLiveness != 0 ? request.requestSettings.customLiveness : defaultLiveness);
 
         totalBond = request.requestSettings.bond + request.finalFee;
@@ -388,6 +416,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Proposes a price value for an existing price request.
+     * @dev Transitions request to State.Proposed, locking in all request settings. Requesters can no longer modify
+     * bond, liveness, or other parameters after this call.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
@@ -426,7 +456,10 @@ contract OptimisticOracleV2 is
         bytes memory ancillaryData
     ) public override nonReentrant returns (uint256 totalBond) {
         require(disputer != address(0), DisputerAddressCannotBeZero());
-        require(_getState(requester, identifier, timestamp, ancillaryData) == State.Proposed, RequestStateNotProposed());
+        require(
+            _getStateForDispute(requester, identifier, timestamp, ancillaryData) == State.Proposed,
+            RequestStateNotProposed()
+        );
         Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
         request.disputer = disputer;
 
@@ -459,7 +492,7 @@ contract OptimisticOracleV2 is
         if (request.reward > 0 && request.requestSettings.refundOnDispute) {
             refund = request.reward;
             request.reward = 0;
-            request.currency.safeTransfer(requester, refund);
+            _transferOrDeferPayout(request.currency, requester, refund);
         }
 
         emit DisputePrice(
@@ -504,6 +537,7 @@ contract OptimisticOracleV2 is
      */
     function settleAndGetPrice(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         external
+        virtual
         override
         nonReentrant
         returns (int256)
@@ -521,16 +555,36 @@ contract OptimisticOracleV2 is
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
-     * @return payout the amount that the "winner" (proposer or disputer) receives on settlement. This amount includes
-     * the returned bonds as well as additional rewards.
+     * @return payout the amount that the "winner" (proposer or disputer) is entitled to on settlement. This amount includes
+     * the returned bonds as well as additional rewards. Note that the payout may be deferred instead of transferred immediately
+     * if the transfer fails (e.g., recipient is blacklisted). In such cases, it can be claimed later via claimDeferredPayout.
      */
     function settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         external
+        virtual
         override
         nonReentrant
         returns (uint256 payout)
     {
         return _settle(requester, identifier, timestamp, ancillaryData);
+    }
+
+    /**
+     * @notice Claims the deferred payout for a given currency to the provided repayment address.
+     * @dev This is used to claim reward refund or settle payouts that were deferred due to failed transfer call. Only
+     * can be called by the original recipient.
+     * @param currency ERC20 token used for the deferred payout.
+     * @param repaymentAddress address to which the payout will be sent (can be different from the deferred recipient).
+     */
+    function claimDeferredPayout(IERC20 currency, address repaymentAddress) external override nonReentrant {
+        if (repaymentAddress == address(0)) revert RepaymentAddressCannotBeZero();
+        address deferredRecipient = msg.sender;
+        uint256 amount = deferredPayouts[currency][deferredRecipient];
+        if (amount == 0) revert NoDeferredPayoutToClaim();
+        deferredPayouts[currency][deferredRecipient] = 0;
+        currency.safeTransfer(repaymentAddress, amount);
+
+        emit ClaimedDeferredPayout(address(currency), deferredRecipient, repaymentAddress, amount);
     }
 
     /**
@@ -566,7 +620,8 @@ contract OptimisticOracleV2 is
         nonReentrantView
         returns (State)
     {
-        return _getState(requester, identifier, timestamp, ancillaryData);
+        // Child contract might need to alter the state before potential dispute.
+        return _getStateForDispute(requester, identifier, timestamp, ancillaryData);
     }
 
     /**
@@ -584,7 +639,8 @@ contract OptimisticOracleV2 is
         nonReentrantView
         returns (bool)
     {
-        State state = _getState(requester, identifier, timestamp, ancillaryData);
+        // Child contract might need to alter the state before potential dispute.
+        State state = _getStateForDispute(requester, identifier, timestamp, ancillaryData);
         return state == State.Settled || state == State.Resolved || state == State.Expired;
     }
 
@@ -612,7 +668,8 @@ contract OptimisticOracleV2 is
     }
 
     function _settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
-        private
+        internal
+        virtual
         returns (uint256 payout)
     {
         State state = _getState(requester, identifier, timestamp, ancillaryData);
@@ -625,7 +682,7 @@ contract OptimisticOracleV2 is
             // In the expiry case, just pay back the proposer's bond and final fee along with the reward.
             request.resolvedPrice = request.proposedPrice;
             payout = request.requestSettings.bond + request.finalFee + request.reward;
-            request.currency.safeTransfer(request.proposer, payout);
+            _transferOrDeferPayout(request.currency, request.proposer, payout);
         } else if (state == State.Resolved) {
             // In the Resolved case, pay either the disputer or the proposer the entire payout (+ bond and reward).
             request.resolvedPrice = _getOracle().getPrice(
@@ -645,7 +702,7 @@ contract OptimisticOracleV2 is
             // - Their final fee back.
             // - The request reward (if not already refunded -- if refunded, it will be set to 0).
             payout = bond + unburnedBond + request.finalFee + request.reward;
-            request.currency.safeTransfer(disputeSuccess ? request.disputer : request.proposer, payout);
+            _transferOrDeferPayout(request.currency, disputeSuccess ? request.disputer : request.proposer, payout);
         } else {
             revert RequestNotSettleable();
         }
@@ -670,6 +727,15 @@ contract OptimisticOracleV2 is
         _endReentrantGuardDisabled();
     }
 
+    // Attempts to transfer a payout for a recipient. If the payout fails, it accrues the payout amount to the recipient
+    // for later claiming.
+    function _transferOrDeferPayout(IERC20 currency, address recipient, uint256 amount) private {
+        if (!currency.trySafeTransfer(recipient, amount)) {
+            deferredPayouts[currency][recipient] += amount;
+            emit PayoutDeferred(address(currency), recipient, amount);
+        }
+    }
+
     function _getRequest(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
         internal
         view
@@ -688,8 +754,18 @@ contract OptimisticOracleV2 is
         require(_liveness > 0, LivenessCannotBeZero());
     }
 
+    // This allows child contracts to selectively override the state retrieval upon potential dispute.
+    function _getStateForDispute(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        internal
+        view
+        virtual
+        returns (State)
+    {
+        return _getState(requester, identifier, timestamp, ancillaryData);
+    }
+
     function _getState(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
-        private
+        internal
         view
         returns (State)
     {
@@ -732,8 +808,13 @@ contract OptimisticOracleV2 is
         returns (uint256)
     {
         if (request.requestSettings.eventBased) {
-            uint256 liveness =
-                request.requestSettings.customLiveness != 0 ? request.requestSettings.customLiveness : defaultLiveness;
+            uint256 proposalTime = request.proposalTime;
+            if (proposalTime > 0) return proposalTime;
+
+            // This is legacy request, recalculate proposal time using the legacy default liveness.
+            uint256 liveness = request.requestSettings.customLiveness != 0
+                ? request.requestSettings.customLiveness
+                : LEGACY_DEFAULT_LIVENESS;
             return request.expirationTime - liveness;
         } else {
             return requestTimestamp;
@@ -741,12 +822,12 @@ contract OptimisticOracleV2 is
     }
 
     /**
-     * @dev We don't handle specifically the case where `ancillaryData` is not already readily translateable in utf8.
-     * For those cases, we assume that the client will be able to strip out the utf8-translateable part of the
+     * @dev We don't handle specifically the case where `ancillaryData` is not already readily translatable in utf8.
+     * For those cases, we assume that the client will be able to strip out the utf8-translatable part of the
      * ancillary data that this contract stamps.
      */
     function _stampAncillaryData(bytes memory ancillaryData, address requester) private pure returns (bytes memory) {
-        // Since this contract will be the one to formally submit DVM price requests, its useful for voters to know who
+        // Since this contract will be the one to formally submit DVM price requests, it's useful for voters to know who
         // the original requester was.
         return AncillaryData.appendKeyValueAddress(ancillaryData, "ooRequester", requester);
     }
@@ -761,5 +842,5 @@ contract OptimisticOracleV2 is
      * bottom of contract to make sure its always at the end of storage.
      * See https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable#storage-gaps
      */
-    uint256[998] private __gap;
+    uint256[997] private __gap;
 }

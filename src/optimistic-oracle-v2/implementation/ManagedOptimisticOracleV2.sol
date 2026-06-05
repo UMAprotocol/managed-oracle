@@ -43,6 +43,15 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Request manager role is used to manage proposer whitelists, bonds, and liveness for individual requests.
     bytes32 public constant REQUEST_MANAGER_ROLE = keccak256("REQUEST_MANAGER_ROLE");
 
+    // Resolver role is used to permission the settlement of price requests.
+    bytes32 public constant RESOLVER_ROLE = keccak256("RESOLVER_ROLE");
+
+    // Resolver admin role is used to manage resolver role membership.
+    bytes32 public constant RESOLVER_ADMIN_ROLE = keccak256("RESOLVER_ADMIN_ROLE");
+
+    // Lowest bound for the minimum dispute window that the config admin can set.
+    uint256 public constant LOWEST_MINIMUM_DISPUTE_WINDOW = 5 minutes;
+
     // Default whitelist for proposers.
     AddressWhitelistInterface public defaultProposerWhitelist;
     AddressWhitelistInterface public requesterWhitelist;
@@ -60,8 +69,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Unset currency -> (0,0) range; manager-set custom bonds revert until explicitly set.
     mapping(IERC20 currency => BondRange) public allowedBondRanges;
 
-    // Admin controlled minimum liveness that can be set by request managers.
-    uint256 public minimumLiveness;
+    // Admin controlled minimum dispute window, enforced in early resolutions and setting custom liveness.
+    /// @custom:oz-renamed-from minimumLiveness
+    uint256 public minimumDisputeWindow;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -75,7 +85,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * @param _defaultProposerWhitelist address of the default whitelist.
      * @param _requesterWhitelist address of the requester whitelist.
      * @param _allowedBondRanges array of allowed bond ranges for different currencies.
-     * @param _minimumLiveness that can be overridden for a request.
      * @param configAdmin address, which is used for managing request managers and contract parameters.
      * @param upgradeAdmin address, which also can manage the config admin role.
      */
@@ -85,7 +94,6 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         address _defaultProposerWhitelist,
         address _requesterWhitelist,
         CurrencyBondRange[] calldata _allowedBondRanges,
-        uint256 _minimumLiveness,
         address configAdmin,
         address upgradeAdmin
     ) external initializer {
@@ -102,7 +110,30 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         for (uint256 i = 0; i < _allowedBondRanges.length; i++) {
             _setAllowedBondRange(_allowedBondRanges[i].currency, _allowedBondRanges[i].range);
         }
-        _setMinimumLiveness(_minimumLiveness);
+    }
+
+    /**
+     * @notice Initializer for adding support for early resolutions.
+     * @dev Upgrade Consideration: This function requires _minimumDisputeWindow to be >= 5 minutes
+     * (LOWEST_MINIMUM_DISPUTE_WINDOW) and <= defaultLiveness. If upgrading a deployment where defaultLiveness < 5 minutes,
+     * a direct upgradeToAndCall(initializeV2) will revert. In such cases, use upgradeToAndCall(multicall) to batch
+     * increasing defaultLiveness before calling initializeV2. Note that this workaround requires temporarily granting
+     * the CONFIG_ADMIN_ROLE to the upgrade authority to allow calling setDefaultLiveness within the multicall.
+     * @param _minimumDisputeWindow minimum dispute window used in early resolutions.
+     * @param resolverAdmin address, which is used for managing resolvers.
+     */
+    function initializeV2(uint256 _minimumDisputeWindow, address resolverAdmin)
+        external
+        reinitializer(2)
+        onlyUpgradeAdmin
+    {
+        // Self-governing resolver admin manages the resolver role and grants resolver admin role to the initial
+        // resolver admin.
+        _grantRole(RESOLVER_ADMIN_ROLE, resolverAdmin);
+        _setRoleAdmin(RESOLVER_ROLE, RESOLVER_ADMIN_ROLE);
+        _setRoleAdmin(RESOLVER_ADMIN_ROLE, RESOLVER_ADMIN_ROLE);
+
+        _setMinimumDisputeWindow(_minimumDisputeWindow);
     }
 
     /**
@@ -118,6 +149,14 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      */
     modifier onlyRequestManager() {
         _checkRole(REQUEST_MANAGER_ROLE);
+        _;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the resolver.
+     */
+    modifier onlyResolver() {
+        _checkRole(RESOLVER_ROLE);
         _;
     }
 
@@ -140,6 +179,24 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Adds a resolver.
+     * @dev Only callable by the resolver admin (checked in grantRole of AccessControlUpgradeable).
+     * @param resolver address of the resolver to set.
+     */
+    function addResolver(address resolver) external nonReentrant {
+        grantRole(RESOLVER_ROLE, resolver);
+    }
+
+    /**
+     * @notice Removes a resolver.
+     * @dev Only callable by the resolver admin (checked in revokeRole of AccessControlUpgradeable).
+     * @param resolver address of the resolver to remove.
+     */
+    function removeResolver(address resolver) external nonReentrant {
+        revokeRole(RESOLVER_ROLE, resolver);
+    }
+
+    /**
      * @notice Sets the bounds for a bond that can be set for a request.
      * @dev This can be used to limit the bond amount that can be set by request managers, callable by the config admin.
      * @param currency the ERC20 token used for bonding proposals and disputes. Must be approved for use with the DVM.
@@ -150,12 +207,24 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
-     * @notice Sets the minimum liveness that can be set for a request.
-     * @dev This can be used to limit the liveness period that can be set by request managers, callable by the config admin.
-     * @param _minimumLiveness new minimum liveness period.
+     * @notice Sets the default liveness for all price requests.
+     * @dev Reverts if the default liveness is lower than the minimum dispute window or larger than the maximum allowed
+     * liveness. If you need to set a lower default liveness, first decrease the minimum dispute window.
+     * @param _defaultLiveness new default liveness period.
      */
-    function setMinimumLiveness(uint256 _minimumLiveness) external nonReentrant onlyConfigAdmin {
-        _setMinimumLiveness(_minimumLiveness);
+    function setDefaultLiveness(uint256 _defaultLiveness) external nonReentrant onlyConfigAdmin {
+        _validateLiveness(_defaultLiveness);
+
+        defaultLiveness = _defaultLiveness;
+        emit DefaultLivenessUpdated(_defaultLiveness);
+    }
+
+    /**
+     * @notice Sets the minimum dispute window used in early resolutions.
+     * @param _minimumDisputeWindow new minimum dispute window period.
+     */
+    function setMinimumDisputeWindow(uint256 _minimumDisputeWindow) external nonReentrant onlyConfigAdmin {
+        _setMinimumDisputeWindow(_minimumDisputeWindow);
     }
 
     /**
@@ -201,7 +270,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Set the proposal bond associated with a price request.
-     * @dev This would also override any subsequent calls to setBond() by the requester.
+     * @dev Can be called before the request exists (pre-configuration) or after. Settings are applied when
+     * proposePriceFor() is called. This would also override any subsequent calls to setBond() by the requester.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -225,7 +295,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     /**
      * @notice Sets a custom liveness value for the request. Liveness is the amount of time a proposal must wait before
      * being auto-resolved.
-     * @dev This would also override any subsequent calls to setLiveness() by the requester.
+     * @dev Can be called before the request exists (pre-configuration) or after. Settings are applied when
+     * proposePriceFor() is called. This would also override any subsequent calls to setCustomLiveness() by the requester.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -269,6 +340,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     /**
      * @notice Proposes a price value on another address' behalf. Note: this address will receive any rewards that come
      * from this proposal. However, any bonds are pulled from the caller.
+     * @dev Applies any pre-configured Request Manager settings (bond, liveness, whitelist) before calling parent
+     * proposePriceFor(). This ensures pre-configured settings cannot be front-run.
      * @param proposer address to set as the proposer.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
@@ -303,6 +376,47 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         require(whitelist.isOnWhitelist(proposer), ProposerNotWhitelisted());
         require(whitelist.isOnWhitelist(msg.sender), SenderNotWhitelisted());
         return super.proposePriceFor(proposer, requester, identifier, timestamp, ancillaryData, proposedPrice);
+    }
+
+    /**
+     * @notice Retrieves a price that was previously requested by a caller. Reverts if the request is not settled yet.
+     * @dev The naming of this method might be misleading as it does not actually settle the request, but it is required
+     * for compatibility with the overridden parent contract method and restricts the settlement to the resolver role.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return resolved price.
+     */
+    function settleAndGetPrice(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        external
+        override
+        nonReentrant
+        returns (int256)
+    {
+        require(_getState(msg.sender, identifier, timestamp, ancillaryData) == State.Settled, RequestNotSettled());
+
+        return _getRequest(msg.sender, identifier, timestamp, ancillaryData).resolvedPrice;
+    }
+
+    /**
+     * @notice Attempts to settle an outstanding price request. Will revert if it isn't settleable or called without
+     * the resolver privileges.
+     * @param requester sender of the initial price request.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return payout the amount that the "winner" (proposer or disputer) is entitled to on settlement. This amount includes
+     * the returned bonds as well as additional rewards. Note that the payout may be deferred instead of transferred immediately
+     * if the transfer fails (e.g., recipient is blacklisted). In such cases, it can be claimed later via claimDeferredPayout.
+     */
+    function settle(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        external
+        override
+        nonReentrant
+        onlyResolver
+        returns (uint256 payout)
+    {
+        return _settle(requester, identifier, timestamp, ancillaryData);
     }
 
     /**
@@ -346,7 +460,8 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Gets the ID for a managed request.
-     * @dev This omits the timestamp from the key derivation, so it can be used for managed requests in advance.
+     * @dev This omits the timestamp from the key derivation, enabling pre-configuration of settings before a request
+     * is created. This prevents front-running by allowing Request Manager to configure settings in advance.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
@@ -375,14 +490,17 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
-     * @notice Sets the minimum liveness that can be set for a request.
-     * @dev This can be used to limit the liveness period that can be set by request managers.
-     * @param _minimumLiveness new minimum liveness period.
+     * @notice Sets the minimum dispute window used in early resolutions.
+     * @dev Reverts if the minimum dispute window is larger than the default liveness or if it is smaller than
+     * the hard limit set in the contract.
+     * @param _minimumDisputeWindow new minimum dispute window period.
      */
-    function _setMinimumLiveness(uint256 _minimumLiveness) private {
-        super._validateLiveness(_minimumLiveness);
-        minimumLiveness = _minimumLiveness;
-        emit MinimumLivenessUpdated(_minimumLiveness);
+    function _setMinimumDisputeWindow(uint256 _minimumDisputeWindow) private {
+        require(_minimumDisputeWindow <= defaultLiveness, MinimumDisputeWindowTooLarge());
+        require(_minimumDisputeWindow >= LOWEST_MINIMUM_DISPUTE_WINDOW, MinimumDisputeWindowTooSmall());
+
+        minimumDisputeWindow = _minimumDisputeWindow;
+        emit MinimumDisputeWindowUpdated(_minimumDisputeWindow);
     }
 
     /**
@@ -433,12 +551,12 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
 
     /**
      * @notice Validates the liveness period.
-     * @dev Reverts if the liveness period is less than the minimum liveness (controllable by the config admin) or
+     * @dev Reverts if the liveness period is less than the minimum dispute window (controllable by the config admin) or
      * above the maximum liveness (which is set in the parent contract).
      * @param liveness the liveness period to validate.
      */
     function _validateLiveness(uint256 liveness) internal view override {
-        require(liveness >= minimumLiveness, LivenessTooLow());
+        require(liveness >= minimumDisputeWindow, LivenessTooLow());
         super._validateLiveness(liveness);
     }
 
@@ -460,6 +578,29 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         if (address(whitelist) == address(0)) {
             whitelist = defaultProposerWhitelist;
         }
+    }
+
+    /**
+     * @notice Gets the state of a price request in the context of potential dispute.
+     * @dev Overrides the parent method to allow extending disputes till settlement by the permissioned resolver.
+     * @param requester The address that made the price request.
+     * @param identifier The identifier of the price request.
+     * @param timestamp The timestamp of the price request.
+     * @param ancillaryData Additional data used to uniquely identify the request.
+     * @return State of the price request.
+     */
+    function _getStateForDispute(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        internal
+        view
+        override
+        returns (State)
+    {
+        State state = _getState(requester, identifier, timestamp, ancillaryData);
+
+        // As the settlement is permissioned, ignoring the expired state allows extending the disputes till settlement.
+        if (state == State.Expired) state = State.Proposed;
+
+        return state;
     }
 
     /**

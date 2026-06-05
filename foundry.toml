@@ -8,4 +8,8 @@ build_info = true
 extra_output = ["storageLayout"]
 optimizer = true
 
+# Fork testing configuration
+[rpc_endpoints]
+polygon = "${NODE_URL_137}"
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

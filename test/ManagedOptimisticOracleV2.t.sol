@@ -24,65 +24,17 @@ import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-contract MockStore is StoreInterface {
-    mapping(address => uint256) public finalFeeByCurrency;
-
-    function setFinalFee(address currency, uint256 amount) external {
-        finalFeeByCurrency[currency] = amount;
-    }
-
-    function payOracleFees() external payable {}
-
-    function payOracleFeesErc20(address, /*erc20Address*/ FixedPointInterface.Unsigned calldata /*amount*/ ) external {}
-
-    function computeRegularFee(uint256, uint256, FixedPointInterface.Unsigned calldata)
-        external
-        pure
-        returns (FixedPointInterface.Unsigned memory regularFee, FixedPointInterface.Unsigned memory latePenalty)
-    {
-        regularFee = FixedPointInterface.Unsigned({rawValue: 0});
-        latePenalty = FixedPointInterface.Unsigned({rawValue: 0});
-    }
-
-    function computeFinalFee(address currency) external view returns (FixedPointInterface.Unsigned memory) {
-        return FixedPointInterface.Unsigned({rawValue: finalFeeByCurrency[currency]});
-    }
-}
-
-contract MockIdentifierWhitelist is IdentifierWhitelistInterface {
-    mapping(bytes32 => bool) public supported;
-
-    function addSupportedIdentifier(bytes32 identifier) external override {
-        supported[identifier] = true;
-    }
-
-    function removeSupportedIdentifier(bytes32 identifier) external override {
-        supported[identifier] = false;
-    }
-
-    function isIdentifierSupported(bytes32 identifier) external view override returns (bool) {
-        return supported[identifier];
-    }
-}
-
-contract MockFinder is FinderInterface {
-    mapping(bytes32 => address) public interfacesImplemented;
-
-    function changeImplementationAddress(bytes32 interfaceName, address implementationAddress) external override {
-        interfacesImplemented[interfaceName] = implementationAddress;
-    }
-
-    function getImplementationAddress(bytes32 interfaceName) external view override returns (address) {
-        address implementationAddress = interfacesImplemented[interfaceName];
-        require(implementationAddress != address(0), "Implementation not found");
-        return implementationAddress;
-    }
-}
+// Import shared mocks
+import {MockStore} from "./mocks/MockStore.sol";
+import {MockIdentifierWhitelist} from "./mocks/MockIdentifierWhitelist.sol";
+import {MockFinder} from "./mocks/MockFinder.sol";
+import {MockOracle} from "./mocks/MockOracle.sol";
 
 contract ManagedOptimisticOracleV2Test is Test {
     // Actors (assigned via makeAddr in setUp for clarity and determinism)
     address internal configAdmin;
     address internal upgradeAdmin;
+    address internal resolverAdmin;
     address internal requestManager;
     address internal requester;
     address internal nonRequester;
@@ -90,6 +42,8 @@ contract ManagedOptimisticOracleV2Test is Test {
     address internal otherProposer;
     address internal sender;
     address internal otherSender;
+    address internal resolver;
+    address internal disputer;
 
     // Core contracts
     ManagedOptimisticOracleV2 internal moo;
@@ -100,17 +54,21 @@ contract ManagedOptimisticOracleV2Test is Test {
     DisabledAddressWhitelist internal disabledWhitelist;
     MockIdentifierWhitelist internal idWhitelist;
     MockStore internal store;
+    MockOracle internal oracle;
     ERC20Mock internal currency;
     ERC20Mock internal otherCurrency;
 
     // Common constants
     bytes32 internal constant IDENTIFIER = keccak256("PRICE_ID");
     bytes internal constant ANCILLARY = bytes(":memo: test");
+    uint256 internal constant DEFAULT_LIVENESS = 2 hours;
+    uint256 internal constant MINIMUM_DISPUTE_WINDOW = 5 minutes;
 
     function setUp() public {
         // Addresses
         configAdmin = makeAddr("configAdmin");
         upgradeAdmin = makeAddr("upgradeAdmin");
+        resolverAdmin = makeAddr("resolverAdmin");
         requestManager = makeAddr("requestManager");
         requester = makeAddr("requester");
         nonRequester = makeAddr("nonRequester");
@@ -118,8 +76,11 @@ contract ManagedOptimisticOracleV2Test is Test {
         otherProposer = makeAddr("otherProposer");
         sender = makeAddr("sender");
         otherSender = makeAddr("otherSender");
+        resolver = makeAddr("resolver");
+        disputer = makeAddr("disputer");
         vm.label(configAdmin, "CONFIG_ADMIN");
         vm.label(upgradeAdmin, "UPGRADE_ADMIN");
+        vm.label(resolverAdmin, "RESOLVER_ADMIN");
         vm.label(requestManager, "REQUEST_MANAGER");
         vm.label(requester, "REQUESTER");
         vm.label(nonRequester, "NON_REQUESTER");
@@ -127,6 +88,8 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.label(otherProposer, "OTHER_PROPOSER");
         vm.label(sender, "SENDER");
         vm.label(otherSender, "OTHER_SENDER");
+        vm.label(resolver, "RESOLVER");
+        vm.label(disputer, "DISPUTER");
 
         // Deploy infra and register in Finder
         finder = new MockFinder();
@@ -137,6 +100,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         disabledWhitelist = new DisabledAddressWhitelist();
         idWhitelist = new MockIdentifierWhitelist();
         store = new MockStore();
+        oracle = new MockOracle();
 
         // Tokens
         currency = new ERC20Mock();
@@ -152,6 +116,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         finder.changeImplementationAddress(OracleInterfaces.CollateralWhitelist, address(collateralWhitelist));
         finder.changeImplementationAddress(OracleInterfaces.IdentifierWhitelist, address(idWhitelist));
         finder.changeImplementationAddress(OracleInterfaces.Store, address(store));
+        finder.changeImplementationAddress(OracleInterfaces.Oracle, address(oracle));
 
         // Set a final fee for currency
         store.setFinalFee(address(currency), 10 ether);
@@ -173,22 +138,28 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         bytes memory initData = abi.encodeWithSelector(
             ManagedOptimisticOracleV2.initialize.selector,
-            2 days,
+            DEFAULT_LIVENESS,
             address(finder),
             address(defaultProposerWhitelist),
             address(requesterWhitelist),
             ranges,
-            1 hours,
             configAdmin,
             upgradeAdmin
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
         moo = ManagedOptimisticOracleV2(address(proxy));
 
-        // Grant request manager
-        vm.startPrank(configAdmin);
+        // V2 init
+        vm.prank(upgradeAdmin);
+        moo.initializeV2(MINIMUM_DISPUTE_WINDOW, resolverAdmin);
+
+        // Grant request manager (by config admin)
+        vm.prank(configAdmin);
         moo.addRequestManager(requestManager);
-        vm.stopPrank();
+
+        // Grant resolver (by resolver admin)
+        vm.prank(resolverAdmin);
+        moo.addResolver(resolver);
     }
 
     function _makeRequest(address _requester, uint256 _timestamp, uint256 reward)
@@ -216,6 +187,16 @@ contract ManagedOptimisticOracleV2Test is Test {
         return moo.proposePriceFor(_proposer, _requester, IDENTIFIER, _timestamp, ANCILLARY, _price);
     }
 
+    function _dispute(address _disputer, address _requester, uint256 _timestamp) internal returns (uint256) {
+        // Give and approve funds to _disputer to cover totalBond
+        vm.startPrank(_disputer);
+        currency.mint(_disputer, 10_000 ether);
+        currency.approve(address(moo), type(uint256).max);
+        uint256 result = moo.disputePrice(_requester, IDENTIFIER, _timestamp, ANCILLARY);
+        vm.stopPrank();
+        return result;
+    }
+
     function _prepareFunds(address _msgSender) internal {
         vm.prank(_msgSender);
         currency.mint(_msgSender, 10_000 ether);
@@ -239,9 +220,15 @@ contract ManagedOptimisticOracleV2Test is Test {
         // role admin configuration
         bytes32 CONFIG_ADMIN_ROLE = moo.CONFIG_ADMIN_ROLE();
         bytes32 REQUEST_MANAGER_ROLE = moo.REQUEST_MANAGER_ROLE();
+        bytes32 RESOLVER_ROLE = moo.RESOLVER_ROLE();
+        bytes32 RESOLVER_ADMIN_ROLE = moo.RESOLVER_ADMIN_ROLE();
         assertTrue(moo.hasRole(CONFIG_ADMIN_ROLE, configAdmin));
         // request manager role uses config admin as its admin
         assertEq(moo.getRoleAdmin(REQUEST_MANAGER_ROLE), CONFIG_ADMIN_ROLE);
+        // resolver role uses resolver admin as its admin
+        assertEq(moo.getRoleAdmin(RESOLVER_ROLE), RESOLVER_ADMIN_ROLE);
+        // minimumDisputeWindow is set
+        assertEq(moo.minimumDisputeWindow(), MINIMUM_DISPUTE_WINDOW);
     }
 
     function testOnlyConfigAdminSetters() external {
@@ -253,13 +240,13 @@ contract ManagedOptimisticOracleV2Test is Test {
         );
         moo.setAllowedBondRange(IERC20(address(currency)), ManagedOptimisticOracleV2.BondRange(1, 2));
 
-        // setMinimumLiveness as non-admin -> revert
+        // setMinimumDisputeWindow as non-admin -> revert
         vm.expectRevert(
             abi.encodeWithSelector(
                 IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.CONFIG_ADMIN_ROLE()
             )
         );
-        moo.setMinimumLiveness(1);
+        moo.setMinimumDisputeWindow(5 minutes);
 
         // setDefaultProposerWhitelist as non-admin -> revert
         vm.expectRevert(
@@ -305,6 +292,44 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.removeRequestManager(newMgr);
         vm.stopPrank();
         assertFalse(moo.hasRole(REQUEST_MANAGER_ROLE, newMgr));
+    }
+
+    function testAddAndRemoveResolver() external {
+        bytes32 RESOLVER_ROLE = moo.RESOLVER_ROLE();
+
+        // Non-admin cannot add resolver
+        address newResolver = address(0x1234);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.RESOLVER_ADMIN_ROLE()
+            )
+        );
+        moo.addResolver(newResolver);
+
+        // Config admin cannot add resolver (only resolver admin can)
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, configAdmin, moo.RESOLVER_ADMIN_ROLE()
+            )
+        );
+        vm.prank(configAdmin);
+        moo.addResolver(newResolver);
+
+        // Resolver admin adds
+        vm.startPrank(resolverAdmin);
+        vm.expectEmit(true, false, false, true);
+        emit IAccessControl.RoleGranted(RESOLVER_ROLE, newResolver, resolverAdmin);
+        moo.addResolver(newResolver);
+        vm.stopPrank();
+        assertTrue(moo.hasRole(RESOLVER_ROLE, newResolver));
+
+        // Resolver admin removes
+        vm.startPrank(resolverAdmin);
+        vm.expectEmit(true, false, false, true);
+        emit IAccessControl.RoleRevoked(RESOLVER_ROLE, newResolver, resolverAdmin);
+        moo.removeResolver(newResolver);
+        vm.stopPrank();
+        assertFalse(moo.hasRole(RESOLVER_ROLE, newResolver));
     }
 
     // -------------------- Whitelist Management --------------------
@@ -417,6 +442,84 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertGt(totalBond, 0);
     }
 
+    // -------------------- Settle Flow Tests -------------------------
+
+    function testNonResolverCannotSettle() external {
+        uint256 t = block.timestamp;
+        _makeRequest(requester, t, 0);
+
+        _proposeFor(sender, proposer, requester, t, 42);
+        uint256 expirationTime = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).expirationTime;
+
+        // Invalid resolver should not be able to settle at expiration
+        vm.warp(expirationTime);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, otherSender, moo.RESOLVER_ROLE()
+            )
+        );
+        vm.prank(otherSender);
+        moo.settle(requester, IDENTIFIER, t, ANCILLARY);
+    }
+
+    function testResolverCannotSettleBeforeExpiration() external {
+        uint256 t = block.timestamp;
+        _makeRequest(requester, t, 0);
+
+        _proposeFor(sender, proposer, requester, t, 42);
+        uint256 expirationTime = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).expirationTime;
+
+        // Valid resolver should not be able to settle before expiration
+        vm.warp(expirationTime - 1);
+        vm.expectRevert(OptimisticOracleV2Interface.RequestNotSettleable.selector);
+        vm.prank(resolver);
+        moo.settle(requester, IDENTIFIER, t, ANCILLARY);
+    }
+
+    function testResolverCanSettleAfterExpiration() external {
+        uint256 t = block.timestamp;
+        int256 price = 42;
+        _makeRequest(requester, t, 0);
+
+        _proposeFor(sender, proposer, requester, t, price);
+        uint256 expirationTime = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).expirationTime;
+
+        // Valid resolver should be able to settle at expiration
+        vm.warp(expirationTime);
+        vm.prank(resolver);
+        moo.settle(requester, IDENTIFIER, t, ANCILLARY);
+        assertEq(
+            uint8(moo.getState(requester, IDENTIFIER, t, ANCILLARY)), uint8(OptimisticOracleV2Interface.State.Settled)
+        );
+        assertTrue(moo.hasPrice(requester, IDENTIFIER, t, ANCILLARY));
+        vm.prank(requester);
+        assertEq(moo.settleAndGetPrice(IDENTIFIER, t, ANCILLARY), price);
+    }
+
+    function testNoExpiredState() external {
+        uint256 t = block.timestamp;
+        _makeRequest(requester, t, 0);
+
+        _proposeFor(sender, proposer, requester, t, 42);
+        uint256 expirationTime = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).expirationTime;
+
+        // Even if we warp past expiration the state should still be Proposed with no price available
+        vm.warp(expirationTime + 1);
+        assertEq(
+            uint8(moo.getState(requester, IDENTIFIER, t, ANCILLARY)), uint8(OptimisticOracleV2Interface.State.Proposed)
+        );
+        assertFalse(moo.hasPrice(requester, IDENTIFIER, t, ANCILLARY));
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.RequestNotSettled.selector);
+        vm.prank(requester);
+        moo.settleAndGetPrice(IDENTIFIER, t, ANCILLARY);
+
+        // Dispute should still be possible before the resolver has settled post-expiration
+        _dispute(disputer, requester, t);
+        assertEq(
+            uint8(moo.getState(requester, IDENTIFIER, t, ANCILLARY)), uint8(OptimisticOracleV2Interface.State.Disputed)
+        );
+    }
+
     // -------------------- Bond Range Management --------------------
 
     function testSetAllowedBondRangeValidations() external {
@@ -489,28 +592,95 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     // -------------------- Liveness Management --------------------
 
-    function testSetMinimumLivenessAndValidation() external {
+    function testSetMinimumDisputeWindowAndValidation() external {
         // Only config admin
         vm.expectRevert(
             abi.encodeWithSelector(
                 IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.CONFIG_ADMIN_ROLE()
             )
         );
-        moo.setMinimumLiveness(2 hours);
+        moo.setMinimumDisputeWindow(MINIMUM_DISPUTE_WINDOW);
 
         // Invalid values
         vm.prank(configAdmin);
-        vm.expectRevert(OptimisticOracleV2Interface.LivenessCannotBeZero.selector);
-        moo.setMinimumLiveness(0);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.MinimumDisputeWindowTooSmall.selector);
+        moo.setMinimumDisputeWindow(MINIMUM_DISPUTE_WINDOW - 1);
 
         vm.prank(configAdmin);
-        vm.expectRevert(OptimisticOracleV2Interface.LivenessTooLarge.selector);
-        moo.setMinimumLiveness(type(uint256).max);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.MinimumDisputeWindowTooLarge.selector);
+        moo.setMinimumDisputeWindow(DEFAULT_LIVENESS + 1);
 
         // Valid update
         vm.prank(configAdmin);
-        moo.setMinimumLiveness(6 hours);
-        assertEq(moo.minimumLiveness(), 6 hours);
+        moo.setMinimumDisputeWindow(MINIMUM_DISPUTE_WINDOW);
+        assertEq(moo.minimumDisputeWindow(), MINIMUM_DISPUTE_WINDOW);
+    }
+
+    function testSetDefaultLivenessAndValidation() external {
+        // Only config admin can call
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.CONFIG_ADMIN_ROLE()
+            )
+        );
+        moo.setDefaultLiveness(1 hours);
+
+        // Below minimumDisputeWindow -> revert
+        vm.prank(configAdmin);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.LivenessTooLow.selector);
+        moo.setDefaultLiveness(MINIMUM_DISPUTE_WINDOW - 1);
+
+        // Above max liveness -> revert
+        vm.prank(configAdmin);
+        vm.expectRevert(OptimisticOracleV2Interface.LivenessTooLarge.selector);
+        moo.setDefaultLiveness(5200 weeks);
+
+        // Valid update and event emission
+        uint256 newDefaultLiveness = 3 hours;
+        vm.expectEmit(true, true, true, true);
+        emit ManagedOptimisticOracleV2Interface.DefaultLivenessUpdated(newDefaultLiveness);
+
+        vm.prank(configAdmin);
+        moo.setDefaultLiveness(newDefaultLiveness);
+        assertEq(moo.defaultLiveness(), newDefaultLiveness);
+    }
+
+    function testSetDefaultLivenessAppliedToNewRequests() external {
+        // Set a new default liveness
+        uint256 newDefaultLiveness = 3 hours;
+        vm.prank(configAdmin);
+        moo.setDefaultLiveness(newDefaultLiveness);
+
+        // Create a request without custom liveness
+        uint256 t = block.timestamp;
+        _makeRequest(requester, t, 0);
+
+        // Propose and check that new default liveness is applied
+        vm.warp(t + 10);
+        _proposeFor(sender, proposer, requester, t, 123);
+
+        OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
+        assertEq(req.expirationTime, block.timestamp + newDefaultLiveness);
+    }
+
+    function testSetDefaultLivenessRequiresLoweringMinimumDisputeWindowFirst() external {
+        // First set minimum dispute window to 30 minutes
+        vm.prank(configAdmin);
+        moo.setMinimumDisputeWindow(30 minutes);
+
+        // Try to set default liveness lower than minimum dispute window -> should fail
+        vm.prank(configAdmin);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.LivenessTooLow.selector);
+        moo.setDefaultLiveness(20 minutes);
+
+        // Lower minimum dispute window first
+        vm.prank(configAdmin);
+        moo.setMinimumDisputeWindow(15 minutes);
+
+        // Now setting defaultLiveness to 20 minutes should work
+        vm.prank(configAdmin);
+        moo.setDefaultLiveness(20 minutes);
+        assertEq(moo.defaultLiveness(), 20 minutes);
     }
 
     function testRequestManagerSetCustomLivenessValidationAndEffect() external {
@@ -541,6 +711,31 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(req.expirationTime, block.timestamp + 3 hours);
     }
 
+    function testRequesterSetCustomLivenessValidation() external {
+        uint256 t = block.timestamp;
+        _makeRequest(requester, t, 0);
+
+        // Below minimum -> revert
+        vm.prank(requester);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.LivenessTooLow.selector);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 1);
+
+        // Above base max -> revert
+        vm.prank(requester);
+        vm.expectRevert(OptimisticOracleV2Interface.LivenessTooLarge.selector);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 5200 weeks);
+
+        // Valid set at minimum dispute window
+        vm.prank(requester);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, MINIMUM_DISPUTE_WINDOW);
+
+        // Propose and check expiration time = now + MINIMUM_DISPUTE_WINDOW
+        vm.warp(t + 10);
+        _proposeFor(sender, proposer, requester, t, 123);
+        OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
+        assertEq(req.expirationTime, block.timestamp + MINIMUM_DISPUTE_WINDOW);
+    }
+
     // -------------------- Utility --------------------
 
     function testGetManagedRequestId() external view {
@@ -564,6 +759,10 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         // REQUEST_MANAGER_ROLE is administered by CONFIG_ADMIN_ROLE (already tested elsewhere but double-check)
         assertEq(moo.getRoleAdmin(moo.REQUEST_MANAGER_ROLE()), moo.CONFIG_ADMIN_ROLE());
+        // RESOLVER_ROLE is administered by RESOLVER_ADMIN_ROLE
+        assertEq(moo.getRoleAdmin(moo.RESOLVER_ROLE()), moo.RESOLVER_ADMIN_ROLE());
+        // RESOLVER_ADMIN_ROLE is self-governing (administered by itself)
+        assertEq(moo.getRoleAdmin(moo.RESOLVER_ADMIN_ROLE()), moo.RESOLVER_ADMIN_ROLE());
     }
 
     function testDefaultAdminManagesConfigAdminRole() external {
@@ -578,6 +777,57 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertFalse(moo.hasRole(moo.CONFIG_ADMIN_ROLE(), configAdmin));
     }
 
+    function testResolverAdminRoleIsSelfGoverning() external {
+        address newResolverAdmin = makeAddr("newResolverAdmin");
+        bytes32 resolverAdminRole = moo.RESOLVER_ADMIN_ROLE();
+
+        // RESOLVER_ADMIN_ROLE is self-governing, so DEFAULT_ADMIN cannot manage it
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, upgradeAdmin, resolverAdminRole
+            )
+        );
+        vm.prank(upgradeAdmin);
+        moo.grantRole(resolverAdminRole, newResolverAdmin);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, upgradeAdmin, resolverAdminRole
+            )
+        );
+        vm.prank(upgradeAdmin);
+        moo.revokeRole(resolverAdminRole, resolverAdmin);
+
+        // But RESOLVER_ADMIN can grant and revoke RESOLVER_ADMIN_ROLE
+        vm.startPrank(resolverAdmin);
+        moo.grantRole(resolverAdminRole, newResolverAdmin);
+        assertTrue(moo.hasRole(resolverAdminRole, newResolverAdmin));
+        moo.revokeRole(resolverAdminRole, newResolverAdmin);
+        assertFalse(moo.hasRole(resolverAdminRole, newResolverAdmin));
+        vm.stopPrank();
+    }
+
+    function testConfigAdminCannotManageResolvers() external {
+        address newResolver = makeAddr("newResolver");
+        // Config admin cannot add resolver (only resolver admin can)
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, configAdmin, moo.RESOLVER_ADMIN_ROLE()
+            )
+        );
+        vm.prank(configAdmin);
+        moo.addResolver(newResolver);
+
+        // Config admin cannot remove resolver (only resolver admin can)
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, configAdmin, moo.RESOLVER_ADMIN_ROLE()
+            )
+        );
+        vm.prank(configAdmin);
+        moo.removeResolver(resolver);
+    }
+
     function testUpgradeAuthorization() external {
         // Non-upgrade admin cannot upgrade
         ManagedOptimisticOracleV2 impl2 = new ManagedOptimisticOracleV2();
@@ -589,19 +839,24 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.upgradeToAndCall(address(impl2), "");
 
         // Upgrade admin can upgrade
-        uint256 prevMinLiveness = moo.minimumLiveness();
+        uint256 prevMinDisputeWindow = moo.minimumDisputeWindow();
+        uint256 prevDefaultLiveness = moo.defaultLiveness();
         vm.prank(upgradeAdmin);
         moo.upgradeToAndCall(address(impl2), "");
         // State preserved
-        assertEq(moo.minimumLiveness(), prevMinLiveness);
-        assertEq(moo.defaultLiveness(), 2 days);
+        assertEq(moo.minimumDisputeWindow(), prevMinDisputeWindow);
+        assertEq(moo.defaultLiveness(), prevDefaultLiveness);
     }
 
     function testUpgradeAdminCannotCallConfigSetters() external {
         // DEFAULT_ADMIN (upgrade admin) cannot call config-admin-only functions
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, upgradeAdmin, moo.CONFIG_ADMIN_ROLE()
+            )
+        );
         vm.prank(upgradeAdmin);
-        moo.setMinimumLiveness(4 hours);
+        moo.setMinimumDisputeWindow(1 hours);
     }
 
     // -------------------- Additional Events & Validations --------------------
@@ -653,11 +908,11 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.setAllowedBondRange(IERC20(address(currency)), ManagedOptimisticOracleV2.BondRange(2 ether, 3 ether));
     }
 
-    function testMinimumLivenessEvent() external {
+    function testMinimumDisputeWindowEvent() external {
         vm.prank(configAdmin);
         vm.expectEmit(false, false, false, true);
-        emit ManagedOptimisticOracleV2Interface.MinimumLivenessUpdated(8 hours);
-        moo.setMinimumLiveness(8 hours);
+        emit ManagedOptimisticOracleV2Interface.MinimumDisputeWindowUpdated(10 minutes);
+        moo.setMinimumDisputeWindow(10 minutes);
     }
 
     function testBondOverrideBlockedForWhitelistedButUnconfiguredCurrency() external {
@@ -682,5 +937,41 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.expectRevert();
         moo.requestManagerSetCustomLiveness(requester, IDENTIFIER, ANCILLARY, 2 hours);
         vm.stopPrank();
+    }
+
+    function testOracleRequestTimeEventBasedDispute() external {
+        uint256 t = block.timestamp;
+        _makeRequest(requester, t, 0);
+        vm.prank(requester);
+        moo.setEventBased(IDENTIFIER, t, ANCILLARY);
+
+        uint256 proposalTime = t + 3600;
+        vm.warp(proposalTime);
+        _proposeFor(sender, proposer, requester, t, 42);
+        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).proposalTime, proposalTime);
+
+        // Dispute should result in Oracle price request with proposal timestamp
+        vm.expectCall(
+            address(oracle),
+            abi.encodeWithSelector(
+                MockOracle.requestPrice.selector, IDENTIFIER, proposalTime, moo.stampAncillaryData(ANCILLARY, requester)
+            )
+        );
+        _dispute(disputer, requester, t);
+    }
+
+    function testMulticallPreservesCustomErrors() external {
+        // Test that multicall properly bubbles custom errors instead of corrupting them
+        uint256 t = block.timestamp;
+
+        // Create a multicall that should revert with RequesterNotWhitelisted()
+        bytes[] memory calls = new bytes[](1);
+        calls[0] =
+            abi.encodeWithSelector(moo.requestPrice.selector, IDENTIFIER, t, ANCILLARY, IERC20(address(currency)), 0);
+
+        // nonRequester is not whitelisted, so this should revert with RequesterNotWhitelisted()
+        vm.prank(nonRequester);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.RequesterNotWhitelisted.selector);
+        moo.multicall(calls);
     }
 }
