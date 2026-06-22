@@ -1,12 +1,12 @@
 # PM v2 OOReporter
 
-UMA-owned Managed Optimistic Oracle requester and raw outcome source for Polymarket v2 request IDs.
+UMA-owned Managed Optimistic Oracle requester and raw outcome source for prediction market request IDs.
 
-This package is intended to pair with the Polymarket v2 `OOReporterModule` shared separately at https://github.com/UMAprotocol/polymarket-v2/blob/oo-reporter-module/src/oracle/modules/OOReporterModule.sol. The Polymarket-side module registers request IDs here, then later pulls raw UMA outcomes for Polymarket-owned payout translation and aggregator finalization.
+This package is intended to pair with a market-side requester module. The market-side module registers request IDs here, then later pulls raw UMA outcomes for market-owned payout translation and finalization.
 
 ## Boundary
 
-The PM v2 module calls:
+The market-side module calls:
 
 ```solidity
 function registerRequest(
@@ -24,7 +24,7 @@ function isRequestResolved(bytes32 requestId) external view returns (bool);
 function getRequestResolution(bytes32 requestId) external view returns (int256);
 ```
 
-`OOReporter` uses `requestId` as the external key. It does not compute, return, expose, or require a Polymarket `questionId`, and it does not accept or store `marketInitializer`.
+`OOReporter` uses `requestId` as the external key. It does not compute, return, expose, or require market-specific question IDs, and it does not accept or store a market initializer.
 
 ## Responsibilities
 
@@ -37,11 +37,11 @@ function getRequestResolution(bytes32 requestId) external view returns (int256);
 - request rules update history for active requests;
 - raw UMA settlement storage.
 
-Polymarket v2 owns:
+The prediction market integration owns:
 
 - deriving the UMA price identifier from the request shape;
 - scalar/vector payout translation;
-- PM aggregator finalization and admin recovery.
+- market-side finalization and admin recovery.
 
 ## Request Lifecycle
 
