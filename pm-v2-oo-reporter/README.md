@@ -89,7 +89,9 @@ import {OOReporter} from "managed-oracle/pm-v2-oo-reporter/OOReporter.sol";
 import {IOOReporter} from "managed-oracle/pm-v2-oo-reporter/interfaces/IOOReporter.sol";
 ```
 
-The implementation also imports OpenZeppelin v5 contracts and upgradeable contracts, so the consuming repository must provide compatible remappings for `@openzeppelin/contracts/` and `@openzeppelin/contracts-upgradeable/`.
+Importing only `IOOReporter` does not require OpenZeppelin remappings.
+
+Consumers that compile `OOReporter.sol` must provide compatible remappings for `@openzeppelin/contracts/` and `@openzeppelin/contracts-upgradeable/`; this package does so in `pm-v2-oo-reporter/foundry.toml` via its package-local `lib/openzeppelin-contracts-upgradeable` submodule.
 
 ## Build And Test
 
