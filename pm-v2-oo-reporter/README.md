@@ -79,7 +79,7 @@ forge install UMAprotocol/managed-oracle
 With the standard dependency remapping:
 
 ```toml
-managed-oracle/=lib/managed-oracle/src/
+managed-oracle/pm-v2-oo-reporter/=lib/managed-oracle/pm-v2-oo-reporter/src/
 ```
 
 Consumers can import the reporter from:
@@ -96,5 +96,5 @@ The implementation also imports OpenZeppelin v5 contracts and upgradeable contra
 From the managed-oracle repository root:
 
 ```bash
-forge test --match-path test/pm-v2-oo-reporter/OOReporter.t.sol
+cd pm-v2-oo-reporter && forge test --match-path test/OOReporter.t.sol
 ```

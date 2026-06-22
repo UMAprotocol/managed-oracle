@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-import {OOReporter} from "src/pm-v2-oo-reporter/OOReporter.sol";
-import {
-    IOOReporter,
-    RequestData,
-    RequestRulesUpdate,
-    RerequestTrigger
-} from "src/pm-v2-oo-reporter/interfaces/IOOReporter.sol";
-import {MockERC20} from "test/pm-v2-oo-reporter/mocks/MockERC20.sol";
-import {MockOptimisticOracleV2} from "test/pm-v2-oo-reporter/mocks/MockOptimisticOracleV2.sol";
+import {OOReporter} from "src/OOReporter.sol";
+import {IOOReporter, RequestData, RequestRulesUpdate, RerequestTrigger} from "src/interfaces/IOOReporter.sol";
+import {MockERC20} from "test/mocks/MockERC20.sol";
+import {MockOptimisticOracleV2} from "test/mocks/MockOptimisticOracleV2.sol";
 
 interface Vm {
     function prank(address msgSender) external;

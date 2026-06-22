@@ -3,8 +3,8 @@ pragma solidity 0.8.34;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IOptimisticOracleV2} from "src/pm-v2-oo-reporter/interfaces/IOptimisticOracleV2.sol";
-import {IOptimisticRequester} from "src/pm-v2-oo-reporter/interfaces/IOptimisticRequester.sol";
+import {IOptimisticOracleV2} from "src/interfaces/IOptimisticOracleV2.sol";
+import {IOptimisticRequester} from "src/interfaces/IOptimisticRequester.sol";
 
 contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
     struct MockRequest {
