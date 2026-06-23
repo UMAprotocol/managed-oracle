@@ -31,6 +31,8 @@ abstract contract ManagedOptimisticOracleV2Interface {
     error MinimumDisputeWindowTooLarge();
     /// @notice Thrown when minimum dispute window is smaller than the hard limit set in the contract.
     error MinimumDisputeWindowTooSmall();
+    /// @notice Thrown when a dispute is attempted in the same block as the proposal.
+    error SameBlockDisputeNotAllowed();
     /// @notice Thrown in settleAndGetPrice if the request has not been settled by resolver.
     error RequestNotSettled();
 

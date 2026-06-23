@@ -454,7 +454,7 @@ contract OptimisticOracleV2 is
         bytes32 identifier,
         uint256 timestamp,
         bytes memory ancillaryData
-    ) public override nonReentrant returns (uint256 totalBond) {
+    ) public virtual override nonReentrant returns (uint256 totalBond) {
         require(disputer != address(0), DisputerAddressCannotBeZero());
         require(
             _getStateForDispute(requester, identifier, timestamp, ancillaryData) == State.Proposed,
