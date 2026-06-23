@@ -230,7 +230,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             RequestRulesUpdate({timestamp: block.timestamp, updatedRules: updatedRules});
         _getStorage().requestRulesUpdates[requestId].push(requestRulesUpdate);
 
-        emit RequestRulesUpdated(requestId, msg.sender, block.timestamp, updatedRules);
+        emit RequestRulesUpdated(requestId, block.timestamp, msg.sender, updatedRules);
     }
 
     /// @inheritdoc IOOReporter
@@ -283,8 +283,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
         emit RequestRerequested(
             requestId,
-            msg.sender,
             request.requestTimestamp,
+            msg.sender,
             previousRequestTimestamp,
             address(rewardCurrency()),
             reward,
@@ -349,7 +349,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             request.outcome = price;
             request.rerequestAllowed = false;
 
-            emit RequestResolved(requestId, price);
+            emit RequestResolved(requestId, timestamp, price);
         }
     }
 
