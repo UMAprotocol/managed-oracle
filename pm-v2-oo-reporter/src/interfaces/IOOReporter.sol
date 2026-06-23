@@ -18,9 +18,11 @@ struct RequestData {
     bool resolved;
     /// @notice Whether a re-request is currently allowed.
     bool rerequestAllowed;
+    /// @notice Whether this request has used its one automatic dispute re-request.
+    bool automaticDisputeRerequestUsed;
     /// @notice Approved requester that registered the request.
     address requester;
-    /// @notice UMA oracle initializer that created the active Managed OO request.
+    /// @notice Address that initiated the active Managed OO request.
     address oracleInitializer;
     /// @notice UMA price identifier for this request.
     bytes32 priceIdentifier;
@@ -28,8 +30,8 @@ struct RequestData {
     bytes requestRules;
     /// @notice Final raw UMA outcome after settlement.
     int256 outcome;
-    /// @notice Remaining oracle-initializer re-request budget. Seeded from the default at initialization and topped up by the owner.
-    uint256 rerequestsRemaining;
+    /// @notice Remaining manual re-request budget. Seeded from the default at initialization and topped up by the owner.
+    uint256 manualRerequestsRemaining;
     /// @notice Minimum liveness UMA is allowed to use for this request.
     uint64 minimumLiveness;
     /// @notice Maximum liveness UMA is allowed to use for this request.
@@ -48,6 +50,15 @@ enum RerequestTrigger {
     Dispute,
     /// @dev Managed OO settled to P4, so the request must be replaced.
     InvalidSettlement
+}
+
+enum RerequestType {
+    /// @dev Owner-triggered re-request that consumes the manual re-request budget.
+    Manual,
+    /// @dev First-dispute automatic re-request that does not consume the manual re-request budget.
+    AutomaticDispute,
+    /// @dev P4 settlement automatic re-request that does not consume the manual re-request budget.
+    AutomaticInvalidSettlement
 }
 
 /// @title IOOReporter
@@ -76,6 +87,8 @@ interface IOOReporter {
     error OracleInitializerEnabledUnchanged();
     /// @notice Thrown when a default re-request budget update would not change state.
     error DefaultRerequestBudgetUnchanged();
+    /// @notice Thrown when an automatic re-request setting update would not change state.
+    error AutomaticRerequestsEnabledUnchanged();
     /// @notice Thrown when a per-request re-request budget update would not change state.
     error RequestRerequestBudgetUnchanged();
     /// @notice Thrown when a per-request re-request budget top-up exceeds the contract-level default budget.
@@ -96,7 +109,7 @@ interface IOOReporter {
     error RequestRerequestNotAllowed();
     /// @notice Thrown when a replacement request timestamp does not advance.
     error RequestRerequestTimestampNotAdvanced(uint256 currentTimestamp, uint256 previousRequestTimestamp);
-    /// @notice Thrown when the oracle-initializer re-request budget is exhausted.
+    /// @notice Thrown when the manual re-request budget is exhausted.
     error RequestRerequestBudgetExhausted();
     /// @notice Thrown when raw request rules is empty or too large for the OO.
     error InvalidRequestRules();
@@ -129,6 +142,8 @@ interface IOOReporter {
     event OracleInitializerEnabledSet(address indexed oracleInitializer, bool enabled);
     /// @notice Emitted when the owner updates the default per-request re-request budget.
     event DefaultRerequestBudgetSet(uint256 defaultRerequestBudget);
+    /// @notice Emitted when the owner enables or disables automatic re-requests.
+    event AutomaticRerequestsEnabledSet(bool enabled);
     /// @notice Emitted when an approved requester registers a request for UMA initialization.
     event RequestRegistered(
         bytes32 indexed requestId,
@@ -149,7 +164,7 @@ interface IOOReporter {
         uint256 reward,
         uint256 proposalBond,
         uint64 liveness,
-        uint256 rerequestsRemaining
+        uint256 manualRerequestsRemaining
     );
     /// @notice Emitted when the registering requester posts updated request rules for offchain consumers.
     event RequestRulesUpdated(
@@ -157,24 +172,25 @@ interface IOOReporter {
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
-    /// @notice Emitted when a callback opens the approved-initializer re-request path.
+    /// @notice Emitted when a callback opens the owner re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
-    /// @notice Emitted when UMA creates a replacement Managed OO request.
+    /// @notice Emitted when the reporter creates a replacement Managed OO request.
     event RequestRerequested(
         bytes32 indexed requestId,
         uint256 indexed requestTimestamp,
         address indexed rerequester,
+        RerequestType rerequestType,
         uint256 previousRequestTimestamp,
         address rewardCurrency,
         uint256 reward,
         uint256 proposalBond,
         uint64 liveness,
-        uint256 rerequestsRemaining
+        uint256 manualRerequestsRemaining
     );
     /// @notice Emitted when the owner updates the remaining re-request budget for one request.
-    event RequestRerequestBudgetSet(bytes32 indexed requestId, uint256 rerequestsRemaining);
+    event RequestRerequestBudgetSet(bytes32 indexed requestId, uint256 manualRerequestsRemaining);
     /// @notice Emitted when the owner sweeps ERC20 or native token funds from the reporter.
     event FundsSwept(address indexed token, address indexed recipient, uint256 amount);
     /// @notice Emitted when the owner claims a deferred Managed OO payout owed to the reporter.
@@ -214,6 +230,10 @@ interface IOOReporter {
     /// @param newDefaultRerequestBudget New default re-request budget.
     function setDefaultRerequestBudget(uint256 newDefaultRerequestBudget) external;
 
+    /// @notice Enables or disables automatic dispute and P4 re-requests.
+    /// @param enabled Whether automatic re-requests should be enabled.
+    function setAutomaticRerequestsEnabled(bool enabled) external;
+
     /// @notice Returns whether candidate is approved to register requests.
     /// @param candidate Address to check.
     /// @return True if candidate is an enabled requester.
@@ -227,6 +247,10 @@ interface IOOReporter {
     /// @notice Returns the default replacement-request budget seeded onto each initialized request.
     /// @return Current default re-request budget.
     function defaultRerequestBudget() external view returns (uint256);
+
+    /// @notice Returns whether automatic dispute and P4 re-requests are enabled.
+    /// @return True if automatic re-requests are enabled.
+    function automaticRerequestsEnabled() external view returns (bool);
 
     /// @notice Registers a requester-defined request ID and its UMA request identity before OO initialization.
     /// @dev The reporter reserves each price identifier and request rules pair globally across approved requesters.
@@ -257,15 +281,17 @@ interface IOOReporter {
     /// @param liveness Custom OO liveness period within the registered bounds.
     function initializeRequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
-    /// @notice Allows UMA to create a replacement Managed OO request after a callback opens the gate.
+    /// @notice Allows the owner to create a replacement Managed OO request after a callback opens the gate.
     /// @param requestId Registered request ID.
     /// @param reward Reward amount for the replacement request.
-    function rerequest(bytes32 requestId, uint256 reward) external;
+    /// @param proposalBond Bond required from OO proposers/disputers, or zero to use the OO default.
+    /// @param liveness Custom OO liveness period within the registered bounds.
+    function rerequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
     /// @notice Updates the remaining re-request budget for an initialized unresolved request.
     /// @param requestId Registered request ID.
-    /// @param newRerequestsRemaining New remaining re-request budget, capped by the current default.
-    function setRequestRerequestBudget(bytes32 requestId, uint256 newRerequestsRemaining) external;
+    /// @param newManualRerequestsRemaining New remaining manual re-request budget, capped by the current default.
+    function setRequestRerequestBudget(bytes32 requestId, uint256 newManualRerequestsRemaining) external;
 
     /// @notice Returns whether a final reporter outcome is available for requestId.
     /// @param requestId Registered request ID.

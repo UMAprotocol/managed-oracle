@@ -2,7 +2,13 @@
 pragma solidity 0.8.34;
 
 import {OOReporter} from "src/OOReporter.sol";
-import {IOOReporter, RequestData, RequestRulesUpdate, RerequestTrigger} from "src/interfaces/IOOReporter.sol";
+import {
+    IOOReporter,
+    RequestData,
+    RequestRulesUpdate,
+    RerequestTrigger,
+    RerequestType
+} from "src/interfaces/IOOReporter.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
 import {MockOptimisticOracleV2} from "test/mocks/MockOptimisticOracleV2.sol";
 
@@ -71,15 +77,17 @@ contract OOReporterTest {
         bytes32 indexed requestId,
         uint256 indexed requestTimestamp,
         address indexed rerequester,
+        RerequestType rerequestType,
         uint256 previousRequestTimestamp,
         address rewardCurrency,
         uint256 reward,
         uint256 proposalBond,
         uint64 liveness,
-        uint256 rerequestsRemaining
+        uint256 manualRerequestsRemaining
     );
-    event RequestRerequestBudgetSet(bytes32 indexed requestId, uint256 rerequestsRemaining);
+    event RequestRerequestBudgetSet(bytes32 indexed requestId, uint256 manualRerequestsRemaining);
     event DefaultRerequestBudgetSet(uint256 defaultRerequestBudget);
+    event AutomaticRerequestsEnabledSet(bool enabled);
 
     bytes32 internal constant REQUEST_ID = keccak256("request-id");
     bytes32 internal constant SECOND_REQUEST_ID = keccak256("second-request-id");
@@ -88,7 +96,9 @@ contract OOReporterTest {
     uint256 internal constant REWARD = 2_000_000;
     uint256 internal constant REREQUEST_REWARD = 3_000_000;
     uint256 internal constant PROPOSAL_BOND = 500_000_000;
+    uint256 internal constant MANUAL_PROPOSAL_BOND = 700_000_000;
     uint64 internal constant LIVENESS = 7200;
+    uint64 internal constant MANUAL_LIVENESS = 3 hours;
     uint256 internal constant DEFAULT_REREQUEST_BUDGET = 10;
     uint64 internal constant MINIMUM_LIVENESS = 0;
     uint64 internal constant MAXIMUM_LIVENESS = 2 days;
@@ -255,7 +265,11 @@ contract OOReporterTest {
         assertEq(request.liveness, LIVENESS, "liveness mismatch");
         assertEq(request.minimumLiveness, MINIMUM_LIVENESS, "minimum liveness mismatch");
         assertEq(request.maximumLiveness, MAXIMUM_LIVENESS, "maximum liveness mismatch");
-        assertEq(request.rerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "re-request budget should seed from default");
+        assertEq(
+            request.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "re-request budget should seed from default"
+        );
+        assertFalse(request.automaticDisputeRerequestUsed, "automatic dispute re-request should start unused");
+        assertTrue(reporter.automaticRerequestsEnabled(), "automatic re-requests should initialize enabled");
 
         bytes32 requestKey =
             optimisticOracle.requestKey(address(reporter), NUMERICAL_IDENTIFIER, block.timestamp, requestRules);
@@ -450,9 +464,72 @@ contract OOReporterTest {
         );
     }
 
-    function test_priceDisputedOpensRerequestGateWithoutConsumingBudget() external {
+    function test_priceDisputedAutomaticallyRerequestsOnceWithoutConsumingBudget() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequested(
+            REQUEST_ID,
+            block.timestamp,
+            address(reporter),
+            RerequestType.AutomaticDispute,
+            request.requestTimestamp,
+            address(usdc),
+            0,
+            PROPOSAL_BOND,
+            LIVENESS,
+            DEFAULT_REREQUEST_BUDGET
+        );
+
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+
+        RequestData memory afterAuto = reporter.getRequest(REQUEST_ID);
+        assertFalse(afterAuto.rerequestAllowed, "automatic re-request should not leave gate open");
+        assertFalse(afterAuto.resolved, "dispute should not resolve the request");
+        assertTrue(afterAuto.automaticDisputeRerequestUsed, "automatic dispute re-request should be marked used");
+        assertEq(afterAuto.requestTimestamp, block.timestamp, "automatic dispute should advance timestamp");
+        assertEq(afterAuto.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "dispute should not consume budget");
+    }
+
+    function test_priceDisputedOpensManualGateAfterAutomaticDisputeUsed() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+
+        RequestData memory afterAuto = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequestAllowed(REQUEST_ID, afterAuto.requestTimestamp, RerequestTrigger.Dispute);
+
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, afterAuto.requestTimestamp, requestRules);
+
+        RequestData memory allowedRequest = reporter.getRequest(REQUEST_ID);
+        assertTrue(allowedRequest.rerequestAllowed, "second dispute should open the manual gate");
+        assertTrue(allowedRequest.automaticDisputeRerequestUsed, "automatic dispute re-request should stay used");
+        assertEq(allowedRequest.requestTimestamp, afterAuto.requestTimestamp, "manual gate should not advance timestamp");
+        assertEq(allowedRequest.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "gate should not consume budget");
+    }
+
+    function test_priceDisputedUsesCurrentAutomationSettingAfterDisabledFirstDispute() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(false);
 
         vm.prank(oracleInitializer);
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
@@ -465,62 +542,183 @@ contract OOReporterTest {
 
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
 
-        RequestData memory allowedRequest = reporter.getRequest(REQUEST_ID);
-        assertTrue(allowedRequest.rerequestAllowed, "dispute should open the re-request gate");
-        assertFalse(allowedRequest.resolved, "dispute should not resolve the request");
-        assertEq(allowedRequest.requestTimestamp, request.requestTimestamp, "dispute should not advance timestamp");
-        assertEq(allowedRequest.rerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "dispute should not consume budget");
+        RequestData memory afterDisabledDispute = reporter.getRequest(REQUEST_ID);
+        assertTrue(afterDisabledDispute.rerequestAllowed, "disabled first dispute should open manual gate");
+        assertFalse(
+            afterDisabledDispute.automaticDisputeRerequestUsed,
+            "disabled first dispute should not consume automatic slot"
+        );
+        assertEq(
+            afterDisabledDispute.requestTimestamp,
+            request.requestTimestamp,
+            "disabled first dispute should not advance timestamp"
+        );
+
+        vm.warp(block.timestamp + 1);
+        vm.prank(owner);
+        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory afterManual = reporter.getRequest(REQUEST_ID);
+
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(true);
+        vm.warp(block.timestamp + 1);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequested(
+            REQUEST_ID,
+            block.timestamp,
+            address(reporter),
+            RerequestType.AutomaticDispute,
+            afterManual.requestTimestamp,
+            address(usdc),
+            0,
+            PROPOSAL_BOND,
+            LIVENESS,
+            DEFAULT_REREQUEST_BUDGET - 1
+        );
+
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, afterManual.requestTimestamp, requestRules);
+
+        RequestData memory afterAuto = reporter.getRequest(REQUEST_ID);
+        assertFalse(afterAuto.rerequestAllowed, "enabled later dispute should auto re-request");
+        assertTrue(afterAuto.automaticDisputeRerequestUsed, "enabled later dispute should consume automatic slot");
+        assertEq(afterAuto.requestTimestamp, block.timestamp, "enabled later dispute should advance timestamp");
+        assertEq(
+            afterAuto.manualRerequestsRemaining,
+            DEFAULT_REREQUEST_BUDGET - 1,
+            "automatic re-request should not consume budget"
+        );
     }
 
-    function test_priceSettledP4ResetsBudgetAndOpensRerequestGateWithoutRerequesting() external {
+    function test_priceSettledP4ResetsBudgetAndAutomaticallyRerequests() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(false);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        // Spend one manual re-request so we can prove P4 refills the manual budget to the default.
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+        vm.prank(owner);
+        reporter.rerequest(REQUEST_ID, 0, MANUAL_PROPOSAL_BOND, MANUAL_LIVENESS);
+
+        RequestData memory afterManual = reporter.getRequest(REQUEST_ID);
+        assertEq(afterManual.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET - 1, "budget should decrement once");
+
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(true);
+        vm.warp(block.timestamp + 1);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequestBudgetSet(REQUEST_ID, DEFAULT_REREQUEST_BUDGET);
+        vm.expectEmit(address(reporter));
+        emit RequestRerequested(
+            REQUEST_ID,
+            block.timestamp,
+            address(reporter),
+            RerequestType.AutomaticInvalidSettlement,
+            afterManual.requestTimestamp,
+            address(usdc),
+            0,
+            MANUAL_PROPOSAL_BOND,
+            MANUAL_LIVENESS,
+            DEFAULT_REREQUEST_BUDGET
+        );
+
+        optimisticOracle.settle(
+            address(reporter), BINARY_IDENTIFIER, afterManual.requestTimestamp, requestRules, reporter.P4_PRICE()
+        );
+
+        RequestData memory afterP4 = reporter.getRequest(REQUEST_ID);
+        assertFalse(afterP4.resolved, "P4 should not resolve request");
+        assertFalse(reporter.isRequestResolved(REQUEST_ID), "P4 should not resolve request");
+        assertFalse(afterP4.rerequestAllowed, "automatic P4 re-request should not leave gate open");
+        assertEq(afterP4.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "P4 should refill the budget to the default");
+        assertEq(afterP4.requestTimestamp, block.timestamp, "P4 should auto re-request");
+        assertEq(afterP4.proposalBond, MANUAL_PROPOSAL_BOND, "P4 should preserve latest manual bond");
+        assertEq(afterP4.liveness, MANUAL_LIVENESS, "P4 should preserve latest manual liveness");
+
+        vm.expectRevert(IOOReporter.RequestResolutionUnavailable.selector);
+        reporter.getRequestResolution(REQUEST_ID);
+    }
+
+    function test_priceSettledP4OpensManualGateWhenAutomaticRerequestsDisabled() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(false);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequestAllowed(REQUEST_ID, request.requestTimestamp, RerequestTrigger.InvalidSettlement);
+
+        optimisticOracle.settle(
+            address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, reporter.P4_PRICE()
+        );
+
+        RequestData memory afterP4 = reporter.getRequest(REQUEST_ID);
+        assertTrue(afterP4.rerequestAllowed, "disabled P4 automation should open manual gate");
+        assertEq(afterP4.requestTimestamp, request.requestTimestamp, "disabled P4 automation should not advance timestamp");
+        assertEq(afterP4.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "P4 should leave default budget available");
+    }
+
+    function test_priceSettledP4UsesCurrentAutomationSettingAfterBeingDisabled() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
 
         vm.prank(oracleInitializer);
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
-        // Spend one re-request so we can prove a P4 on the active request refills the budget to the default.
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
-        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
-        vm.prank(oracleInitializer);
-        reporter.rerequest(REQUEST_ID, 0);
 
-        RequestData memory afterRerequest = reporter.getRequest(REQUEST_ID);
-        assertEq(afterRerequest.rerequestsRemaining, DEFAULT_REREQUEST_BUDGET - 1, "budget should decrement once");
-
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(false);
         vm.warp(block.timestamp + 1);
+
         vm.expectEmit(address(reporter));
-        emit RequestRerequestBudgetSet(REQUEST_ID, DEFAULT_REREQUEST_BUDGET);
-        vm.expectEmit(address(reporter));
-        emit RequestRerequestAllowed(REQUEST_ID, afterRerequest.requestTimestamp, RerequestTrigger.InvalidSettlement);
+        emit RequestRerequestAllowed(REQUEST_ID, request.requestTimestamp, RerequestTrigger.InvalidSettlement);
 
         optimisticOracle.settle(
-            address(reporter), BINARY_IDENTIFIER, afterRerequest.requestTimestamp, requestRules, reporter.P4_PRICE()
+            address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, reporter.P4_PRICE()
         );
 
         RequestData memory afterP4 = reporter.getRequest(REQUEST_ID);
+        assertTrue(afterP4.rerequestAllowed, "disabled P4 callback should open manual gate");
         assertFalse(afterP4.resolved, "P4 should not resolve request");
-        assertFalse(reporter.isRequestResolved(REQUEST_ID), "P4 should not resolve request");
-        assertTrue(afterP4.rerequestAllowed, "P4 should open the re-request gate");
-        assertEq(afterP4.rerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "P4 should refill the budget to the default");
-        assertEq(afterP4.requestTimestamp, afterRerequest.requestTimestamp, "P4 must not auto re-request");
-
-        vm.expectRevert(IOOReporter.RequestResolutionUnavailable.selector);
-        reporter.getRequestResolution(REQUEST_ID);
+        assertEq(
+            afterP4.requestTimestamp, request.requestTimestamp, "disabled P4 callback should not advance timestamp"
+        );
+        assertEq(
+            afterP4.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "disabled P4 should leave budget available"
+        );
     }
 
     function test_rerequestConsumesBudgetAndCreatesReplacementRequest() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
-        usdc.mint(address(reporter), REWARD);
 
         vm.prank(oracleInitializer);
-        reporter.initializeRequest(REQUEST_ID, REWARD, PROPOSAL_BOND, LIVENESS);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
         vm.warp(block.timestamp + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+
+        RequestData memory afterAuto = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, afterAuto.requestTimestamp, requestRules);
 
         usdc.mint(address(reporter), REREQUEST_REWARD);
 
@@ -528,29 +726,33 @@ contract OOReporterTest {
         emit RequestRerequested(
             REQUEST_ID,
             block.timestamp,
-            oracleInitializer,
-            request.requestTimestamp,
+            owner,
+            RerequestType.Manual,
+            afterAuto.requestTimestamp,
             address(usdc),
             REREQUEST_REWARD,
-            PROPOSAL_BOND,
-            LIVENESS,
+            MANUAL_PROPOSAL_BOND,
+            MANUAL_LIVENESS,
             DEFAULT_REREQUEST_BUDGET - 1
         );
 
-        vm.prank(oracleInitializer);
-        reporter.rerequest(REQUEST_ID, REREQUEST_REWARD);
+        vm.prank(owner);
+        reporter.rerequest(REQUEST_ID, REREQUEST_REWARD, MANUAL_PROPOSAL_BOND, MANUAL_LIVENESS);
 
         RequestData memory rerequested = reporter.getRequest(REQUEST_ID);
         assertEq(rerequested.requestTimestamp, block.timestamp, "re-request timestamp mismatch");
         assertEq(rerequested.reward, REREQUEST_REWARD, "re-request reward mismatch");
-        assertEq(rerequested.rerequestsRemaining, DEFAULT_REREQUEST_BUDGET - 1, "budget should decrement");
+        assertEq(rerequested.proposalBond, MANUAL_PROPOSAL_BOND, "re-request bond mismatch");
+        assertEq(rerequested.liveness, MANUAL_LIVENESS, "re-request liveness mismatch");
+        assertEq(rerequested.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET - 1, "budget should decrement");
         assertFalse(rerequested.rerequestAllowed, "gate should close after re-request");
 
         bytes32 requestKey =
             optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
         MockOptimisticOracleV2.MockRequest memory ooRequest = optimisticOracle.getMockRequest(requestKey);
         assertTrue(ooRequest.requested, "replacement request should exist");
-        assertEq(ooRequest.customLiveness, LIVENESS, "replacement request liveness mismatch");
+        assertEq(ooRequest.bond, MANUAL_PROPOSAL_BOND, "replacement request bond mismatch");
+        assertEq(ooRequest.customLiveness, MANUAL_LIVENESS, "replacement request liveness mismatch");
     }
 
     function test_rerequestRevertsWhenGateClosedOrUnauthorized() external {
@@ -561,13 +763,41 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         vm.prank(unauthorized);
-        vm.expectRevert(IOOReporter.CallerNotOracleInitializer.selector);
-        reporter.rerequest(REQUEST_ID, 0);
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), unauthorized));
+        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         vm.warp(block.timestamp + 1);
-        vm.prank(oracleInitializer);
+        vm.prank(owner);
         vm.expectRevert(IOOReporter.RequestRerequestNotAllowed.selector);
-        reporter.rerequest(REQUEST_ID, 0);
+        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+    }
+
+    function test_rerequestRejectsManualLivenessOutsideRegisteredRange() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequestWithLivenessRange(
+            REQUEST_ID, BINARY_IDENTIFIER, requestRules, STRICT_MINIMUM_LIVENESS, STRICT_MAXIMUM_LIVENESS
+        );
+
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(false);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, STRICT_MINIMUM_LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IOOReporter.RequestLivenessOutOfRange.selector,
+                STRICT_MAXIMUM_LIVENESS + 1,
+                STRICT_MINIMUM_LIVENESS,
+                STRICT_MAXIMUM_LIVENESS
+            )
+        );
+        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, STRICT_MAXIMUM_LIVENESS + 1);
     }
 
     function test_rerequestBudgetExhaustsAndOwnerCanTopUp() external {
@@ -577,6 +807,8 @@ contract OOReporterTest {
         // Seed a small budget so it can be exhausted in a couple of re-requests.
         vm.prank(owner);
         reporter.setDefaultRerequestBudget(2);
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(false);
 
         vm.prank(oracleInitializer);
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
@@ -587,13 +819,13 @@ contract OOReporterTest {
 
         // Budget exhausted: gate is open again, but the re-request must revert.
         RequestData memory exhausted = reporter.getRequest(REQUEST_ID);
-        assertEq(exhausted.rerequestsRemaining, 0, "budget should be exhausted");
+        assertEq(exhausted.manualRerequestsRemaining, 0, "budget should be exhausted");
         vm.warp(block.timestamp + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, exhausted.requestTimestamp, requestRules);
 
-        vm.prank(oracleInitializer);
+        vm.prank(owner);
         vm.expectRevert(IOOReporter.RequestRerequestBudgetExhausted.selector);
-        reporter.rerequest(REQUEST_ID, 0);
+        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         // Owner cannot top a request up beyond the contract-level default budget.
         vm.prank(owner);
@@ -606,10 +838,10 @@ contract OOReporterTest {
         vm.prank(owner);
         reporter.setRequestRerequestBudget(REQUEST_ID, 2);
 
-        vm.prank(oracleInitializer);
-        reporter.rerequest(REQUEST_ID, 0);
+        vm.prank(owner);
+        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
-        assertEq(reporter.getRequest(REQUEST_ID).rerequestsRemaining, 1, "budget should reflect top-up minus one");
+        assertEq(reporter.getRequest(REQUEST_ID).manualRerequestsRemaining, 1, "budget should reflect top-up minus one");
     }
 
     function test_setRequestRerequestBudgetRejectsUnauthorizedUnchangedAndResolved() external {
@@ -666,7 +898,31 @@ contract OOReporterTest {
         vm.prank(oracleInitializer);
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
-        assertEq(reporter.getRequest(REQUEST_ID).rerequestsRemaining, 4, "request should seed new default budget");
+        assertEq(reporter.getRequest(REQUEST_ID).manualRerequestsRemaining, 4, "request should seed new default budget");
+    }
+
+    function test_setAutomaticRerequestsEnabledUpdatesAndRejectsInvalidChanges() external {
+        assertTrue(reporter.automaticRerequestsEnabled(), "automatic re-requests should start enabled");
+
+        vm.prank(unauthorized);
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), unauthorized));
+        reporter.setAutomaticRerequestsEnabled(false);
+
+        vm.prank(owner);
+        vm.expectRevert(IOOReporter.AutomaticRerequestsEnabledUnchanged.selector);
+        reporter.setAutomaticRerequestsEnabled(true);
+
+        vm.expectEmit(address(reporter));
+        emit AutomaticRerequestsEnabledSet(false);
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(false);
+        assertFalse(reporter.automaticRerequestsEnabled(), "automatic re-requests should disable");
+
+        vm.expectEmit(address(reporter));
+        emit AutomaticRerequestsEnabledSet(true);
+        vm.prank(owner);
+        reporter.setAutomaticRerequestsEnabled(true);
+        assertTrue(reporter.automaticRerequestsEnabled(), "automatic re-requests should re-enable");
     }
 
     function test_priceSettledRejectsUnauthorizedCallerAndIgnoresUnknownTuples() external {
@@ -688,10 +944,8 @@ contract OOReporterTest {
         RequestData memory firstRequest = reporter.getRequest(REQUEST_ID);
         vm.warp(block.timestamp + 1);
 
-        // Dispute opens the gate; a manual re-request then advances the active timestamp.
+        // The first dispute automatically creates a replacement request and advances the active timestamp.
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, firstRequest.requestTimestamp, requestRules);
-        vm.prank(oracleInitializer);
-        reporter.rerequest(REQUEST_ID, 0);
 
         RequestData memory activeRequest = reporter.getRequest(REQUEST_ID);
         assertEq(activeRequest.requestTimestamp, block.timestamp, "active timestamp should advance");
@@ -717,9 +971,9 @@ contract OOReporterTest {
         RequestData memory request = reporter.getRequest(REQUEST_ID);
         optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
 
-        vm.prank(oracleInitializer);
+        vm.prank(owner);
         vm.expectRevert(IOOReporter.RequestAlreadyResolved.selector);
-        reporter.rerequest(REQUEST_ID, REREQUEST_REWARD);
+        reporter.rerequest(REQUEST_ID, REREQUEST_REWARD, PROPOSAL_BOND, LIVENESS);
 
         vm.prank(owner);
         vm.expectRevert(IOOReporter.RequestAlreadyResolved.selector);
@@ -730,8 +984,8 @@ contract OOReporterTest {
         RequestData memory request = reporter.getRequest(REQUEST_ID);
         vm.warp(block.timestamp + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
-        vm.prank(oracleInitializer);
-        reporter.rerequest(REQUEST_ID, 0);
+        vm.prank(owner);
+        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
     }
 
     function _registerRequest(bytes32 requestId, bytes32 priceIdentifier, bytes memory requestRules) internal {
