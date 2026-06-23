@@ -293,14 +293,15 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     }
 
     /// @inheritdoc IOOReporter
-    function rerequest(bytes32 requestId, uint256 reward) external onlyOwner {
+    function rerequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external onlyOwner {
         RequestData storage request = _requireRegistered(requestId);
         if (!request.initialized) revert RequestNotInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
         if (!request.rerequestAllowed) revert RequestRerequestNotAllowed();
         if (request.manualRerequestsRemaining == 0) revert RequestRerequestBudgetExhausted();
+        _requireValidRequestLiveness(request, liveness);
 
-        uint256 previousRequestTimestamp = _executeRerequest(request, reward, msg.sender);
+        uint256 previousRequestTimestamp = _executeRerequest(request, reward, proposalBond, liveness, msg.sender);
 
         request.manualRerequestsRemaining -= 1;
 
@@ -469,7 +470,13 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     --------------------------------------------------------------*/
 
     /// @dev Creates a replacement request with a strictly greater request timestamp than the previous request.
-    function _executeRerequest(RequestData storage request, uint256 reward, address oracleInitializer)
+    function _executeRerequest(
+        RequestData storage request,
+        uint256 reward,
+        uint256 proposalBond,
+        uint64 liveness,
+        address oracleInitializer
+    )
         private
         returns (uint256 previousRequestTimestamp)
     {
@@ -481,6 +488,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
         request.requestTimestamp = requestTimestamp;
         request.reward = reward;
+        request.proposalBond = proposalBond;
+        request.liveness = liveness;
         request.oracleInitializer = oracleInitializer;
         request.rerequestAllowed = false;
 
@@ -489,8 +498,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             requestTimestamp,
             request.requestRules,
             reward,
-            request.proposalBond,
-            request.liveness
+            proposalBond,
+            liveness
         );
     }
 
@@ -498,7 +507,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     function _executeAutomaticRerequest(bytes32 requestId, RequestData storage request, RerequestType rerequestType)
         private
     {
-        uint256 previousRequestTimestamp = _executeRerequest(request, request.reward, address(this));
+        uint256 previousRequestTimestamp =
+            _executeRerequest(request, request.reward, request.proposalBond, request.liveness, address(this));
         _emitRequestRerequested(requestId, request, previousRequestTimestamp, address(this), rerequestType);
     }
 

@@ -284,7 +284,9 @@ interface IOOReporter {
     /// @notice Allows the owner to create a replacement Managed OO request after a callback opens the gate.
     /// @param requestId Registered request ID.
     /// @param reward Reward amount for the replacement request.
-    function rerequest(bytes32 requestId, uint256 reward) external;
+    /// @param proposalBond Bond required from OO proposers/disputers, or zero to use the OO default.
+    /// @param liveness Custom OO liveness period within the registered bounds.
+    function rerequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
     /// @notice Updates the remaining re-request budget for an initialized unresolved request.
     /// @param requestId Registered request ID.

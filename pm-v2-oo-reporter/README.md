@@ -60,9 +60,11 @@ P4 settlements reset the active request's manual budget to the current default. 
 P4 settlements also create a replacement request without consuming manual budget. When automatic re-requests are
 disabled, P4 settlements open the manual re-request gate instead.
 
-The owner can call `rerequest(requestId, reward)` while the manual gate is open and manual budget remains. The owner can
-update the default budget for future initializations with `setDefaultRerequestBudget(...)`, and can top up or reduce an
-active unresolved request with `setRequestRerequestBudget(...)`.
+The owner can call `rerequest(requestId, reward, proposalBond, liveness)` while the manual gate is open and manual
+budget remains. Manual re-requests can update the active reward, proposal bond, and liveness for the replacement request.
+Automatic re-requests reuse the active reward, proposal bond, and liveness. The owner can update the default budget for
+future initializations with `setDefaultRerequestBudget(...)`, and can top up or reduce an active unresolved request with
+`setRequestRerequestBudget(...)`.
 
 Lifecycle events that refer to a specific Managed OO request consistently lead with the external `requestId` and then
 the active OO `requestTimestamp` before actor or outcome fields. This keeps initialization, re-request,
