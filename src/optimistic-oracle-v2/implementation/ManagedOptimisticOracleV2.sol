@@ -379,6 +379,35 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Disputes a price value on another address' behalf.
+     * @dev Managed OO requires at least one block timestamp tick between proposal and dispute. This preserves the
+     *      request timestamp namespace for callback-driven replacement requests.
+     * @param disputer address to set as the disputer.
+     * @param requester sender of the initial price request.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return totalBond the amount that's pulled from the caller's wallet as a bond.
+     */
+    function disputePriceFor(
+        address disputer,
+        address requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes memory ancillaryData
+    ) public override returns (uint256 totalBond) {
+        require(disputer != address(0), DisputerAddressCannotBeZero());
+        require(
+            _getStateForDispute(requester, identifier, timestamp, ancillaryData) == State.Proposed,
+            RequestStateNotProposed()
+        );
+        Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
+        require(request.proposalTime != getCurrentTime(), SameBlockDisputeNotAllowed());
+
+        return super.disputePriceFor(disputer, requester, identifier, timestamp, ancillaryData);
+    }
+
+    /**
      * @notice Retrieves a price that was previously requested by a caller. Reverts if the request is not settled yet.
      * @dev The naming of this method might be misleading as it does not actually settle the request, but it is required
      * for compatibility with the overridden parent contract method and restricts the settlement to the resolver role.
