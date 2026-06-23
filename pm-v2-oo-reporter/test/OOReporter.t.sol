@@ -61,15 +61,16 @@ contract OOReporterTest {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     event RequestRulesUpdated(
-        bytes32 indexed requestId, address indexed updater, uint256 indexed timestamp, bytes updatedRules
+        bytes32 indexed requestId, uint256 indexed timestamp, address indexed updater, bytes updatedRules
     );
+    event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
     event RequestRerequested(
         bytes32 indexed requestId,
-        address indexed rerequester,
         uint256 indexed requestTimestamp,
+        address indexed rerequester,
         uint256 previousRequestTimestamp,
         address rewardCurrency,
         uint256 reward,
@@ -340,7 +341,7 @@ contract OOReporterTest {
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
 
         vm.expectEmit(address(reporter));
-        emit RequestRulesUpdated(REQUEST_ID, requester, block.timestamp, firstUpdatedRules);
+        emit RequestRulesUpdated(REQUEST_ID, block.timestamp, requester, firstUpdatedRules);
 
         vm.prank(requester);
         reporter.updateRequestRules(REQUEST_ID, firstUpdatedRules);
@@ -526,8 +527,8 @@ contract OOReporterTest {
         vm.expectEmit(address(reporter));
         emit RequestRerequested(
             REQUEST_ID,
-            oracleInitializer,
             block.timestamp,
+            oracleInitializer,
             request.requestTimestamp,
             address(usdc),
             REREQUEST_REWARD,
@@ -760,6 +761,9 @@ contract OOReporterTest {
         reporter.initializeRequest(requestId, 0, 0, LIVENESS);
 
         RequestData memory request = reporter.getRequest(requestId);
+        vm.expectEmit(address(reporter));
+        emit RequestResolved(requestId, request.requestTimestamp, price);
+
         optimisticOracle.settle(address(reporter), priceIdentifier, request.requestTimestamp, requestRules, price);
 
         assertTrue(reporter.isRequestResolved(requestId), "request should be resolved");

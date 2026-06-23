@@ -53,6 +53,10 @@ Dispute callbacks and P4 settlements do not create replacement requests automati
 
 The owner can update the default budget for future initializations with `setDefaultRerequestBudget(...)`, and can top up or reduce an active unresolved request with `setRequestRerequestBudget(...)`.
 
+Lifecycle events that refer to a specific Managed OO request consistently lead with the external `requestId` and then
+the active OO `requestTimestamp` before actor or outcome fields. This keeps initialization, re-request,
+re-request-gate, rules-update, and resolution logs easy to correlate after a request has been replaced.
+
 ## Rules Updates
 
 Only the requester that registered a `requestId` can update rules for that request. Rules updates are stored as:

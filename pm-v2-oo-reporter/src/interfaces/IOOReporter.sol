@@ -153,10 +153,10 @@ interface IOOReporter {
     );
     /// @notice Emitted when the registering requester posts updated request rules for offchain consumers.
     event RequestRulesUpdated(
-        bytes32 indexed requestId, address indexed updater, uint256 indexed timestamp, bytes updatedRules
+        bytes32 indexed requestId, uint256 indexed timestamp, address indexed updater, bytes updatedRules
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
-    event RequestResolved(bytes32 indexed requestId, int256 outcome);
+    event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
     /// @notice Emitted when a callback opens the approved-initializer re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
@@ -164,8 +164,8 @@ interface IOOReporter {
     /// @notice Emitted when UMA creates a replacement Managed OO request.
     event RequestRerequested(
         bytes32 indexed requestId,
-        address indexed rerequester,
         uint256 indexed requestTimestamp,
+        address indexed rerequester,
         uint256 previousRequestTimestamp,
         address rewardCurrency,
         uint256 reward,
