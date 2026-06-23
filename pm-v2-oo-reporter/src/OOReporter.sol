@@ -8,7 +8,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
-import {IOOReporter, RequestData, RequestRulesUpdate, RerequestTrigger} from "./interfaces/IOOReporter.sol";
+import {
+    IOOReporter,
+    RequestData,
+    RequestRulesUpdate,
+    RerequestTrigger,
+    RerequestType
+} from "./interfaces/IOOReporter.sol";
 import {IOptimisticOracleV2} from "./interfaces/IOptimisticOracleV2.sol";
 import {IOptimisticRequester} from "./interfaces/IOptimisticRequester.sol";
 
@@ -53,6 +59,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         mapping(bytes32 requestId => RequestRulesUpdate[] updates) requestRulesUpdates;
         /// @notice Default re-request budget seeded onto each request at initialization.
         uint256 defaultRerequestBudget;
+        /// @notice Whether first-dispute and P4 automatic re-requests are enabled.
+        bool automaticRerequestsEnabled;
     }
 
     // keccak256(abi.encode(uint256(keccak256("uma.storage.OOReporter")) - 1)) & ~bytes32(uint256(0xff))
@@ -121,7 +129,9 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         }
 
         $.defaultRerequestBudget = initialDefaultRerequestBudget;
+        $.automaticRerequestsEnabled = true;
         emit DefaultRerequestBudgetSet(initialDefaultRerequestBudget);
+        emit AutomaticRerequestsEnabledSet(true);
     }
 
     /// @notice Returns the configured Managed Optimistic Oracle V2 address.
@@ -159,6 +169,11 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     }
 
     /// @inheritdoc IOOReporter
+    function automaticRerequestsEnabled() public view returns (bool) {
+        return _getStorage().automaticRerequestsEnabled;
+    }
+
+    /// @inheritdoc IOOReporter
     function setRequesterEnabled(address requester, bool enabled) external onlyOwner {
         _setRequesterEnabled(requester, enabled);
     }
@@ -174,6 +189,14 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
         _getStorage().defaultRerequestBudget = newDefaultRerequestBudget;
         emit DefaultRerequestBudgetSet(newDefaultRerequestBudget);
+    }
+
+    /// @inheritdoc IOOReporter
+    function setAutomaticRerequestsEnabled(bool enabled) external onlyOwner {
+        if (automaticRerequestsEnabled() == enabled) revert AutomaticRerequestsEnabledUnchanged();
+
+        _getStorage().automaticRerequestsEnabled = enabled;
+        emit AutomaticRerequestsEnabledSet(enabled);
     }
 
     /// @inheritdoc IOOReporter
@@ -244,14 +267,14 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         _requireValidRequestLiveness(request, liveness);
 
         uint256 requestTimestamp = block.timestamp;
-        uint256 rerequestsRemaining = defaultRerequestBudget();
+        uint256 manualRerequestsRemaining = defaultRerequestBudget();
         request.initialized = true;
         request.oracleInitializer = msg.sender;
         request.requestTimestamp = requestTimestamp;
         request.reward = reward;
         request.proposalBond = proposalBond;
         request.liveness = liveness;
-        request.rerequestsRemaining = rerequestsRemaining;
+        request.manualRerequestsRemaining = manualRerequestsRemaining;
 
         _requestPrice(request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness);
 
@@ -265,52 +288,44 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             reward,
             proposalBond,
             liveness,
-            rerequestsRemaining
+            manualRerequestsRemaining
         );
     }
 
     /// @inheritdoc IOOReporter
-    function rerequest(bytes32 requestId, uint256 reward) external onlyOracleInitializer {
+    function rerequest(bytes32 requestId, uint256 reward) external onlyOwner {
         RequestData storage request = _requireRegistered(requestId);
         if (!request.initialized) revert RequestNotInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
         if (!request.rerequestAllowed) revert RequestRerequestNotAllowed();
-        if (request.rerequestsRemaining == 0) revert RequestRerequestBudgetExhausted();
+        if (request.manualRerequestsRemaining == 0) revert RequestRerequestBudgetExhausted();
 
         uint256 previousRequestTimestamp = _executeRerequest(request, reward, msg.sender);
 
-        request.rerequestsRemaining -= 1;
+        request.manualRerequestsRemaining -= 1;
 
-        emit RequestRerequested(
-            requestId,
-            request.requestTimestamp,
-            msg.sender,
-            previousRequestTimestamp,
-            address(rewardCurrency()),
-            reward,
-            request.proposalBond,
-            request.liveness,
-            request.rerequestsRemaining
-        );
+        _emitRequestRerequested(requestId, request, previousRequestTimestamp, msg.sender, RerequestType.Manual);
     }
 
     /// @inheritdoc IOOReporter
-    function setRequestRerequestBudget(bytes32 requestId, uint256 newRerequestsRemaining) external onlyOwner {
+    function setRequestRerequestBudget(bytes32 requestId, uint256 newManualRerequestsRemaining) external onlyOwner {
         RequestData storage request = _requireRegistered(requestId);
         if (!request.initialized) revert RequestNotInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
         uint256 budgetCeiling = defaultRerequestBudget();
-        if (newRerequestsRemaining > budgetCeiling) {
-            revert RequestRerequestBudgetAboveDefault(newRerequestsRemaining, budgetCeiling);
+        if (newManualRerequestsRemaining > budgetCeiling) {
+            revert RequestRerequestBudgetAboveDefault(newManualRerequestsRemaining, budgetCeiling);
         }
-        if (request.rerequestsRemaining == newRerequestsRemaining) revert RequestRerequestBudgetUnchanged();
+        if (request.manualRerequestsRemaining == newManualRerequestsRemaining) {
+            revert RequestRerequestBudgetUnchanged();
+        }
 
-        request.rerequestsRemaining = newRerequestsRemaining;
+        request.manualRerequestsRemaining = newManualRerequestsRemaining;
 
-        emit RequestRerequestBudgetSet(requestId, newRerequestsRemaining);
+        emit RequestRerequestBudgetSet(requestId, newManualRerequestsRemaining);
     }
 
-    /// @notice Managed OO dispute callback. Opens the oracle-initializer re-request gate for the active request.
+    /// @notice Managed OO dispute callback. Auto re-requests once, then opens the owner re-request gate.
     /// @inheritdoc IOptimisticRequester
     function priceDisputed(bytes32 identifier, uint256 timestamp, bytes memory requestRules, uint256)
         external
@@ -321,10 +336,15 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             _loadCallbackRequest(identifier, timestamp, requestRules);
         if (shouldIgnore || request.resolved) return;
 
-        _allowRerequest(requestId, timestamp, request, RerequestTrigger.Dispute);
+        if (automaticRerequestsEnabled() && !request.automaticDisputeRerequestUsed) {
+            request.automaticDisputeRerequestUsed = true;
+            _executeAutomaticRerequest(requestId, request, RerequestType.AutomaticDispute);
+        } else {
+            _allowRerequest(requestId, timestamp, request, RerequestTrigger.Dispute);
+        }
     }
 
-    /// @notice Managed OO settlement callback. Stores final prices; resets the budget and opens re-request on P4.
+    /// @notice Managed OO settlement callback. Stores final prices; resets the budget and re-requests on P4.
     /// @inheritdoc IOptimisticRequester
     function priceSettled(bytes32 identifier, uint256 timestamp, bytes memory requestRules, int256 price)
         external
@@ -337,13 +357,17 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
         if (price == P4_PRICE) {
             // Reporter requests are event-based, so Managed OO rejects proposed P4; P4 here is DVM-resolved.
-            // Refill the budget so the oracle initializer can continue without owner intervention, then reopen the gate.
+            // Refill the manual budget so the owner can continue without intervention if automation is disabled.
             uint256 budget = defaultRerequestBudget();
-            if (request.rerequestsRemaining != budget) {
-                request.rerequestsRemaining = budget;
+            if (request.manualRerequestsRemaining != budget) {
+                request.manualRerequestsRemaining = budget;
                 emit RequestRerequestBudgetSet(requestId, budget);
             }
-            _allowRerequest(requestId, timestamp, request, RerequestTrigger.InvalidSettlement);
+            if (automaticRerequestsEnabled()) {
+                _executeAutomaticRerequest(requestId, request, RerequestType.AutomaticInvalidSettlement);
+            } else {
+                _allowRerequest(requestId, timestamp, request, RerequestTrigger.InvalidSettlement);
+            }
         } else {
             request.resolved = true;
             request.outcome = price;
@@ -467,6 +491,36 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             reward,
             request.proposalBond,
             request.liveness
+        );
+    }
+
+    /// @dev Creates a replacement request without spending manual budget.
+    function _executeAutomaticRerequest(bytes32 requestId, RequestData storage request, RerequestType rerequestType)
+        private
+    {
+        uint256 previousRequestTimestamp = _executeRerequest(request, request.reward, address(this));
+        _emitRequestRerequested(requestId, request, previousRequestTimestamp, address(this), rerequestType);
+    }
+
+    /// @dev Emits the post-state for a replacement Managed OO request.
+    function _emitRequestRerequested(
+        bytes32 requestId,
+        RequestData storage request,
+        uint256 previousRequestTimestamp,
+        address rerequester,
+        RerequestType rerequestType
+    ) private {
+        emit RequestRerequested(
+            requestId,
+            request.requestTimestamp,
+            rerequester,
+            rerequestType,
+            previousRequestTimestamp,
+            address(rewardCurrency()),
+            request.reward,
+            request.proposalBond,
+            request.liveness,
+            request.manualRerequestsRemaining
         );
     }
 

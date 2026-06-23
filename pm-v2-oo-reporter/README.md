@@ -33,7 +33,7 @@ function getRequestResolution(bytes32 requestId) external view returns (int256);
 - requester/module allowlisting;
 - UMA oracle initializer allowlisting;
 - Managed OO request creation;
-- reward, bond, request-specific liveness bounds, and re-request budget controls;
+- reward, bond, request-specific liveness bounds, automatic re-request controls, and manual re-request budget controls;
 - request rules update history for active requests;
 - raw UMA settlement storage.
 
@@ -47,11 +47,22 @@ The prediction market integration owns:
 
 An enabled requester first calls `registerRequest(...)` with its external `requestId`, UMA price identifier, raw request rules, and allowed liveness range. The reporter reserves the `(priceIdentifier, requestRules)` tuple globally so two request IDs cannot point at the same UMA request identity.
 
-An enabled UMA oracle initializer later calls `initializeRequest(requestId, reward, proposalBond, liveness)`. The selected liveness must be non-zero and inside the registered range. Each initialized request receives the current `defaultRerequestBudget`.
+An enabled UMA oracle initializer later calls `initializeRequest(requestId, reward, proposalBond, liveness)`. The selected
+liveness must be non-zero and inside the registered range. Each initialized request receives the current
+`defaultRerequestBudget` as its manual re-request budget.
 
-Dispute callbacks and P4 settlements do not create replacement requests automatically. They open the re-request gate and emit `RequestRerequestAllowed`. An enabled UMA oracle initializer can then call `rerequest(requestId, reward)` while budget remains. A P4 settlement on the active request resets the remaining re-request budget to the current default before opening the gate.
+Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
+`setAutomaticRerequestsEnabled(...)`. When enabled, the first dispute callback for a request automatically creates one
+replacement request without consuming manual re-request budget. Later dispute callbacks open the manual re-request gate
+and emit `RequestRerequestAllowed`.
 
-The owner can update the default budget for future initializations with `setDefaultRerequestBudget(...)`, and can top up or reduce an active unresolved request with `setRequestRerequestBudget(...)`.
+P4 settlements reset the active request's manual budget to the current default. When automatic re-requests are enabled,
+P4 settlements also create a replacement request without consuming manual budget. When automatic re-requests are
+disabled, P4 settlements open the manual re-request gate instead.
+
+The owner can call `rerequest(requestId, reward)` while the manual gate is open and manual budget remains. The owner can
+update the default budget for future initializations with `setDefaultRerequestBudget(...)`, and can top up or reduce an
+active unresolved request with `setRequestRerequestBudget(...)`.
 
 Lifecycle events that refer to a specific Managed OO request consistently lead with the external `requestId` and then
 the active OO `requestTimestamp` before actor or outcome fields. This keeps initialization, re-request,
