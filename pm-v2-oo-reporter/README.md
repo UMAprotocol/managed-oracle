@@ -52,9 +52,10 @@ liveness must be non-zero and inside the registered range. Each initialized requ
 `defaultRerequestBudget` as its manual re-request budget.
 
 Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
-`setAutomaticRerequestsEnabled(...)`. When enabled, the first dispute callback for a request automatically creates one
-replacement request without consuming manual re-request budget. Later dispute callbacks open the manual re-request gate
-and emit `RequestRerequestAllowed`.
+`setAutomaticRerequestsEnabled(...)`. The current setting is evaluated when a dispute or P4 settlement callback arrives,
+not when the request was initialized or last re-requested. When enabled, the first dispute callback for a request
+automatically creates one replacement request without consuming manual re-request budget. Later dispute callbacks open
+the manual re-request gate and emit `RequestRerequestAllowed`.
 
 P4 settlements reset the active request's manual budget to the current default. When automatic re-requests are enabled,
 P4 settlements also create a replacement request without consuming manual budget. When automatic re-requests are
