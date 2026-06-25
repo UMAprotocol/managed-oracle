@@ -57,8 +57,6 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         mapping(bytes32 reporterRequestKey => bytes32 requestId) requestIdsByReporterKey;
         /// @notice Mapping of requester-defined request ID to request rules update history.
         mapping(bytes32 requestId => RequestRulesUpdate[] updates) requestRulesUpdates;
-        /// @notice Default re-request budget seeded onto each request at initialization.
-        uint256 defaultRerequestBudget;
         /// @notice Whether first-dispute and P4 automatic re-requests are enabled.
         bool automaticRerequestsEnabled;
     }
@@ -107,8 +105,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         address _optimisticOracle,
         address _rewardCurrency,
         address initialOracleInitializer,
-        address initialRequester,
-        uint256 initialDefaultRerequestBudget
+        address initialRequester
     ) external initializer {
         if (initialOwner == address(0) || _optimisticOracle == address(0) || _rewardCurrency == address(0)) {
             revert AddressCannotBeZero();
@@ -128,9 +125,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             _setRequesterEnabled(initialRequester, true);
         }
 
-        $.defaultRerequestBudget = initialDefaultRerequestBudget;
         $.automaticRerequestsEnabled = true;
-        emit DefaultRerequestBudgetSet(initialDefaultRerequestBudget);
         emit AutomaticRerequestsEnabledSet(true);
     }
 
@@ -164,11 +159,6 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     }
 
     /// @inheritdoc IOOReporter
-    function defaultRerequestBudget() public view returns (uint256) {
-        return _getStorage().defaultRerequestBudget;
-    }
-
-    /// @inheritdoc IOOReporter
     function automaticRerequestsEnabled() public view returns (bool) {
         return _getStorage().automaticRerequestsEnabled;
     }
@@ -181,14 +171,6 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     /// @inheritdoc IOOReporter
     function setOracleInitializerEnabled(address oracleInitializer, bool enabled) external onlyOwner {
         _setOracleInitializerEnabled(oracleInitializer, enabled);
-    }
-
-    /// @inheritdoc IOOReporter
-    function setDefaultRerequestBudget(uint256 newDefaultRerequestBudget) external onlyOwner {
-        if (defaultRerequestBudget() == newDefaultRerequestBudget) revert DefaultRerequestBudgetUnchanged();
-
-        _getStorage().defaultRerequestBudget = newDefaultRerequestBudget;
-        emit DefaultRerequestBudgetSet(newDefaultRerequestBudget);
     }
 
     /// @inheritdoc IOOReporter
@@ -267,14 +249,12 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         _requireValidRequestLiveness(request, liveness);
 
         uint256 requestTimestamp = block.timestamp;
-        uint256 manualRerequestsRemaining = defaultRerequestBudget();
         request.initialized = true;
         request.oracleInitializer = msg.sender;
         request.requestTimestamp = requestTimestamp;
         request.reward = reward;
         request.proposalBond = proposalBond;
         request.liveness = liveness;
-        request.manualRerequestsRemaining = manualRerequestsRemaining;
 
         _requestPrice(request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness);
 
@@ -287,8 +267,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             address(rewardCurrency()),
             reward,
             proposalBond,
-            liveness,
-            manualRerequestsRemaining
+            liveness
         );
     }
 
@@ -298,32 +277,11 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         if (!request.initialized) revert RequestNotInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
         if (!request.rerequestAllowed) revert RequestRerequestNotAllowed();
-        if (request.manualRerequestsRemaining == 0) revert RequestRerequestBudgetExhausted();
         _requireValidRequestLiveness(request, liveness);
 
         uint256 previousRequestTimestamp = _executeRerequest(request, reward, proposalBond, liveness, msg.sender);
 
-        request.manualRerequestsRemaining -= 1;
-
         _emitRequestRerequested(requestId, request, previousRequestTimestamp, msg.sender, RerequestType.Manual);
-    }
-
-    /// @inheritdoc IOOReporter
-    function setRequestRerequestBudget(bytes32 requestId, uint256 newManualRerequestsRemaining) external onlyOwner {
-        RequestData storage request = _requireRegistered(requestId);
-        if (!request.initialized) revert RequestNotInitialized();
-        if (request.resolved) revert RequestAlreadyResolved();
-        uint256 budgetCeiling = defaultRerequestBudget();
-        if (newManualRerequestsRemaining > budgetCeiling) {
-            revert RequestRerequestBudgetAboveDefault(newManualRerequestsRemaining, budgetCeiling);
-        }
-        if (request.manualRerequestsRemaining == newManualRerequestsRemaining) {
-            revert RequestRerequestBudgetUnchanged();
-        }
-
-        request.manualRerequestsRemaining = newManualRerequestsRemaining;
-
-        emit RequestRerequestBudgetSet(requestId, newManualRerequestsRemaining);
     }
 
     /// @notice Managed OO dispute callback. Auto re-requests once, then opens the owner re-request gate.
@@ -345,7 +303,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         }
     }
 
-    /// @notice Managed OO settlement callback. Stores final prices; resets the budget and re-requests on P4.
+    /// @notice Managed OO settlement callback. Stores final prices and re-requests on P4.
     /// @inheritdoc IOptimisticRequester
     function priceSettled(bytes32 identifier, uint256 timestamp, bytes memory requestRules, int256 price)
         external
@@ -358,12 +316,6 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
         if (price == P4_PRICE) {
             // Reporter requests are event-based, so Managed OO rejects proposed P4; P4 here is DVM-resolved.
-            // Refill the manual budget so the owner can continue without intervention if automation is disabled.
-            uint256 budget = defaultRerequestBudget();
-            if (request.manualRerequestsRemaining != budget) {
-                request.manualRerequestsRemaining = budget;
-                emit RequestRerequestBudgetSet(requestId, budget);
-            }
             if (automaticRerequestsEnabled()) {
                 _executeAutomaticRerequest(requestId, request, RerequestType.AutomaticInvalidSettlement);
             } else {
@@ -476,10 +428,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         uint256 proposalBond,
         uint64 liveness,
         address oracleInitializer
-    )
-        private
-        returns (uint256 previousRequestTimestamp)
-    {
+    ) private returns (uint256 previousRequestTimestamp) {
         previousRequestTimestamp = request.requestTimestamp;
         uint256 requestTimestamp = block.timestamp;
         if (requestTimestamp <= previousRequestTimestamp) {
@@ -493,17 +442,10 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         request.oracleInitializer = oracleInitializer;
         request.rerequestAllowed = false;
 
-        _requestPrice(
-            request.priceIdentifier,
-            requestTimestamp,
-            request.requestRules,
-            reward,
-            proposalBond,
-            liveness
-        );
+        _requestPrice(request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness);
     }
 
-    /// @dev Creates a replacement request without spending manual budget.
+    /// @dev Creates a replacement request from a callback path.
     function _executeAutomaticRerequest(bytes32 requestId, RequestData storage request, RerequestType rerequestType)
         private
     {
@@ -529,8 +471,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             address(rewardCurrency()),
             request.reward,
             request.proposalBond,
-            request.liveness,
-            request.manualRerequestsRemaining
+            request.liveness
         );
     }
 
