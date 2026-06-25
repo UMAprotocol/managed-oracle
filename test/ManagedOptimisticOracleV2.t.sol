@@ -520,26 +520,6 @@ contract ManagedOptimisticOracleV2Test is Test {
         );
     }
 
-    function testDisputeRejectsSameBlockProposal() external {
-        uint256 t = block.timestamp;
-        _makeRequest(requester, t, 0);
-
-        _proposeFor(sender, proposer, requester, t, 42);
-
-        vm.startPrank(disputer);
-        currency.mint(disputer, 10_000 ether);
-        currency.approve(address(moo), type(uint256).max);
-        vm.expectRevert(ManagedOptimisticOracleV2Interface.SameBlockDisputeNotAllowed.selector);
-        moo.disputePrice(requester, IDENTIFIER, t, ANCILLARY);
-        vm.stopPrank();
-
-        vm.warp(block.timestamp + 1);
-        _dispute(disputer, requester, t);
-        assertEq(
-            uint8(moo.getState(requester, IDENTIFIER, t, ANCILLARY)), uint8(OptimisticOracleV2Interface.State.Disputed)
-        );
-    }
-
     // -------------------- Bond Range Management --------------------
 
     function testSetAllowedBondRangeValidations() external {
@@ -971,7 +951,6 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).proposalTime, proposalTime);
 
         // Dispute should result in Oracle price request with proposal timestamp
-        vm.warp(proposalTime + 1);
         vm.expectCall(
             address(oracle),
             abi.encodeWithSelector(

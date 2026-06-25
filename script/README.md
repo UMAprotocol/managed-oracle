@@ -297,7 +297,6 @@ The `ManagedOptimisticOracleV2` contract:
 - Allows request managers to set custom bonds, liveness, and proposer whitelists
 - Enforces maximum bonds and minimum liveness set by admins
 - Requires whitelisted requesters and proposers
-- Rejects disputes attempted in the same block as the proposal
 
 ## ManagedOptimisticOracleV2 Upgrade
 
