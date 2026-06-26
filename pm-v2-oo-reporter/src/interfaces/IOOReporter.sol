@@ -53,7 +53,7 @@ enum RerequestTrigger {
 }
 
 enum RerequestType {
-    /// @dev Owner-triggered re-request that consumes the manual re-request budget.
+    /// @dev Oracle-initializer-triggered re-request that consumes the manual re-request budget.
     Manual,
     /// @dev First-dispute automatic re-request that does not consume the manual re-request budget.
     AutomaticDispute,
@@ -172,7 +172,7 @@ interface IOOReporter {
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
-    /// @notice Emitted when a callback opens the owner re-request path.
+    /// @notice Emitted when a callback opens the oracle-initializer re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
@@ -281,7 +281,7 @@ interface IOOReporter {
     /// @param liveness Custom OO liveness period within the registered bounds.
     function initializeRequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
-    /// @notice Allows the owner to create a replacement Managed OO request after a callback opens the gate.
+    /// @notice Allows an enabled oracle initializer to create a replacement Managed OO request after a callback opens the gate.
     /// @param requestId Registered request ID.
     /// @param reward Reward amount for the replacement request.
     /// @param proposalBond Bond required from OO proposers/disputers, or zero to use the OO default.
