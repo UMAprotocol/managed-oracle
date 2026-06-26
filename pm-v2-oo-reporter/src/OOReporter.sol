@@ -293,7 +293,10 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     }
 
     /// @inheritdoc IOOReporter
-    function rerequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external onlyOwner {
+    function rerequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness)
+        external
+        onlyOracleInitializer
+    {
         RequestData storage request = _requireRegistered(requestId);
         if (!request.initialized) revert RequestNotInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
@@ -326,7 +329,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         emit RequestRerequestBudgetSet(requestId, newManualRerequestsRemaining);
     }
 
-    /// @notice Managed OO dispute callback. Auto re-requests once, then opens the owner re-request gate.
+    /// @notice Managed OO dispute callback. Auto re-requests once, then opens the oracle-initializer re-request gate.
     /// @inheritdoc IOptimisticRequester
     function priceDisputed(bytes32 identifier, uint256 timestamp, bytes memory requestRules, uint256)
         external
@@ -476,10 +479,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         uint256 proposalBond,
         uint64 liveness,
         address oracleInitializer
-    )
-        private
-        returns (uint256 previousRequestTimestamp)
-    {
+    ) private returns (uint256 previousRequestTimestamp) {
         previousRequestTimestamp = request.requestTimestamp;
         uint256 requestTimestamp = block.timestamp;
         if (requestTimestamp <= previousRequestTimestamp) {
@@ -493,14 +493,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         request.oracleInitializer = oracleInitializer;
         request.rerequestAllowed = false;
 
-        _requestPrice(
-            request.priceIdentifier,
-            requestTimestamp,
-            request.requestRules,
-            reward,
-            proposalBond,
-            liveness
-        );
+        _requestPrice(request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness);
     }
 
     /// @dev Creates a replacement request without spending manual budget.

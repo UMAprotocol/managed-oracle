@@ -53,7 +53,7 @@ enum RerequestTrigger {
 }
 
 enum RerequestType {
-    /// @dev Owner-triggered re-request that consumes the manual re-request budget.
+    /// @dev Oracle-initializer-triggered re-request that consumes the manual re-request budget.
     Manual,
     /// @dev First-dispute automatic re-request that does not consume the manual re-request budget.
     AutomaticDispute,
@@ -172,7 +172,7 @@ interface IOOReporter {
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
-    /// @notice Emitted when a callback opens the owner re-request path.
+    /// @notice Emitted when a callback opens the oracle-initializer re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
