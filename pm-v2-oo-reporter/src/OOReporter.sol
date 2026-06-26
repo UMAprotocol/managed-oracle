@@ -361,7 +361,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
         if (price == P4_PRICE) {
             // Reporter requests are event-based, so Managed OO rejects proposed P4; P4 here is DVM-resolved.
-            // Refill the manual budget so the owner can continue without intervention if automation is disabled.
+            // Refill the manual budget so an enabled oracle initializer can continue without owner intervention if
+            // automation is disabled.
             uint256 budget = defaultRerequestBudget();
             if (request.manualRerequestsRemaining != budget) {
                 request.manualRerequestsRemaining = budget;
