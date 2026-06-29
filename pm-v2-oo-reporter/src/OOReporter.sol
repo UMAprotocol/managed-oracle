@@ -21,7 +21,8 @@ import {IOptimisticRequester} from "./interfaces/IOptimisticRequester.sol";
 /// @title OOReporter
 /// @notice UMA-owned Managed OO requester and raw outcome source for prediction market request IDs.
 /// @dev Approved requesters register request IDs here. UMA initializes and manages the OO lifecycle,
-///      then this reporter stores the final raw UMA price for market-side translation.
+///      then this reporter stores the final raw UMA price for market-side translation. Enabled requesters
+///      share one owner-managed request namespace and are expected to coordinate on request identity.
 /// @custom:security-contact bugs@umaproject.org
 contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable, IOOReporter, IOptimisticRequester {
     using SafeERC20 for IERC20;
