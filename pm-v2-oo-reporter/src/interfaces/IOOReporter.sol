@@ -30,7 +30,9 @@ struct RequestData {
     bytes requestRules;
     /// @notice Final raw UMA outcome after settlement.
     int256 outcome;
-    /// @notice Remaining manual re-request budget. Seeded from the default at initialization and topped up by the owner.
+    /// @notice Remaining manual re-request budget.
+    /// @dev Seeded from the default at initialization, owner-adjustable, and intentionally refreshed to the default after
+    /// DVM-resolved P4 settlements so UMA-controlled oracle initializers can keep recovery moving.
     uint256 manualRerequestsRemaining;
     /// @notice Minimum liveness UMA is allowed to use for this request.
     uint64 minimumLiveness;
@@ -226,7 +228,7 @@ interface IOOReporter {
     /// @param enabled Whether oracleInitializer should be enabled.
     function setOracleInitializerEnabled(address oracleInitializer, bool enabled) external;
 
-    /// @notice Updates the default replacement-request budget for future initialized requests.
+    /// @notice Updates the default replacement-request budget for future initialized requests and P4 refreshes.
     /// @param newDefaultRerequestBudget New default re-request budget.
     function setDefaultRerequestBudget(uint256 newDefaultRerequestBudget) external;
 
@@ -288,7 +290,9 @@ interface IOOReporter {
     /// @param liveness Custom OO liveness period within the registered bounds.
     function rerequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
-    /// @notice Updates the remaining re-request budget for an initialized unresolved request.
+    /// @notice Updates the remaining manual re-request budget for an initialized unresolved request.
+    /// @dev This operational top-up/adjustment knob does not permanently cap P4 recovery. A DVM-resolved P4 settlement
+    /// refreshes the request's manual budget to the current default before automatic or manual recovery continues.
     /// @param requestId Registered request ID.
     /// @param newManualRerequestsRemaining New remaining manual re-request budget, capped by the current default.
     function setRequestRerequestBudget(bytes32 requestId, uint256 newManualRerequestsRemaining) external;
