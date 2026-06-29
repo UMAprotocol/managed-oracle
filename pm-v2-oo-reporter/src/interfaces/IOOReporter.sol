@@ -255,9 +255,10 @@ interface IOOReporter {
     /// @notice Registers a requester-defined request ID and its UMA request identity before OO initialization.
     /// @dev The reporter reserves each price identifier and request rules pair globally across approved requesters.
     /// Enabled requesters share one owner-managed request namespace; the contract does not isolate identical UMA
-    /// request identities per requester. Independent integrations that need overlapping UMA request identities should
-    /// use separate reporter deployments or explicitly domain-separate request rules. Requesters should preserve an
-    /// admin recovery path for rules or liveness ranges that become unusable before initialization.
+    /// request identities per requester. Independent integrations that need the exact same UMA request identity should
+    /// use separate reporter deployments; integrations with similar rules can domain-separate request rules so their
+    /// UMA request identities differ. Requesters should preserve an admin recovery path for rules or liveness ranges
+    /// that become unusable before initialization.
     /// @param requestId Requester-defined request ID to bind to the UMA request identity.
     /// @param priceIdentifier UMA price identifier to request.
     /// @param requestRules Raw UMA request rules supplied by the requester.

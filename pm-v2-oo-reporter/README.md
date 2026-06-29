@@ -34,8 +34,8 @@ per requester.
 
 The reporter reserves each `(priceIdentifier, requestRules)` tuple globally across enabled requesters in the
 deployment. This prevents two request IDs from pointing at the same UMA request identity. Independent integrations that
-need overlapping UMA request identities should use separate reporter deployments or explicitly domain-separate request
-rules.
+need the exact same UMA request identity should use separate reporter deployments; integrations with similar rules can
+domain-separate request rules so their UMA request identities differ.
 
 ## Responsibilities
 
