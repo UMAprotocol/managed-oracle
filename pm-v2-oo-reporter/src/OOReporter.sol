@@ -506,9 +506,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         _emitRequestRerequested(requestId, request, previousRequestTimestamp, address(this), rerequestType);
     }
 
-    /// @dev Prechecks expected local automatic re-request blockers so callbacks can open the manual path without
-    /// reverting. Unexpected oracle, token, or config failures inside `_requestPrice` still revert instead of being
-    /// hidden behind a manual fallback.
+    /// @dev Handles expected local blockers only. Managed OO config failures still revert; reporter deprecation should
+    /// disable automation before de-whitelisting.
     function _canExecuteAutomaticRerequest(RequestData storage request) private view returns (bool) {
         if (!automaticRerequestsEnabled()) return false;
         if (block.timestamp <= request.requestTimestamp) return false;
