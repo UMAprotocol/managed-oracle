@@ -71,6 +71,17 @@ Lifecycle events that refer to a specific Managed OO request consistently lead w
 the active OO `requestTimestamp` before actor or outcome fields. This keeps initialization, re-request,
 re-request-gate, rules-update, and resolution logs easy to correlate after a request has been replaced.
 
+## Trusted Resolver Dependency
+
+`OOReporter` stores final outcomes only after Managed OO settles the active request and calls `priceSettled(...)`.
+Managed OO settlement is intentionally performed by trusted UMA resolver bots rather than permissionless callers. This
+lets UMA use short liveness for routine proposals while resolver infrastructure can escalate uncertain requests to
+human review before settlement.
+
+If no trusted resolver settles the active request, `isRequestResolved(requestId)` remains false and
+`getRequestResolution(requestId)` reverts. Downstream integrations should monitor this resolver dependency and keep any
+timeout or administrative recovery path in the market-side module that translates raw UMA outcomes and finalizes markets.
+
 ## Rules Updates
 
 Only the requester that registered a `requestId` can update rules for that request. Rules updates are stored as:

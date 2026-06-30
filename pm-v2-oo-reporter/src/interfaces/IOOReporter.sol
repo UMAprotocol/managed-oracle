@@ -293,12 +293,12 @@ interface IOOReporter {
     /// @param newManualRerequestsRemaining New remaining manual re-request budget, capped by the current default.
     function setRequestRerequestBudget(bytes32 requestId, uint256 newManualRerequestsRemaining) external;
 
-    /// @notice Returns whether a final reporter outcome is available for requestId.
+    /// @notice Returns whether Managed OO settlement has produced a final reporter outcome for requestId.
     /// @param requestId Registered request ID.
     /// @return True if the reporter has stored a final outcome.
     function isRequestResolved(bytes32 requestId) external view returns (bool);
 
-    /// @notice Returns the final raw UMA outcome for requestId.
+    /// @notice Returns the final raw UMA outcome for requestId after trusted resolver settlement.
     /// @param requestId Registered request ID.
     /// @return Final raw UMA outcome.
     function getRequestResolution(bytes32 requestId) external view returns (int256);
