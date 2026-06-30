@@ -162,6 +162,9 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.addResolver(resolver);
     }
 
+    // Read current time via moo.getCurrentTime() rather than block.timestamp to protect from via-ir reorderings (that
+    // will break the tests).
+
     function _makeRequest(address _requester, uint256 _timestamp, uint256 reward)
         internal
         returns (uint256 totalBond)
@@ -214,8 +217,9 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(list.length, 2);
 
         // requester whitelist enforced
+        uint256 nowTs = moo.getCurrentTime();
         vm.expectRevert(ManagedOptimisticOracleV2Interface.RequesterNotWhitelisted.selector);
-        moo.requestPrice(IDENTIFIER, block.timestamp, ANCILLARY, IERC20(address(currency)), 0);
+        moo.requestPrice(IDENTIFIER, nowTs, ANCILLARY, IERC20(address(currency)), 0);
 
         // role admin configuration
         bytes32 CONFIG_ADMIN_ROLE = moo.CONFIG_ADMIN_ROLE();
@@ -364,11 +368,12 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function testRequesterWhitelistEnforcedOnRequestPrice() external {
         // Non-whitelisted requester -> revert
+        uint256 nowTs = moo.getCurrentTime();
         vm.expectRevert(ManagedOptimisticOracleV2Interface.RequesterNotWhitelisted.selector);
-        moo.requestPrice(IDENTIFIER, block.timestamp, ANCILLARY, IERC20(address(currency)), 0);
+        moo.requestPrice(IDENTIFIER, nowTs, ANCILLARY, IERC20(address(currency)), 0);
 
         // Whitelisted requester -> ok
-        uint256 totalBond = _makeRequest(requester, block.timestamp, 0);
+        uint256 totalBond = _makeRequest(requester, moo.getCurrentTime(), 0);
         // finalFee is 10 ether; initial bond = finalFee*2 per base contract
         assertEq(totalBond, 20 ether);
     }
@@ -403,7 +408,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     // -------------------- Propose Access Control --------------------
 
     function testProposePriceForChecksDefaultWhitelist() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         // Valid proposer and sender in default whitelist
@@ -412,7 +417,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         // Invalid proposer: create a new request for t+1 and use non-whitelisted proposer
         vm.warp(t + 1);
-        _makeRequest(requester, block.timestamp, 0);
+        _makeRequest(requester, moo.getCurrentTime(), 0);
         _prepareFunds(sender);
         vm.expectRevert(ManagedOptimisticOracleV2Interface.ProposerNotWhitelisted.selector);
         vm.prank(sender);
@@ -420,7 +425,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         // Invalid sender
         vm.warp(t + 2);
-        _makeRequest(requester, block.timestamp, 0);
+        _makeRequest(requester, moo.getCurrentTime(), 0);
         _prepareFunds(otherSender);
         vm.expectRevert(ManagedOptimisticOracleV2Interface.SenderNotWhitelisted.selector);
         vm.prank(otherSender);
@@ -428,7 +433,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function testProposePriceForWithCustomDisabledWhitelist() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         // Set disabled custom whitelist for this request
@@ -445,7 +450,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     // -------------------- Settle Flow Tests -------------------------
 
     function testNonResolverCannotSettle() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         _proposeFor(sender, proposer, requester, t, 42);
@@ -463,7 +468,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function testResolverCannotSettleBeforeExpiration() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         _proposeFor(sender, proposer, requester, t, 42);
@@ -477,7 +482,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function testResolverCanSettleAfterExpiration() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         int256 price = 42;
         _makeRequest(requester, t, 0);
 
@@ -497,7 +502,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function testNoExpiredState() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         _proposeFor(sender, proposer, requester, t, 42);
@@ -574,7 +579,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function testCustomBondAppliedOnPropose() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         // Set custom bond of 5 ether
@@ -652,7 +657,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.setDefaultLiveness(newDefaultLiveness);
 
         // Create a request without custom liveness
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         // Propose and check that new default liveness is applied
@@ -660,7 +665,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         _proposeFor(sender, proposer, requester, t, 123);
 
         OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
-        assertEq(req.expirationTime, block.timestamp + newDefaultLiveness);
+        assertEq(req.expirationTime, moo.getCurrentTime() + newDefaultLiveness);
     }
 
     function testSetDefaultLivenessRequiresLoweringMinimumDisputeWindowFirst() external {
@@ -684,7 +689,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function testRequestManagerSetCustomLivenessValidationAndEffect() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         // Below minimum -> revert
@@ -708,11 +713,11 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.warp(t + 10);
         _proposeFor(sender, proposer, requester, t, 123);
         OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
-        assertEq(req.expirationTime, block.timestamp + 3 hours);
+        assertEq(req.expirationTime, moo.getCurrentTime() + 3 hours);
     }
 
     function testRequesterSetCustomLivenessValidation() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         // Below minimum -> revert
@@ -733,7 +738,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.warp(t + 10);
         _proposeFor(sender, proposer, requester, t, 123);
         OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
-        assertEq(req.expirationTime, block.timestamp + MINIMUM_DISPUTE_WINDOW);
+        assertEq(req.expirationTime, moo.getCurrentTime() + MINIMUM_DISPUTE_WINDOW);
     }
 
     // -------------------- Utility --------------------
@@ -758,7 +763,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.prank(requester);
         moo.updateRequestRules(IDENTIFIER, ANCILLARY, firstRules);
 
-        vm.warp(block.timestamp + 10);
+        vm.warp(moo.getCurrentTime() + 10);
         vm.prank(requester);
         moo.updateRequestRules(IDENTIFIER, ANCILLARY, secondRules);
 
@@ -770,7 +775,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         ManagedOptimisticOracleV2.RequestRulesUpdate memory latest =
             moo.getLatestRequestRulesUpdate(requester, IDENTIFIER, ANCILLARY);
-        assertEq(latest.timestamp, block.timestamp);
+        assertEq(latest.timestamp, moo.getCurrentTime());
         assertEq(latest.updatedRules, secondRules);
     }
 
@@ -930,7 +935,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function testResetCustomProposerWhitelistToDefault() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
         // Disable whitelist per-request
@@ -992,7 +997,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     }
 
     function testOracleRequestTimeEventBasedDispute() external {
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
         vm.prank(requester);
         moo.setEventBased(IDENTIFIER, t, ANCILLARY);
@@ -1014,7 +1019,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
     function testMulticallPreservesCustomErrors() external {
         // Test that multicall properly bubbles custom errors instead of corrupting them
-        uint256 t = block.timestamp;
+        uint256 t = moo.getCurrentTime();
 
         // Create a multicall that should revert with RequesterNotWhitelisted()
         bytes[] memory calls = new bytes[](1);

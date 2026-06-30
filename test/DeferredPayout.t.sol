@@ -145,8 +145,10 @@ contract DeferredPayoutTest is Test {
         vm.stopPrank();
     }
 
+    // Read current time via oo.getCurrentTime() rather than block.timestamp to protect from via-ir reorderings (that
+    // will break the tests).
     function _makeRequest(IERC20 currency) internal returns (uint256 timestamp) {
-        timestamp = block.timestamp;
+        timestamp = oo.getCurrentTime();
         vm.prank(requester);
         oo.requestPrice(IDENTIFIER, timestamp, ANCILLARY_DATA, currency, REWARD);
     }
@@ -171,7 +173,7 @@ contract DeferredPayoutTest is Test {
         blacklistToken.setBlacklisted(proposer, true);
 
         // Fast forward to expiration
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
 
         // Settlement should succeed but payout should be accrued
         uint256 proposerBalanceBefore = blacklistToken.balanceOf(proposer);
@@ -228,7 +230,7 @@ contract DeferredPayoutTest is Test {
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
@@ -260,7 +262,7 @@ contract DeferredPayoutTest is Test {
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
@@ -294,7 +296,7 @@ contract DeferredPayoutTest is Test {
         revertingReasonToken.setBlacklisted(proposer, true);
 
         // Fast forward to expiration
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
 
         // Settlement should succeed but payout should be accrued
         uint256 expectedPayout = TOTAL_BOND + REWARD;
@@ -312,7 +314,7 @@ contract DeferredPayoutTest is Test {
 
         // Blacklist proposer and settle
         revertingReasonToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
@@ -343,7 +345,7 @@ contract DeferredPayoutTest is Test {
         revertingToken.setBlacklisted(proposer, true);
 
         // Fast forward to expiration
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
 
         // Settlement should succeed but payout should be accrued
         uint256 expectedPayout = TOTAL_BOND + REWARD;
@@ -361,7 +363,7 @@ contract DeferredPayoutTest is Test {
 
         // Blacklist proposer and settle
         revertingToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
@@ -389,14 +391,14 @@ contract DeferredPayoutTest is Test {
         uint256 timestamp1 = _makeRequest(blacklistToken);
         _proposePrice(timestamp1, 100);
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp1, ANCILLARY_DATA);
 
         // Test with reverting token
         uint256 timestamp2 = _makeRequest(revertingReasonToken);
         _proposePrice(timestamp2, 200);
         revertingReasonToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp2, ANCILLARY_DATA);
 
         // Check both deferred payouts
@@ -423,7 +425,7 @@ contract DeferredPayoutTest is Test {
         uint256 timestamp1 = _makeRequest(blacklistToken);
         _proposePrice(timestamp1, 100);
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp1, ANCILLARY_DATA);
 
         // Second request - disputer gets blacklisted
@@ -467,7 +469,7 @@ contract DeferredPayoutTest is Test {
         _proposePrice(timestamp, 100);
 
         // Fast forward to expiration
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
 
         // Settlement should succeed and payout should go directly to proposer
         uint256 proposerBalanceBefore = blacklistToken.balanceOf(proposer);
@@ -547,7 +549,7 @@ contract DeferredPayoutTest is Test {
         _proposePrice(timestamp, 100);
 
         // Fast forward to expiration
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
 
         // Settlement should succeed and payout should go directly to proposer
         uint256 proposerBalanceBefore = revertingReasonToken.balanceOf(proposer);
@@ -569,7 +571,7 @@ contract DeferredPayoutTest is Test {
         _proposePrice(timestamp, 100);
 
         // Fast forward to expiration
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
 
         // Settlement should succeed and payout should go directly to proposer
         uint256 proposerBalanceBefore = revertingToken.balanceOf(proposer);
@@ -597,7 +599,7 @@ contract DeferredPayoutTest is Test {
         _proposePrice(timestamp, 100);
 
         // Fast forward to expiration
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
 
         // Settlement should succeed and payout should go directly to proposer
         uint256 proposerBalanceBefore = blacklistToken.balanceOf(proposer);
@@ -638,7 +640,7 @@ contract DeferredPayoutTest is Test {
         uint256 timestamp = _makeRequest(blacklistToken);
         _proposePrice(timestamp, 100);
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         // Try to claim payout with zero address as repayment address
@@ -652,7 +654,7 @@ contract DeferredPayoutTest is Test {
         uint256 timestamp1 = _makeRequest(blacklistToken);
         _proposePrice(timestamp1, 100);
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         vm.prank(requester);
         oo.settle(requester, IDENTIFIER, timestamp1, ANCILLARY_DATA);
 
@@ -667,7 +669,7 @@ contract DeferredPayoutTest is Test {
         _proposePrice(timestamp2, 200);
         // Blacklist proposer again before settlement
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp2, ANCILLARY_DATA);
 
         uint256 secondAccrued = oo.deferredPayouts(blacklistToken, proposer);
@@ -687,7 +689,7 @@ contract DeferredPayoutTest is Test {
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
 
         // Expect the PayoutDeferred event
         uint256 expectedPayout = TOTAL_BOND + REWARD;
@@ -702,7 +704,7 @@ contract DeferredPayoutTest is Test {
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 accruedAmount = oo.deferredPayouts(blacklistToken, proposer);
@@ -730,7 +732,7 @@ contract DeferredPayoutTest is Test {
         blacklistToken.setBlacklisted(proposer, true);
 
         // 3. Settle (should accrue payout)
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         uint256 expectedPayout = TOTAL_BOND + REWARD;
@@ -764,7 +766,7 @@ contract DeferredPayoutTest is Test {
 
         // Blacklist proposer and settle
         blacklistToken.setBlacklisted(proposer, true);
-        vm.warp(block.timestamp + LIVENESS + 1);
+        vm.warp(oo.getCurrentTime() + LIVENESS + 1);
         oo.settle(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
 
         // Check deferred payout includes custom bond + final fee + reward
