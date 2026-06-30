@@ -38,13 +38,6 @@ struct RequestData {
     uint64 maximumLiveness;
 }
 
-struct RequestRulesUpdate {
-    /// @notice Block timestamp when the rules update was posted.
-    uint256 timestamp;
-    /// @notice Updated prediction market request rules.
-    bytes updatedRules;
-}
-
 enum RerequestTrigger {
     /// @dev Managed OO dispute callback opened the re-request gate.
     Dispute,
@@ -125,8 +118,6 @@ interface IOOReporter {
     error RequestLivenessOutOfRange(uint64 liveness, uint64 minimumLiveness, uint64 maximumLiveness);
     /// @notice Thrown when a final reporter outcome is requested before one is available.
     error RequestResolutionUnavailable();
-    /// @notice Thrown when the latest rules update is requested before any update is posted.
-    error RequestRulesUpdateUnavailable();
     /// @notice Thrown when Managed OO has no deferred reward payout for the reporter.
     error DeferredPayoutUnavailable(address rewardCurrency);
     /// @notice Thrown when the reporter cannot fund a requested reward amount.
@@ -269,7 +260,8 @@ interface IOOReporter {
         uint64 maximumLiveness
     ) external;
 
-    /// @notice Posts updated request rules for offchain consumers without changing the active OO tuple.
+    /// @notice Forwards updated request rules to the Managed OO, which records them against the active OO request.
+    /// @dev Does not change the active OO request tuple; the Managed OO stores the update history and emits its own event.
     /// @param requestId Registered request ID.
     /// @param updatedRules Updated prediction market request rules.
     function updateRequestRules(bytes32 requestId, bytes calldata updatedRules) external;
@@ -313,34 +305,6 @@ interface IOOReporter {
     /// @param requestRules Raw UMA request rules.
     /// @return requestId Registered request ID.
     function getRequestId(bytes32 priceIdentifier, bytes calldata requestRules) external view returns (bytes32);
-
-    /// @notice Returns all request-rules updates posted for requestId.
-    /// @param requestId Registered request ID.
-    /// @return Request-rules update history.
-    function getRequestRulesUpdates(bytes32 requestId) external view returns (RequestRulesUpdate[] memory);
-
-    /// @notice Returns the latest request-rules update posted for requestId.
-    /// @param requestId Registered request ID.
-    /// @return Latest request-rules update.
-    function getLatestRequestRulesUpdate(bytes32 requestId) external view returns (RequestRulesUpdate memory);
-
-    /// @notice Returns all request-rules updates posted for a UMA request identity.
-    /// @param priceIdentifier UMA price identifier.
-    /// @param requestRules Raw UMA request rules.
-    /// @return Request-rules update history.
-    function getRequestRulesUpdates(bytes32 priceIdentifier, bytes calldata requestRules)
-        external
-        view
-        returns (RequestRulesUpdate[] memory);
-
-    /// @notice Returns the latest request-rules update posted for a UMA request identity.
-    /// @param priceIdentifier UMA price identifier.
-    /// @param requestRules Raw UMA request rules.
-    /// @return Latest request-rules update.
-    function getLatestRequestRulesUpdate(bytes32 priceIdentifier, bytes calldata requestRules)
-        external
-        view
-        returns (RequestRulesUpdate memory);
 
     /// @notice Claims a Managed OO deferred reward payout owed to this reporter.
     /// @param repaymentAddress Address to receive the claimed payout.

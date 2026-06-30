@@ -34,7 +34,7 @@ function getRequestResolution(bytes32 requestId) external view returns (int256);
 - UMA oracle initializer allowlisting;
 - Managed OO request creation;
 - reward, bond, request-specific liveness bounds, automatic re-request controls, and manual re-request budget controls;
-- request rules update history for active requests;
+- forwarding request rules updates to the Managed OO for active requests;
 - raw UMA settlement storage.
 
 The prediction market integration owns:
@@ -73,18 +73,9 @@ re-request-gate, rules-update, and resolution logs easy to correlate after a req
 
 ## Rules Updates
 
-Only the requester that registered a `requestId` can update rules for that request. Rules updates are stored as:
+Only the requester that registered a `requestId` can update rules for that request. The reporter does not store update history itself; it forwards the update to the Managed OO via `updateRequestRules(priceIdentifier, requestRules, updatedRules)`, which records the history (keyed by its managed request id) and emits its own `RequestRulesUpdated` event. The reporter additionally emits a `RequestRulesUpdated` event carrying the requester-facing `requestId` and updater address for self-contained logs.
 
-```solidity
-struct RequestRulesUpdate {
-    uint256 timestamp;
-    bytes updatedRules;
-}
-```
-
-The rules update event includes the updater address for self-contained logs. Stored attribution is derivable from `getRequest(requestId).requester`.
-
-Rules updates are rejected after the request has resolved.
+Updates can be forwarded both before and after the request is initialized. Rules updates are rejected after the request has resolved.
 
 ## Foundry Dependency Import
 

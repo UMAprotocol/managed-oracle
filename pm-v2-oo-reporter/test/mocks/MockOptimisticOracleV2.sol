@@ -21,7 +21,13 @@ contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
         int256 price;
     }
 
+    struct ForwardedRulesUpdate {
+        uint256 timestamp;
+        bytes updatedRules;
+    }
+
     mapping(bytes32 requestKey => MockRequest request) public requests;
+    mapping(bytes32 rulesKey => ForwardedRulesUpdate[] updates) public forwardedRulesUpdates;
     mapping(IERC20 currency => mapping(address deferredRecipient => uint256 amount)) public deferredPayouts;
     uint256 public minimumDisputeWindow = 5 minutes;
     bool public deferNextDisputeRefund;
@@ -125,6 +131,23 @@ contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
         require(customLiveness < 5200 weeks, "liveness too long");
 
         requests[requestKey(msg.sender, identifier, timestamp, requestRules)].customLiveness = customLiveness;
+    }
+
+    function updateRequestRules(bytes32 identifier, bytes memory requestRules, bytes memory updatedRules) external {
+        bytes32 key = rulesKey(msg.sender, identifier, requestRules);
+        forwardedRulesUpdates[key].push(ForwardedRulesUpdate({timestamp: block.timestamp, updatedRules: updatedRules}));
+    }
+
+    function rulesKey(address requester, bytes32 identifier, bytes memory requestRules) public pure returns (bytes32) {
+        return keccak256(abi.encode(requester, identifier, requestRules));
+    }
+
+    function getForwardedRulesUpdates(address requester, bytes32 identifier, bytes memory requestRules)
+        external
+        view
+        returns (ForwardedRulesUpdate[] memory)
+    {
+        return forwardedRulesUpdates[rulesKey(requester, identifier, requestRules)];
     }
 
     function disputePrice(address requester, bytes32 identifier, uint256 timestamp, bytes memory requestRules)

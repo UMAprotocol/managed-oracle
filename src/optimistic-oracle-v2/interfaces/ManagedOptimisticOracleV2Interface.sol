@@ -33,6 +33,8 @@ abstract contract ManagedOptimisticOracleV2Interface {
     error MinimumDisputeWindowTooSmall();
     /// @notice Thrown in settleAndGetPrice if the request has not been settled by resolver.
     error RequestNotSettled();
+    /// @notice Thrown when the latest request rules update is requested before any update is posted.
+    error RequestRulesUpdateUnavailable();
 
     event AllowedBondRangeUpdated(IERC20 indexed currency, uint256 newMinimumBond, uint256 newMaximumBond);
     event DefaultLivenessUpdated(uint256 newDefaultLiveness);
@@ -60,5 +62,12 @@ abstract contract ManagedOptimisticOracleV2Interface {
         bytes32 indexed identifier,
         bytes ancillaryData,
         address indexed newWhitelist
+    );
+    event RequestRulesUpdated(
+        bytes32 indexed managedRequestId,
+        address requester,
+        bytes32 indexed identifier,
+        bytes ancillaryData,
+        bytes updatedRules
     );
 }

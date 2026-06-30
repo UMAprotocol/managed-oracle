@@ -109,6 +109,13 @@ interface IOptimisticOracleV2 {
         bool callbackOnPriceSettled
     ) external;
 
+    /// @notice Records a request rules update against the request identified by the caller, identifier, and rules.
+    /// @dev Keyed without a timestamp, so it applies before initialization and across re-requests.
+    /// @param identifier Price identifier to identify the existing request.
+    /// @param requestRules Request rules of the price being requested.
+    /// @param updatedRules Updated request rules to record for the request.
+    function updateRequestRules(bytes32 identifier, bytes memory requestRules, bytes memory updatedRules) external;
+
     /// @notice Gets current request data for an OO request tuple.
     /// @param requester Sender of the initial price request.
     /// @param identifier Price identifier to identify the existing request.

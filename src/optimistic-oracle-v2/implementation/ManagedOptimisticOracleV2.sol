@@ -37,6 +37,11 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
         bool isSet;
     }
 
+    struct RequestRulesUpdate {
+        uint256 timestamp;
+        bytes updatedRules;
+    }
+
     // Config admin role is used to manage request managers and set other default parameters.
     bytes32 public constant CONFIG_ADMIN_ROLE = keccak256("CONFIG_ADMIN_ROLE");
 
@@ -72,6 +77,9 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     // Admin controlled minimum dispute window, enforced in early resolutions and setting custom liveness.
     /// @custom:oz-renamed-from minimumLiveness
     uint256 public minimumDisputeWindow;
+
+    // Request rules update history posted by requesters for specific requests.
+    mapping(bytes32 managedRequestId => RequestRulesUpdate[] updates) public requestRulesUpdates;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -338,6 +346,27 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Posts updated request rules for a request made by the caller.
+     * @dev Records the update against the caller's managed request id, so it can be posted before the request exists
+     * (pre-configuration) or after, and a single history applies across re-requests that reuse the same ancillary
+     * data. Restricted to whitelisted requesters to prevent unbounded storage growth from arbitrary callers.
+     * @param identifier price identifier to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @param updatedRules updated request rules to record for the request.
+     */
+    function updateRequestRules(bytes32 identifier, bytes memory ancillaryData, bytes memory updatedRules)
+        external
+        nonReentrant
+    {
+        require(requesterWhitelist.isOnWhitelist(msg.sender), RequesterNotWhitelisted());
+        bytes32 managedRequestId = getManagedRequestId(msg.sender, identifier, ancillaryData);
+        requestRulesUpdates[managedRequestId].push(
+            RequestRulesUpdate({timestamp: block.timestamp, updatedRules: updatedRules})
+        );
+        emit RequestRulesUpdated(managedRequestId, msg.sender, identifier, ancillaryData, updatedRules);
+    }
+
+    /**
      * @notice Proposes a price value on another address' behalf. Note: this address will receive any rewards that come
      * from this proposal. However, any bonds are pulled from the caller.
      * @dev Applies any pre-configured Request Manager settings (bond, liveness, whitelist) before calling parent
@@ -476,6 +505,43 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Returns all request rules updates posted for a request.
+     * @param requester sender of the initial price request.
+     * @param identifier price identifier to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return the full request rules update history.
+     */
+    function getRequestRulesUpdates(address requester, bytes32 identifier, bytes memory ancillaryData)
+        external
+        view
+        nonReentrantView
+        returns (RequestRulesUpdate[] memory)
+    {
+        return requestRulesUpdates[getManagedRequestId(requester, identifier, ancillaryData)];
+    }
+
+    /**
+     * @notice Returns the latest request rules update posted for a request.
+     * @dev Reverts if no update has been posted for the request.
+     * @param requester sender of the initial price request.
+     * @param identifier price identifier to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return the latest request rules update.
+     */
+    function getLatestRequestRulesUpdate(address requester, bytes32 identifier, bytes memory ancillaryData)
+        external
+        view
+        nonReentrantView
+        returns (RequestRulesUpdate memory)
+    {
+        RequestRulesUpdate[] storage updates =
+            requestRulesUpdates[getManagedRequestId(requester, identifier, ancillaryData)];
+        uint256 updateCount = updates.length;
+        require(updateCount != 0, RequestRulesUpdateUnavailable());
+        return updates[updateCount - 1];
+    }
+
+    /**
      * @notice Sets the bounds for a bond that can be set for a request.
      * @dev This can be used to limit the bond amount that can be set by request managers. Setting the minimum and
      * maximum both to 0 effectively blocks the request manager from overriding the bond for a given currency.
@@ -609,5 +675,5 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
      * bottom of contract to make sure its always at the end of storage.
      * See https://docs.openzeppelin.com/upgrades-plugins/writing-upgradeable#storage-gaps
      */
-    uint256[993] private __gap;
+    uint256[992] private __gap;
 }

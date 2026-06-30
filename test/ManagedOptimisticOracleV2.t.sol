@@ -744,6 +744,58 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(id1, id2);
     }
 
+    // -------------------- Request Rules Updates --------------------
+
+    function testUpdateRequestRulesStoresAndEmits() external {
+        bytes memory firstRules = bytes("first rules update");
+        bytes memory secondRules = bytes("second rules update");
+        bytes32 managedId = moo.getManagedRequestId(requester, IDENTIFIER, ANCILLARY);
+
+        vm.expectEmit(true, true, false, true);
+        emit ManagedOptimisticOracleV2Interface.RequestRulesUpdated(
+            managedId, requester, IDENTIFIER, ANCILLARY, firstRules
+        );
+        vm.prank(requester);
+        moo.updateRequestRules(IDENTIFIER, ANCILLARY, firstRules);
+
+        vm.warp(block.timestamp + 10);
+        vm.prank(requester);
+        moo.updateRequestRules(IDENTIFIER, ANCILLARY, secondRules);
+
+        ManagedOptimisticOracleV2.RequestRulesUpdate[] memory updates =
+            moo.getRequestRulesUpdates(requester, IDENTIFIER, ANCILLARY);
+        assertEq(updates.length, 2);
+        assertEq(updates[0].updatedRules, firstRules);
+        assertEq(updates[1].updatedRules, secondRules);
+
+        ManagedOptimisticOracleV2.RequestRulesUpdate memory latest =
+            moo.getLatestRequestRulesUpdate(requester, IDENTIFIER, ANCILLARY);
+        assertEq(latest.timestamp, block.timestamp);
+        assertEq(latest.updatedRules, secondRules);
+    }
+
+    function testUpdateRequestRulesAllowedBeforeRequestExists() external {
+        // No requestPrice has been made yet; like other manager settings, updates may be pre-configured.
+        bytes memory rules = bytes("pre-config rules");
+        vm.prank(requester);
+        moo.updateRequestRules(IDENTIFIER, ANCILLARY, rules);
+
+        ManagedOptimisticOracleV2.RequestRulesUpdate memory latest =
+            moo.getLatestRequestRulesUpdate(requester, IDENTIFIER, ANCILLARY);
+        assertEq(latest.updatedRules, rules);
+    }
+
+    function testUpdateRequestRulesOnlyWhitelistedRequester() external {
+        vm.prank(nonRequester);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.RequesterNotWhitelisted.selector);
+        moo.updateRequestRules(IDENTIFIER, ANCILLARY, bytes("rules"));
+    }
+
+    function testGetLatestRequestRulesUpdateRevertsWhenEmpty() external {
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.RequestRulesUpdateUnavailable.selector);
+        moo.getLatestRequestRulesUpdate(requester, IDENTIFIER, ANCILLARY);
+    }
+
     // -------------------- Ownership / Control Relationships --------------------
 
     function testRolesAndOwnershipRelations() external view {
