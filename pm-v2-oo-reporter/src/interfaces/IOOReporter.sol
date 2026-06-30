@@ -298,7 +298,7 @@ interface IOOReporter {
     /// @return True if the reporter has stored a final outcome.
     function isRequestResolved(bytes32 requestId) external view returns (bool);
 
-    /// @notice Returns the final raw UMA outcome for requestId after trusted resolver settlement.
+    /// @notice Returns the final raw UMA outcome for requestId after non-P4 trusted resolver settlement.
     /// @param requestId Registered request ID.
     /// @return Final raw UMA outcome.
     function getRequestResolution(bytes32 requestId) external view returns (int256);

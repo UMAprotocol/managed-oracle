@@ -73,7 +73,8 @@ re-request-gate, rules-update, and resolution logs easy to correlate after a req
 
 ## Trusted Resolver Dependency
 
-`OOReporter` stores final outcomes only after Managed OO settles the active request and calls `priceSettled(...)`.
+`OOReporter` stores final outcomes only after Managed OO settles the active request and calls `priceSettled(...)` with a
+non-P4 price. A P4 settlement re-requests instead of finalizing.
 Managed OO settlement is intentionally performed by trusted UMA resolver bots rather than permissionless callers. This
 lets UMA use short liveness for routine proposals while resolver infrastructure can escalate uncertain requests to
 human review before settlement.
