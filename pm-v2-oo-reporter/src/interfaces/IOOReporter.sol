@@ -270,6 +270,9 @@ interface IOOReporter {
     ) external;
 
     /// @notice Posts updated request rules for offchain consumers without changing the active OO tuple.
+    /// @dev Updates are append-only history keyed by requestId. They do not replace the original request rules
+    /// registered for the request, and they do not create or reserve a `(priceIdentifier, updatedRules)` lookup alias.
+    /// Consumers should treat requestId as the stable identity for reading update history.
     /// @param requestId Registered request ID.
     /// @param updatedRules Updated prediction market request rules.
     function updateRequestRules(bytes32 requestId, bytes calldata updatedRules) external;
@@ -309,8 +312,10 @@ interface IOOReporter {
     function getRequest(bytes32 requestId) external view returns (RequestData memory);
 
     /// @notice Returns the request ID registered for a UMA request identity.
+    /// @dev `requestRules` must be the original rules supplied to registerRequest. Rules posted through
+    /// updateRequestRules are informational history and are not valid replacement lookup keys.
     /// @param priceIdentifier UMA price identifier.
-    /// @param requestRules Raw UMA request rules.
+    /// @param requestRules Original raw UMA request rules registered for the request.
     /// @return requestId Registered request ID.
     function getRequestId(bytes32 priceIdentifier, bytes calldata requestRules) external view returns (bytes32);
 
@@ -325,8 +330,10 @@ interface IOOReporter {
     function getLatestRequestRulesUpdate(bytes32 requestId) external view returns (RequestRulesUpdate memory);
 
     /// @notice Returns all request-rules updates posted for a UMA request identity.
+    /// @dev `requestRules` must be the original rules supplied to registerRequest, not a value previously posted
+    /// through updateRequestRules. Prefer the requestId overload when the stable external request ID is already known.
     /// @param priceIdentifier UMA price identifier.
-    /// @param requestRules Raw UMA request rules.
+    /// @param requestRules Original raw UMA request rules registered for the request.
     /// @return Request-rules update history.
     function getRequestRulesUpdates(bytes32 priceIdentifier, bytes calldata requestRules)
         external
@@ -334,8 +341,10 @@ interface IOOReporter {
         returns (RequestRulesUpdate[] memory);
 
     /// @notice Returns the latest request-rules update posted for a UMA request identity.
+    /// @dev `requestRules` must be the original rules supplied to registerRequest, not a value previously posted
+    /// through updateRequestRules. Prefer the requestId overload when the stable external request ID is already known.
     /// @param priceIdentifier UMA price identifier.
-    /// @param requestRules Raw UMA request rules.
+    /// @param requestRules Original raw UMA request rules registered for the request.
     /// @return Latest request-rules update.
     function getLatestRequestRulesUpdate(bytes32 priceIdentifier, bytes calldata requestRules)
         external
