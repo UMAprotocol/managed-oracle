@@ -6,9 +6,11 @@ struct RequestData {
     uint256 requestTimestamp;
     /// @notice Reward amount used for the active Managed OO request.
     uint256 reward;
-    /// @notice Proposal bond used for the active Managed OO request.
+    /// @notice Proposal bond requested by the reporter for the active Managed OO request.
+    /// @dev The effective proposal bond can differ if Managed OO request-manager preconfigs apply at proposal time.
     uint256 proposalBond;
-    /// @notice Custom liveness used for the active Managed OO request.
+    /// @notice Custom liveness requested by the reporter for the active Managed OO request.
+    /// @dev The effective proposal liveness can differ if Managed OO request-manager preconfigs apply at proposal time.
     uint64 liveness;
     /// @notice Whether an approved requester has registered this request.
     bool registered;
@@ -154,6 +156,8 @@ interface IOOReporter {
         uint64 maximumLiveness
     );
     /// @notice Emitted when an approved oracle initializer creates the first Managed OO request.
+    /// @dev proposalBond and liveness are reporter-requested parameters. Effective proposal-time values can differ
+    /// if Managed OO request-manager preconfigs apply.
     event RequestInitialized(
         bytes32 indexed requestId,
         uint256 indexed requestTimestamp,
@@ -177,6 +181,8 @@ interface IOOReporter {
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
     /// @notice Emitted when the reporter creates a replacement Managed OO request.
+    /// @dev proposalBond and liveness are reporter-requested parameters. Effective proposal-time values can differ
+    /// if Managed OO request-manager preconfigs apply.
     event RequestRerequested(
         bytes32 indexed requestId,
         uint256 indexed requestTimestamp,
@@ -280,15 +286,19 @@ interface IOOReporter {
     /// @notice Creates the Managed OO request for a registered request.
     /// @param requestId Registered request ID.
     /// @param reward Reward offered to a successful OO proposer.
-    /// @param proposalBond Bond required from OO proposers/disputers, or zero to use the OO default.
-    /// @param liveness Custom OO liveness period within the registered bounds.
+    /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective
+    /// proposal bond can differ if Managed OO request-manager preconfigs apply at proposal time.
+    /// @param liveness Custom OO liveness period within the registered bounds. The effective proposal liveness can
+    /// differ if Managed OO request-manager preconfigs apply at proposal time.
     function initializeRequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
     /// @notice Allows an enabled oracle initializer to create a replacement Managed OO request after a callback opens the gate.
     /// @param requestId Registered request ID.
     /// @param reward Reward amount for the replacement request.
-    /// @param proposalBond Bond required from OO proposers/disputers, or zero to use the OO default.
-    /// @param liveness Custom OO liveness period within the registered bounds.
+    /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective
+    /// proposal bond can differ if Managed OO request-manager preconfigs apply at proposal time.
+    /// @param liveness Custom OO liveness period within the registered bounds. The effective proposal liveness can
+    /// differ if Managed OO request-manager preconfigs apply at proposal time.
     function rerequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
     /// @notice Updates the remaining re-request budget for an initialized unresolved request.
