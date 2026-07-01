@@ -26,6 +26,17 @@ function getRequestResolution(bytes32 requestId) external view returns (int256);
 
 `OOReporter` uses `requestId` as the external key. It does not compute, return, expose, or require market-specific question IDs, and it does not accept or store a market initializer.
 
+## Deployment Model
+
+Each `OOReporter` deployment exposes one owner-managed request namespace. Enabled requester addresses are expected to
+coordinate on request identity within that namespace; the contract does not isolate identical UMA request identities
+per requester.
+
+The reporter reserves each `(priceIdentifier, requestRules)` tuple globally across enabled requesters in the
+deployment. This prevents two request IDs from pointing at the same UMA request identity. Independent integrations that
+need the exact same UMA request identity should use separate reporter deployments; integrations with similar rules can
+domain-separate request rules so their UMA request identities differ.
+
 ## Responsibilities
 
 `OOReporter` owns:
@@ -45,7 +56,9 @@ The prediction market integration owns:
 
 ## Request Lifecycle
 
-An enabled requester first calls `registerRequest(...)` with its external `requestId`, UMA price identifier, raw request rules, and allowed liveness range. The reporter reserves the `(priceIdentifier, requestRules)` tuple globally so two request IDs cannot point at the same UMA request identity.
+An enabled requester first calls `registerRequest(...)` with its external `requestId`, UMA price identifier, raw request
+rules, and allowed liveness range. The reporter reserves the `(priceIdentifier, requestRules)` tuple globally within
+the deployment so two request IDs cannot point at the same UMA request identity.
 
 An enabled UMA oracle initializer later calls `initializeRequest(requestId, reward, proposalBond, liveness)`. The selected
 liveness must be non-zero and inside the registered range. Each initialized request receives the current
