@@ -526,6 +526,61 @@ contract OOReporterTest {
         assertEq(allowedRequest.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "gate should not consume budget");
     }
 
+    function test_priceDisputedOpensManualGateWhenAutomaticRerequestTimestampNotAdvanced() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequestAllowed(REQUEST_ID, request.requestTimestamp, RerequestTrigger.Dispute);
+
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+
+        RequestData memory allowedRequest = reporter.getRequest(REQUEST_ID);
+        assertTrue(allowedRequest.rerequestAllowed, "same-block dispute should open manual gate");
+        assertFalse(
+            allowedRequest.automaticDisputeRerequestUsed, "blocked automatic dispute should not consume automatic slot"
+        );
+        assertEq(
+            allowedRequest.requestTimestamp,
+            request.requestTimestamp,
+            "blocked automatic dispute should not advance timestamp"
+        );
+    }
+
+    function test_priceDisputedOpensManualGateWhenRefundDeferred() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        usdc.mint(address(reporter), REWARD);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, REWARD, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+        optimisticOracle.setDeferNextDisputeRefund(true);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequestAllowed(REQUEST_ID, request.requestTimestamp, RerequestTrigger.Dispute);
+
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+
+        RequestData memory allowedRequest = reporter.getRequest(REQUEST_ID);
+        assertTrue(allowedRequest.rerequestAllowed, "deferred refund should open manual gate");
+        assertFalse(allowedRequest.automaticDisputeRerequestUsed, "deferred refund should not consume automatic slot");
+        assertEq(
+            allowedRequest.requestTimestamp, request.requestTimestamp, "deferred refund should not advance timestamp"
+        );
+        assertEq(
+            optimisticOracle.deferredPayouts(usdc, address(reporter)), REWARD, "refund should be deferred to reporter"
+        );
+    }
+
     function test_priceDisputedUsesCurrentAutomationSettingAfterDisabledFirstDispute() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
@@ -677,6 +732,31 @@ contract OOReporterTest {
         assertEq(
             afterP4.requestTimestamp, request.requestTimestamp, "disabled P4 automation should not advance timestamp"
         );
+        assertEq(
+            afterP4.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "P4 should leave default budget available"
+        );
+    }
+
+    function test_priceSettledP4OpensManualGateWhenAutomaticRerequestTimestampNotAdvanced() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequestAllowed(REQUEST_ID, request.requestTimestamp, RerequestTrigger.InvalidSettlement);
+
+        optimisticOracle.settle(
+            address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, reporter.P4_PRICE()
+        );
+
+        RequestData memory afterP4 = reporter.getRequest(REQUEST_ID);
+        assertTrue(afterP4.rerequestAllowed, "same-block P4 should open manual gate");
+        assertFalse(afterP4.resolved, "P4 should not resolve request");
+        assertEq(afterP4.requestTimestamp, request.requestTimestamp, "same-block P4 should not advance timestamp");
         assertEq(
             afterP4.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "P4 should leave default budget available"
         );

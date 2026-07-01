@@ -340,7 +340,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             _loadCallbackRequest(identifier, timestamp, requestRules);
         if (shouldIgnore || request.resolved) return;
 
-        if (automaticRerequestsEnabled() && !request.automaticDisputeRerequestUsed) {
+        if (!request.automaticDisputeRerequestUsed && _canExecuteAutomaticRerequest(request)) {
             request.automaticDisputeRerequestUsed = true;
             _executeAutomaticRerequest(requestId, request, RerequestType.AutomaticDispute);
         } else {
@@ -368,7 +368,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
                 request.manualRerequestsRemaining = budget;
                 emit RequestRerequestBudgetSet(requestId, budget);
             }
-            if (automaticRerequestsEnabled()) {
+            if (_canExecuteAutomaticRerequest(request)) {
                 _executeAutomaticRerequest(requestId, request, RerequestType.AutomaticInvalidSettlement);
             } else {
                 _allowRerequest(requestId, timestamp, request, RerequestTrigger.InvalidSettlement);
@@ -506,6 +506,14 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         _emitRequestRerequested(requestId, request, previousRequestTimestamp, address(this), rerequestType);
     }
 
+    /// @dev Handles expected local blockers only. Managed OO config failures still revert; reporter deprecation should
+    /// disable automation before de-whitelisting.
+    function _canExecuteAutomaticRerequest(RequestData storage request) private view returns (bool) {
+        if (!automaticRerequestsEnabled()) return false;
+        if (block.timestamp <= request.requestTimestamp) return false;
+        return request.reward == 0 || rewardCurrency().balanceOf(address(this)) >= request.reward;
+    }
+
     /// @dev Emits the post-state for a replacement Managed OO request.
     function _emitRequestRerequested(
         bytes32 requestId,
@@ -554,7 +562,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             oracle.setBond(priceIdentifier, requestTimestamp, requestRules, proposalBond);
         }
 
-        // This can still fail if oracle liveness config changed since the bounds were registered.
+        // Unexpected Managed OO config drift should surface instead of silently opening the manual gate.
+        // For example, this can fail if oracle liveness config changed since the bounds were registered.
         oracle.setCustomLiveness(priceIdentifier, requestTimestamp, requestRules, liveness);
     }
 
