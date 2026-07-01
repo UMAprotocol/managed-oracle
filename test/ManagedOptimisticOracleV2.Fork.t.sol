@@ -273,20 +273,22 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         console.log("  Bond Amount:", bondAmount);
         console.log("  Token: USDC.e", address(USDC_E));
 
-        // Request price and opt-in for early resolution
+        // Request price and opt-in for early resolution. Capture the request timestamp via getCurrentTime() rather
+        // than block.timestamp to protect from via-ir reorderings (that will break the tests).
+        uint256 requestTimestamp = managedOOv2.getCurrentTime();
         vm.startPrank(requester);
         USDC_E.approve(address(managedOOv2), type(uint256).max);
 
         managedOOv2.requestPrice(
             TEST_IDENTIFIER,
-            block.timestamp,
+            requestTimestamp,
             ancillaryData,
             USDC_E,
             0 // no reward
         );
         console.log("  + Price request created");
         uint256 customLiveness = 5 minutes;
-        managedOOv2.setCustomLiveness(TEST_IDENTIFIER, block.timestamp, ancillaryData, customLiveness);
+        managedOOv2.setCustomLiveness(TEST_IDENTIFIER, requestTimestamp, ancillaryData, customLiveness);
         vm.stopPrank();
 
         // Propose price
@@ -297,7 +299,7 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
             proposer,
             requester,
             TEST_IDENTIFIER,
-            block.timestamp,
+            requestTimestamp,
             ancillaryData,
             1e18 // proposed price: YES
         );
@@ -305,11 +307,11 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         vm.stopPrank();
 
         // Wait for minimum dispute window
-        vm.warp(block.timestamp + customLiveness + 1);
+        vm.warp(requestTimestamp + customLiveness + 1);
 
         // Resolver settles early
         vm.prank(resolver);
-        managedOOv2.settle(requester, TEST_IDENTIFIER, block.timestamp - customLiveness - 1, ancillaryData);
+        managedOOv2.settle(requester, TEST_IDENTIFIER, requestTimestamp, ancillaryData);
         console.log("  + Resolver settled after minimum dispute window");
     }
 
@@ -320,10 +322,10 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         console.log("\n=== Testing Extended Dispute Window ===");
 
         // Setup: Create a price request and proposal
-        _setupPriceRequestAndProposal();
+        uint256 requestTimestamp = _setupPriceRequestAndProposal();
 
         // Warp past expiration (default liveness is 5 minutes after upgrade)
-        vm.warp(block.timestamp + 6 minutes);
+        vm.warp(requestTimestamp + 6 minutes);
 
         console.log("  Time after proposal: 6 minutes (past expiration)");
 
@@ -337,7 +339,7 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         USDC_E.approve(address(managedOOv2), type(uint256).max);
 
         // Dispute should work even though expired because of _getStateForDispute override
-        managedOOv2.disputePriceFor(disputer, requester, TEST_IDENTIFIER, block.timestamp - 6 minutes, ancillaryData);
+        managedOOv2.disputePriceFor(disputer, requester, TEST_IDENTIFIER, requestTimestamp, ancillaryData);
         console.log("  + Dispute succeeded even after expiration");
         console.log("  This proves extended dispute window works!");
         vm.stopPrank();
@@ -350,17 +352,17 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         console.log("\n=== Testing Non-Resolver Cannot Settle Early ===");
 
         // Setup: Create a price request and proposal
-        _setupPriceRequestAndProposal();
+        uint256 requestTimestamp = _setupPriceRequestAndProposal();
 
         // Wait for minimum dispute window
-        vm.warp(block.timestamp + 5 minutes + 1);
+        vm.warp(requestTimestamp + 5 minutes + 1);
 
         // Try to settle as non-resolver (should fail)
         address nonResolver = makeAddr("nonResolver");
         vm.prank(nonResolver);
 
         vm.expectRevert();
-        managedOOv2.settle(requester, TEST_IDENTIFIER, block.timestamp - 5 minutes - 1, ancillaryData);
+        managedOOv2.settle(requester, TEST_IDENTIFIER, requestTimestamp, ancillaryData);
 
         console.log("  + Non-resolver cannot settle (correctly reverted)");
     }
@@ -402,7 +404,7 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         vm.stopPrank();
     }
 
-    function _setupPriceRequestAndProposal() internal {
+    function _setupPriceRequestAndProposal() internal returns (uint256 requestTimestamp) {
         // Setup roles - grant resolver admin role and add resolver
         vm.startPrank(upgradeAdmin);
         managedOOv2.grantRole(managedOOv2.RESOLVER_ADMIN_ROLE(), upgradeAdmin);
@@ -431,18 +433,20 @@ contract ManagedOptimisticOracleV2ForkTest is Test {
         deal(address(USDC_E), requester, 1000e6);
         deal(address(USDC_E), proposer, 1000e6);
 
-        // Create request
+        // Create request. Capture the request timestamp via getCurrentTime() rather than block.timestamp to protect
+        // from via-ir reorderings (that will break the tests).
+        requestTimestamp = managedOOv2.getCurrentTime();
         vm.startPrank(requester);
         USDC_E.approve(address(managedOOv2), type(uint256).max);
 
-        managedOOv2.requestPrice(TEST_IDENTIFIER, block.timestamp, ancillaryData, USDC_E, 0);
+        managedOOv2.requestPrice(TEST_IDENTIFIER, requestTimestamp, ancillaryData, USDC_E, 0);
         vm.stopPrank();
 
         // Propose price
         vm.startPrank(proposer);
         USDC_E.approve(address(managedOOv2), type(uint256).max);
 
-        managedOOv2.proposePriceFor(proposer, requester, TEST_IDENTIFIER, block.timestamp, ancillaryData, 1e18);
+        managedOOv2.proposePriceFor(proposer, requester, TEST_IDENTIFIER, requestTimestamp, ancillaryData, 1e18);
         vm.stopPrank();
     }
 }

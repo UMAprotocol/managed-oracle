@@ -45,7 +45,7 @@ domain-separate request rules so their UMA request identities differ.
 - UMA oracle initializer allowlisting;
 - Managed OO request creation;
 - reward, bond, request-specific liveness bounds, automatic re-request controls, and manual re-request budget controls;
-- request rules update history for active requests;
+- forwarding request rules updates to the Managed OO for active requests;
 - raw UMA settlement storage.
 
 The prediction market integration owns:
@@ -99,20 +99,20 @@ timeout or administrative recovery path in the market-side module that translate
 
 ## Rules Updates
 
-Only the requester that registered a `requestId` can update rules for that request. Rules updates are append-only history keyed by `requestId`; they do not replace the original registered rules or create a new `(priceIdentifier, updatedRules)` lookup alias. Consumers should use `requestId` as the stable identity when reading update history.
+Only the requester that registered a `requestId` can update rules for that request. The reporter does not store update
+history itself; it forwards the update to the Managed OO via
+`updateRequestRules(priceIdentifier, requestRules, updatedRules)`, which records append-only history keyed by its managed
+request id and emits its own `RequestRulesUpdated` event.
 
-Rules updates are stored as:
+Rules updates do not replace the original registered rules or create a new `(priceIdentifier, updatedRules)` reporter
+lookup alias. Consumers should use `requestId` as the stable reporter identity and read canonical update history from the
+Managed OO using the reporter address plus the original `(priceIdentifier, requestRules)` tuple.
 
-```solidity
-struct RequestRulesUpdate {
-    uint256 timestamp;
-    bytes updatedRules;
-}
-```
+The reporter additionally emits a `RequestRulesUpdated` event carrying the requester-facing `requestId` and updater
+address for self-contained logs.
 
-The rules update event includes the updater address for self-contained logs. Stored attribution is derivable from `getRequest(requestId).requester`.
-
-Rules updates are rejected after the request has resolved.
+For a registered request, updates can be forwarded before or after Managed OO initialization. The reporter rejects rules
+updates after the request has resolved.
 
 ## Foundry Dependency Import
 

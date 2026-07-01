@@ -8,13 +8,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 
-import {
-    IOOReporter,
-    RequestData,
-    RequestRulesUpdate,
-    RerequestTrigger,
-    RerequestType
-} from "./interfaces/IOOReporter.sol";
+import {IOOReporter, RequestData, RerequestTrigger, RerequestType} from "./interfaces/IOOReporter.sol";
 import {IOptimisticOracleV2} from "./interfaces/IOptimisticOracleV2.sol";
 import {IOptimisticRequester} from "./interfaces/IOptimisticRequester.sol";
 
@@ -56,8 +50,6 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         mapping(bytes32 requestId => RequestData request) requests;
         /// @notice Mapping of `(priceIdentifier, requestRules)` key to requester-defined request ID.
         mapping(bytes32 reporterRequestKey => bytes32 requestId) requestIdsByReporterKey;
-        /// @notice Mapping of requester-defined request ID to request rules update history.
-        mapping(bytes32 requestId => RequestRulesUpdate[] updates) requestRulesUpdates;
         /// @notice Default re-request budget seeded onto each request at initialization.
         uint256 defaultRerequestBudget;
         /// @notice Whether first-dispute and P4 automatic re-requests are enabled.
@@ -250,9 +242,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         if (request.resolved) revert RequestAlreadyResolved();
         if (msg.sender != request.requester) revert CallerNotRequestRegistrar();
 
-        RequestRulesUpdate memory requestRulesUpdate =
-            RequestRulesUpdate({timestamp: block.timestamp, updatedRules: updatedRules});
-        _getStorage().requestRulesUpdates[requestId].push(requestRulesUpdate);
+        optimisticOracle().updateRequestRules(request.priceIdentifier, request.requestRules, updatedRules);
 
         emit RequestRulesUpdated(requestId, block.timestamp, msg.sender, updatedRules);
     }
@@ -408,39 +398,6 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     {
         requestId = requestIdsByReporterKey(_reporterRequestKey(priceIdentifier, requestRules));
         if (requestId == bytes32(0)) revert RequestNotRegistered();
-    }
-
-    /// @inheritdoc IOOReporter
-    function getRequestRulesUpdates(bytes32 requestId) public view returns (RequestRulesUpdate[] memory) {
-        _requireRegistered(requestId);
-        return _getStorage().requestRulesUpdates[requestId];
-    }
-
-    /// @inheritdoc IOOReporter
-    function getLatestRequestRulesUpdate(bytes32 requestId) public view returns (RequestRulesUpdate memory) {
-        _requireRegistered(requestId);
-        RequestRulesUpdate[] storage updates = _getStorage().requestRulesUpdates[requestId];
-        uint256 updateCount = updates.length;
-        if (updateCount == 0) revert RequestRulesUpdateUnavailable();
-        return updates[updateCount - 1];
-    }
-
-    /// @inheritdoc IOOReporter
-    function getRequestRulesUpdates(bytes32 priceIdentifier, bytes calldata requestRules)
-        external
-        view
-        returns (RequestRulesUpdate[] memory)
-    {
-        return getRequestRulesUpdates(getRequestId(priceIdentifier, requestRules));
-    }
-
-    /// @inheritdoc IOOReporter
-    function getLatestRequestRulesUpdate(bytes32 priceIdentifier, bytes calldata requestRules)
-        external
-        view
-        returns (RequestRulesUpdate memory)
-    {
-        return getLatestRequestRulesUpdate(getRequestId(priceIdentifier, requestRules));
     }
 
     /// @inheritdoc IOOReporter

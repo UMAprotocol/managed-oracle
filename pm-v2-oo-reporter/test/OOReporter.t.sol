@@ -2,13 +2,7 @@
 pragma solidity 0.8.34;
 
 import {OOReporter} from "src/OOReporter.sol";
-import {
-    IOOReporter,
-    RequestData,
-    RequestRulesUpdate,
-    RerequestTrigger,
-    RerequestType
-} from "src/interfaces/IOOReporter.sol";
+import {IOOReporter, RequestData, RerequestTrigger, RerequestType} from "src/interfaces/IOOReporter.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
 import {MockOptimisticOracleV2} from "test/mocks/MockOptimisticOracleV2.sol";
 
@@ -348,7 +342,7 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, 0, STRICT_MINIMUM_LIVENESS);
     }
 
-    function test_updateRequestRulesStoresAndReadsByRequestIdAndTuple() external {
+    function test_updateRequestRulesForwardsToOptimisticOracle() external {
         bytes memory requestRules = _requestRules("primary");
         bytes memory firstUpdatedRules = bytes("first rules update");
         bytes memory secondUpdatedRules = bytes("second rules update");
@@ -367,22 +361,14 @@ contract OOReporterTest {
         RequestData memory request = reporter.getRequest(REQUEST_ID);
         assertEq(request.requester, requester, "stored requester mismatch");
 
-        RequestRulesUpdate[] memory updates = reporter.getRequestRulesUpdates(REQUEST_ID);
-        assertEq(updates.length, 2, "request rules update count mismatch");
-        assertEq(updates[0].updatedRules, firstUpdatedRules, "first rules update mismatch");
-        assertEq(updates[1].updatedRules, secondUpdatedRules, "second rules update mismatch");
-
-        RequestRulesUpdate memory latest = reporter.getLatestRequestRulesUpdate(REQUEST_ID);
-        assertEq(latest.timestamp, block.timestamp, "latest timestamp mismatch");
-        assertEq(latest.updatedRules, secondUpdatedRules, "latest rules update mismatch");
-
-        RequestRulesUpdate[] memory tupleRulesUpdates = reporter.getRequestRulesUpdates(BINARY_IDENTIFIER, requestRules);
-        assertEq(tupleRulesUpdates.length, 2, "tuple update count mismatch");
-        assertEq(tupleRulesUpdates[1].updatedRules, secondUpdatedRules, "tuple latest list mismatch");
-
-        RequestRulesUpdate memory tupleRulesLatest =
-            reporter.getLatestRequestRulesUpdate(BINARY_IDENTIFIER, requestRules);
-        assertEq(tupleRulesLatest.updatedRules, secondUpdatedRules, "tuple latest mismatch");
+        // The reporter does not store rules updates; it forwards them to the Managed OO keyed by its own address as
+        // the requester, the price identifier, and the original request rules.
+        MockOptimisticOracleV2.ForwardedRulesUpdate[] memory forwarded =
+            optimisticOracle.getForwardedRulesUpdates(address(reporter), BINARY_IDENTIFIER, requestRules);
+        assertEq(forwarded.length, 2, "forwarded update count mismatch");
+        assertEq(forwarded[0].updatedRules, firstUpdatedRules, "first forwarded rules mismatch");
+        assertEq(forwarded[1].updatedRules, secondUpdatedRules, "second forwarded rules mismatch");
+        assertEq(forwarded[1].timestamp, block.timestamp, "latest forwarded timestamp mismatch");
     }
 
     function test_updateRequestRulesRejectsUnknownAndWrongRequester() external {
@@ -438,9 +424,6 @@ contract OOReporterTest {
 
         vm.expectRevert(IOOReporter.RequestResolutionUnavailable.selector);
         reporter.getRequestResolution(REQUEST_ID);
-
-        vm.expectRevert(IOOReporter.RequestRulesUpdateUnavailable.selector);
-        reporter.getLatestRequestRulesUpdate(REQUEST_ID);
     }
 
     function test_priceSettledStoresRawBinaryPrices() external {
