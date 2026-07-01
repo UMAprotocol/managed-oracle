@@ -24,7 +24,18 @@ function isRequestResolved(bytes32 requestId) external view returns (bool);
 function getRequestResolution(bytes32 requestId) external view returns (int256);
 ```
 
-`OOReporter` uses `requestId` as the external key. It does not compute, return, expose, or require market-specific question IDs, and it does not accept or store a market initializer.
+`OOReporter` uses `requestId` as the external key. It does not compute, return, expose, or require market-specific question IDs, and it does not accept or store a market initializer. Tuple-based lookups use the original `(priceIdentifier, requestRules)` supplied during registration.
+
+## Deployment Model
+
+Each `OOReporter` deployment exposes one owner-managed request namespace. Enabled requester addresses are expected to
+coordinate on request identity within that namespace; the contract does not isolate identical UMA request identities
+per requester.
+
+The reporter reserves each `(priceIdentifier, requestRules)` tuple globally across enabled requesters in the
+deployment. This prevents two request IDs from pointing at the same UMA request identity. Independent integrations that
+need the exact same UMA request identity should use separate reporter deployments; integrations with similar rules can
+domain-separate request rules so their UMA request identities differ.
 
 ## Responsibilities
 
@@ -45,7 +56,9 @@ The prediction market integration owns:
 
 ## Request Lifecycle
 
-An enabled requester first calls `registerRequest(...)` with its external `requestId`, UMA price identifier, raw request rules, and allowed liveness range. The reporter reserves the `(priceIdentifier, requestRules)` tuple globally so two request IDs cannot point at the same UMA request identity.
+An enabled requester first calls `registerRequest(...)` with its external `requestId`, UMA price identifier, raw request
+rules, and allowed liveness range. The reporter reserves the `(priceIdentifier, requestRules)` tuple globally within
+the deployment so two request IDs cannot point at the same UMA request identity.
 
 An enabled UMA oracle initializer later calls `initializeRequest(requestId, reward, proposalBond, liveness)`. The selected
 liveness must be non-zero and inside the registered range. Each initialized request receives the current
@@ -57,25 +70,49 @@ not when the request was initialized or last re-requested. When enabled, the fir
 automatically creates one replacement request without consuming manual re-request budget. Later dispute callbacks open
 the manual re-request gate and emit `RequestRerequestAllowed`.
 
-P4 settlements reset the active request's manual budget to the current default. When automatic re-requests are enabled,
-P4 settlements also create a replacement request without consuming manual budget. When automatic re-requests are
-disabled, P4 settlements open the manual re-request gate instead.
+P4 settlements intentionally reset the active request's manual budget to the current default. When automatic re-requests
+are enabled, P4 settlements also create a replacement request without consuming manual budget. When automatic
+re-requests are disabled, P4 settlements open the manual re-request gate instead so UMA-controlled oracle initializers can
+continue recovery.
 
 An enabled oracle initializer can call `rerequest(requestId, reward, proposalBond, liveness)` while the manual gate is
 open and manual budget remains. Manual re-requests can update the active reward, proposal bond, and liveness for the
 replacement request. Automatic re-requests reuse the active reward, proposal bond, and liveness. The owner can update
-the default budget for future initializations with `setDefaultRerequestBudget(...)`, and can top up or reduce an active
-unresolved request with `setRequestRerequestBudget(...)`.
+the default budget for future initializations and P4 refreshes with `setDefaultRerequestBudget(...)`, and can adjust an
+active unresolved request's current manual budget with `setRequestRerequestBudget(...)`.
 
 Lifecycle events that refer to a specific Managed OO request consistently lead with the external `requestId` and then
 the active OO `requestTimestamp` before actor or outcome fields. This keeps initialization, re-request,
 re-request-gate, rules-update, and resolution logs easy to correlate after a request has been replaced.
 
+## Trusted Resolver Dependency
+
+`OOReporter` stores final outcomes only after Managed OO settles the active request and calls `priceSettled(...)` with a
+non-P4 price. A P4 settlement re-requests instead of finalizing.
+Managed OO settlement is intentionally performed by trusted UMA resolver bots rather than permissionless callers. This
+lets UMA use short liveness for routine proposals while resolver infrastructure can escalate uncertain requests to
+human review before settlement.
+
+If no trusted resolver settles the active request, `isRequestResolved(requestId)` remains false and
+`getRequestResolution(requestId)` reverts. Downstream integrations should monitor this resolver dependency and keep any
+timeout or administrative recovery path in the market-side module that translates raw UMA outcomes and finalizes markets.
+
 ## Rules Updates
 
-Only the requester that registered a `requestId` can update rules for that request. The reporter does not store update history itself; it forwards the update to the Managed OO via `updateRequestRules(priceIdentifier, requestRules, updatedRules)`, which records the history (keyed by its managed request id) and emits its own `RequestRulesUpdated` event. The reporter additionally emits a `RequestRulesUpdated` event carrying the requester-facing `requestId` and updater address for self-contained logs.
+Only the requester that registered a `requestId` can update rules for that request. The reporter does not store update
+history itself; it forwards the update to the Managed OO via
+`updateRequestRules(priceIdentifier, requestRules, updatedRules)`, which records append-only history keyed by its managed
+request id and emits its own `RequestRulesUpdated` event.
 
-Updates can be forwarded both before and after the request is initialized. Rules updates are rejected after the request has resolved.
+Rules updates do not replace the original registered rules or create a new `(priceIdentifier, updatedRules)` reporter
+lookup alias. Consumers should use `requestId` as the stable reporter identity and read canonical update history from the
+Managed OO using the reporter address plus the original `(priceIdentifier, requestRules)` tuple.
+
+The reporter additionally emits a `RequestRulesUpdated` event carrying the requester-facing `requestId` and updater
+address for self-contained logs.
+
+For a registered request, updates can be forwarded before or after Managed OO initialization. The reporter rejects rules
+updates after the request has resolved.
 
 ## Foundry Dependency Import
 

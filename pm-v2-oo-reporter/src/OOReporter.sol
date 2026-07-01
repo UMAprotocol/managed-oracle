@@ -15,7 +15,8 @@ import {IOptimisticRequester} from "./interfaces/IOptimisticRequester.sol";
 /// @title OOReporter
 /// @notice UMA-owned Managed OO requester and raw outcome source for prediction market request IDs.
 /// @dev Approved requesters register request IDs here. UMA initializes and manages the OO lifecycle,
-///      then this reporter stores the final raw UMA price for market-side translation.
+///      then this reporter stores the final raw UMA price for market-side translation. Enabled requesters
+///      share one owner-managed request namespace and are expected to coordinate on request identity.
 /// @custom:security-contact bugs@umaproject.org
 contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable, IOOReporter, IOptimisticRequester {
     using SafeERC20 for IERC20;
@@ -330,7 +331,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             _loadCallbackRequest(identifier, timestamp, requestRules);
         if (shouldIgnore || request.resolved) return;
 
-        if (automaticRerequestsEnabled() && !request.automaticDisputeRerequestUsed) {
+        if (!request.automaticDisputeRerequestUsed && _canExecuteAutomaticRerequest(request)) {
             request.automaticDisputeRerequestUsed = true;
             _executeAutomaticRerequest(requestId, request, RerequestType.AutomaticDispute);
         } else {
@@ -338,7 +339,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         }
     }
 
-    /// @notice Managed OO settlement callback. Stores final prices; resets the budget and re-requests on P4.
+    /// @notice Managed OO settlement callback. Stores final prices; refreshes recovery budget and re-requests on P4.
     /// @inheritdoc IOptimisticRequester
     function priceSettled(bytes32 identifier, uint256 timestamp, bytes memory requestRules, int256 price)
         external
@@ -351,14 +352,14 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
         if (price == P4_PRICE) {
             // Reporter requests are event-based, so Managed OO rejects proposed P4; P4 here is DVM-resolved.
-            // Refill the manual budget so an enabled oracle initializer can continue without owner intervention if
-            // automation is disabled.
+            // Refill the manual budget so an enabled UMA-controlled oracle initializer can continue recovery without
+            // owner intervention if automation is disabled.
             uint256 budget = defaultRerequestBudget();
             if (request.manualRerequestsRemaining != budget) {
                 request.manualRerequestsRemaining = budget;
                 emit RequestRerequestBudgetSet(requestId, budget);
             }
-            if (automaticRerequestsEnabled()) {
+            if (_canExecuteAutomaticRerequest(request)) {
                 _executeAutomaticRerequest(requestId, request, RerequestType.AutomaticInvalidSettlement);
             } else {
                 _allowRerequest(requestId, timestamp, request, RerequestTrigger.InvalidSettlement);
@@ -463,6 +464,14 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         _emitRequestRerequested(requestId, request, previousRequestTimestamp, address(this), rerequestType);
     }
 
+    /// @dev Handles expected local blockers only. Managed OO config failures still revert; reporter deprecation should
+    /// disable automation before de-whitelisting.
+    function _canExecuteAutomaticRerequest(RequestData storage request) private view returns (bool) {
+        if (!automaticRerequestsEnabled()) return false;
+        if (block.timestamp <= request.requestTimestamp) return false;
+        return request.reward == 0 || rewardCurrency().balanceOf(address(this)) >= request.reward;
+    }
+
     /// @dev Emits the post-state for a replacement Managed OO request.
     function _emitRequestRerequested(
         bytes32 requestId,
@@ -511,7 +520,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             oracle.setBond(priceIdentifier, requestTimestamp, requestRules, proposalBond);
         }
 
-        // This can still fail if oracle liveness config changed since the bounds were registered.
+        // Unexpected Managed OO config drift should surface instead of silently opening the manual gate.
+        // For example, this can fail if oracle liveness config changed since the bounds were registered.
         oracle.setCustomLiveness(priceIdentifier, requestTimestamp, requestRules, liveness);
     }
 

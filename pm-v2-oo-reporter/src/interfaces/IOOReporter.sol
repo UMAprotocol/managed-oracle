@@ -6,9 +6,11 @@ struct RequestData {
     uint256 requestTimestamp;
     /// @notice Reward amount used for the active Managed OO request.
     uint256 reward;
-    /// @notice Proposal bond used for the active Managed OO request.
+    /// @notice Proposal bond requested by the reporter for the active Managed OO request.
+    /// @dev The effective proposal bond can differ if Managed OO request-manager preconfigs apply at proposal time.
     uint256 proposalBond;
-    /// @notice Custom liveness used for the active Managed OO request.
+    /// @notice Custom liveness requested by the reporter for the active Managed OO request.
+    /// @dev The effective proposal liveness can differ if Managed OO request-manager preconfigs apply at proposal time.
     uint64 liveness;
     /// @notice Whether an approved requester has registered this request.
     bool registered;
@@ -30,7 +32,9 @@ struct RequestData {
     bytes requestRules;
     /// @notice Final raw UMA outcome after settlement.
     int256 outcome;
-    /// @notice Remaining manual re-request budget. Seeded from the default at initialization and topped up by the owner.
+    /// @notice Remaining manual re-request budget.
+    /// @dev Seeded from the default at initialization, owner-adjustable, and intentionally refreshed to the default after
+    /// DVM-resolved P4 settlements so UMA-controlled oracle initializers can keep recovery moving.
     uint256 manualRerequestsRemaining;
     /// @notice Minimum liveness UMA is allowed to use for this request.
     uint64 minimumLiveness;
@@ -145,6 +149,8 @@ interface IOOReporter {
         uint64 maximumLiveness
     );
     /// @notice Emitted when an approved oracle initializer creates the first Managed OO request.
+    /// @dev proposalBond and liveness are reporter-requested parameters. Effective proposal-time values can differ
+    /// if Managed OO request-manager preconfigs apply.
     event RequestInitialized(
         bytes32 indexed requestId,
         uint256 indexed requestTimestamp,
@@ -168,6 +174,8 @@ interface IOOReporter {
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
     /// @notice Emitted when the reporter creates a replacement Managed OO request.
+    /// @dev proposalBond and liveness are reporter-requested parameters. Effective proposal-time values can differ
+    /// if Managed OO request-manager preconfigs apply.
     event RequestRerequested(
         bytes32 indexed requestId,
         uint256 indexed requestTimestamp,
@@ -217,7 +225,7 @@ interface IOOReporter {
     /// @param enabled Whether oracleInitializer should be enabled.
     function setOracleInitializerEnabled(address oracleInitializer, bool enabled) external;
 
-    /// @notice Updates the default replacement-request budget for future initialized requests.
+    /// @notice Updates the default replacement-request budget for future initialized requests and P4 refreshes.
     /// @param newDefaultRerequestBudget New default re-request budget.
     function setDefaultRerequestBudget(uint256 newDefaultRerequestBudget) external;
 
@@ -245,8 +253,11 @@ interface IOOReporter {
 
     /// @notice Registers a requester-defined request ID and its UMA request identity before OO initialization.
     /// @dev The reporter reserves each price identifier and request rules pair globally across approved requesters.
-    /// Requesters should preserve an admin recovery path for rules or liveness ranges that become unusable before
-    /// initialization.
+    /// Enabled requesters share one owner-managed request namespace; the contract does not isolate identical UMA
+    /// request identities per requester. Independent integrations that need the exact same UMA request identity should
+    /// use separate reporter deployments; integrations with similar rules can domain-separate request rules so their
+    /// UMA request identities differ. Requesters should preserve an admin recovery path for rules or liveness ranges
+    /// that become unusable before initialization.
     /// @param requestId Requester-defined request ID to bind to the UMA request identity.
     /// @param priceIdentifier UMA price identifier to request.
     /// @param requestRules Raw UMA request rules supplied by the requester.
@@ -261,7 +272,9 @@ interface IOOReporter {
     ) external;
 
     /// @notice Forwards updated request rules to the Managed OO, which records them against the active OO request.
-    /// @dev Does not change the active OO request tuple; the Managed OO stores the update history and emits its own event.
+    /// @dev Does not change the active OO request tuple or reporter lookup key. The reporter forwards the original
+    /// request rules to Managed OO, so updates do not create or reserve a `(priceIdentifier, updatedRules)` alias.
+    /// Consumers should treat requestId as the stable reporter identity and read canonical update history from Managed OO.
     /// @param requestId Registered request ID.
     /// @param updatedRules Updated prediction market request rules.
     function updateRequestRules(bytes32 requestId, bytes calldata updatedRules) external;
@@ -269,28 +282,34 @@ interface IOOReporter {
     /// @notice Creates the Managed OO request for a registered request.
     /// @param requestId Registered request ID.
     /// @param reward Reward offered to a successful OO proposer.
-    /// @param proposalBond Bond required from OO proposers/disputers, or zero to use the OO default.
-    /// @param liveness Custom OO liveness period within the registered bounds.
+    /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective
+    /// proposal bond can differ if Managed OO request-manager preconfigs apply at proposal time.
+    /// @param liveness Custom OO liveness period within the registered bounds. The effective proposal liveness can
+    /// differ if Managed OO request-manager preconfigs apply at proposal time.
     function initializeRequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
     /// @notice Allows an enabled oracle initializer to create a replacement Managed OO request after a callback opens the gate.
     /// @param requestId Registered request ID.
     /// @param reward Reward amount for the replacement request.
-    /// @param proposalBond Bond required from OO proposers/disputers, or zero to use the OO default.
-    /// @param liveness Custom OO liveness period within the registered bounds.
+    /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective
+    /// proposal bond can differ if Managed OO request-manager preconfigs apply at proposal time.
+    /// @param liveness Custom OO liveness period within the registered bounds. The effective proposal liveness can
+    /// differ if Managed OO request-manager preconfigs apply at proposal time.
     function rerequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
-    /// @notice Updates the remaining re-request budget for an initialized unresolved request.
+    /// @notice Updates the remaining manual re-request budget for an initialized unresolved request.
+    /// @dev This operational top-up/adjustment knob does not permanently cap P4 recovery. A DVM-resolved P4 settlement
+    /// refreshes the request's manual budget to the current default before automatic or manual recovery continues.
     /// @param requestId Registered request ID.
     /// @param newManualRerequestsRemaining New remaining manual re-request budget, capped by the current default.
     function setRequestRerequestBudget(bytes32 requestId, uint256 newManualRerequestsRemaining) external;
 
-    /// @notice Returns whether a final reporter outcome is available for requestId.
+    /// @notice Returns whether Managed OO settlement has produced a final reporter outcome for requestId.
     /// @param requestId Registered request ID.
     /// @return True if the reporter has stored a final outcome.
     function isRequestResolved(bytes32 requestId) external view returns (bool);
 
-    /// @notice Returns the final raw UMA outcome for requestId.
+    /// @notice Returns the final raw UMA outcome for requestId after non-P4 trusted resolver settlement.
     /// @param requestId Registered request ID.
     /// @return Final raw UMA outcome.
     function getRequestResolution(bytes32 requestId) external view returns (int256);
@@ -301,8 +320,10 @@ interface IOOReporter {
     function getRequest(bytes32 requestId) external view returns (RequestData memory);
 
     /// @notice Returns the request ID registered for a UMA request identity.
+    /// @dev `requestRules` must be the original rules supplied to registerRequest. Rules posted through
+    /// updateRequestRules are informational history and are not valid replacement lookup keys.
     /// @param priceIdentifier UMA price identifier.
-    /// @param requestRules Raw UMA request rules.
+    /// @param requestRules Original raw UMA request rules registered for the request.
     /// @return requestId Registered request ID.
     function getRequestId(bytes32 priceIdentifier, bytes calldata requestRules) external view returns (bytes32);
 
