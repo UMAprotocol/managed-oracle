@@ -24,7 +24,7 @@ function isRequestResolved(bytes32 requestId) external view returns (bool);
 function getRequestResolution(bytes32 requestId) external view returns (int256);
 ```
 
-`OOReporter` uses `requestId` as the external key. It does not compute, return, expose, or require market-specific question IDs, and it does not accept or store a market initializer.
+`OOReporter` uses `requestId` as the external key. It does not compute, return, expose, or require market-specific question IDs, and it does not accept or store a market initializer. Tuple-based lookups use the original `(priceIdentifier, requestRules)` supplied during registration.
 
 ## Deployment Model
 
@@ -99,7 +99,9 @@ timeout or administrative recovery path in the market-side module that translate
 
 ## Rules Updates
 
-Only the requester that registered a `requestId` can update rules for that request. Rules updates are stored as:
+Only the requester that registered a `requestId` can update rules for that request. Rules updates are append-only history keyed by `requestId`; they do not replace the original registered rules or create a new `(priceIdentifier, updatedRules)` lookup alias. Consumers should use `requestId` as the stable identity when reading update history.
+
+Rules updates are stored as:
 
 ```solidity
 struct RequestRulesUpdate {
