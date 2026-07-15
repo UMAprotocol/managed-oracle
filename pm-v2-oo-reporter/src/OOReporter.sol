@@ -320,7 +320,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         emit RequestRerequestBudgetSet(requestId, newManualRerequestsRemaining);
     }
 
-    /// @notice Managed OO dispute callback. Auto re-requests once, then opens the oracle-initializer re-request gate.
+    /// @notice Managed OO dispute callback. Attempts one auto re-request, otherwise opens the manual gate.
     /// @inheritdoc IOptimisticRequester
     function priceDisputed(bytes32 identifier, uint256 timestamp, bytes memory requestRules, uint256)
         external
@@ -331,15 +331,17 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             _loadCallbackRequest(identifier, timestamp, requestRules);
         if (shouldIgnore || request.resolved) return;
 
-        if (!request.automaticDisputeRerequestUsed && _canExecuteAutomaticRerequest(request)) {
-            request.automaticDisputeRerequestUsed = true;
-            _executeAutomaticRerequest(requestId, request, RerequestType.AutomaticDispute);
-        } else {
-            _allowRerequest(requestId, timestamp, request, RerequestTrigger.Dispute);
+        if (!request.automaticDisputeRerequestUsed && _shouldAttemptAutomaticRerequest(request)) {
+            try this.executeAutomaticRerequest(requestId, RerequestType.AutomaticDispute) {
+                request.automaticDisputeRerequestUsed = true;
+                return;
+            } catch {}
         }
+
+        _allowRerequest(requestId, timestamp, request, RerequestTrigger.Dispute);
     }
 
-    /// @notice Managed OO settlement callback. Stores final prices; refreshes recovery budget and re-requests on P4.
+    /// @notice Managed OO settlement callback. Stores final prices; on P4, attempts an auto re-request or opens the gate.
     /// @inheritdoc IOptimisticRequester
     function priceSettled(bytes32 identifier, uint256 timestamp, bytes memory requestRules, int256 price)
         external
@@ -353,17 +355,18 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         if (price == P4_PRICE) {
             // Reporter requests are event-based, so Managed OO rejects proposed P4; P4 here is DVM-resolved.
             // Refill the manual budget so an enabled UMA-controlled oracle initializer can continue recovery without
-            // owner intervention if automation is disabled.
+            // owner intervention if automation is unavailable.
             uint256 budget = defaultRerequestBudget();
             if (request.manualRerequestsRemaining != budget) {
                 request.manualRerequestsRemaining = budget;
                 emit RequestRerequestBudgetSet(requestId, budget);
             }
-            if (_canExecuteAutomaticRerequest(request)) {
-                _executeAutomaticRerequest(requestId, request, RerequestType.AutomaticInvalidSettlement);
-            } else {
-                _allowRerequest(requestId, timestamp, request, RerequestTrigger.InvalidSettlement);
+            if (_shouldAttemptAutomaticRerequest(request)) {
+                try this.executeAutomaticRerequest(requestId, RerequestType.AutomaticInvalidSettlement) {
+                    return;
+                } catch {}
             }
+            _allowRerequest(requestId, timestamp, request, RerequestTrigger.InvalidSettlement);
         } else {
             request.resolved = true;
             request.outcome = price;
@@ -398,6 +401,14 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     {
         requestId = requestIdsByReporterKey(_reporterRequestKey(priceIdentifier, requestRules));
         if (requestId == bytes32(0)) revert RequestNotRegistered();
+    }
+
+    /// @dev Keeps all re-request failure points inside the call frame caught by the callbacks.
+    function executeAutomaticRerequest(bytes32 requestId, RerequestType rerequestType) external {
+        if (msg.sender != address(this)) revert CallerNotSelf();
+
+        RequestData storage request = _requireRegistered(requestId);
+        _executeAutomaticRerequest(requestId, request, rerequestType);
     }
 
     /// @inheritdoc IOOReporter
@@ -464,12 +475,10 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         _emitRequestRerequested(requestId, request, previousRequestTimestamp, address(this), rerequestType);
     }
 
-    /// @dev Handles expected local blockers only. Managed OO config failures still revert; reporter deprecation should
-    /// disable automation before de-whitelisting.
-    function _canExecuteAutomaticRerequest(RequestData storage request) private view returns (bool) {
+    /// @dev External checks must remain inside the catchable self-call.
+    function _shouldAttemptAutomaticRerequest(RequestData storage request) private view returns (bool) {
         if (!automaticRerequestsEnabled()) return false;
-        if (block.timestamp <= request.requestTimestamp) return false;
-        return request.reward == 0 || rewardCurrency().balanceOf(address(this)) >= request.reward;
+        return block.timestamp > request.requestTimestamp;
     }
 
     /// @dev Emits the post-state for a replacement Managed OO request.
@@ -520,8 +529,6 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             oracle.setBond(priceIdentifier, requestTimestamp, requestRules, proposalBond);
         }
 
-        // Unexpected Managed OO config drift should surface instead of silently opening the manual gate.
-        // For example, this can fail if oracle liveness config changed since the bounds were registered.
         oracle.setCustomLiveness(priceIdentifier, requestTimestamp, requestRules, liveness);
     }
 

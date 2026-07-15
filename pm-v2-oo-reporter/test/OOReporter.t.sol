@@ -481,6 +481,37 @@ contract OOReporterTest {
         assertEq(afterAuto.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "dispute should not consume budget");
     }
 
+    function test_executeAutomaticRerequestRejectsNonSelfCaller() external {
+        vm.expectRevert(IOOReporter.CallerNotSelf.selector);
+        reporter.executeAutomaticRerequest(REQUEST_ID, RerequestType.AutomaticDispute);
+    }
+
+    function test_priceDisputedOpensManualGateWhenAutomaticRerequestReverts() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+        optimisticOracle.setMinimumDisputeWindow(uint256(LIVENESS) + 1);
+
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+
+        RequestData memory allowedRequest = reporter.getRequest(REQUEST_ID);
+        assertTrue(allowedRequest.rerequestAllowed, "failed automatic re-request should open manual gate");
+        assertFalse(
+            allowedRequest.automaticDisputeRerequestUsed,
+            "failed automatic re-request should not consume automatic slot"
+        );
+
+        bytes32 replacementKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+        MockOptimisticOracleV2.MockRequest memory replacementRequest = optimisticOracle.getMockRequest(replacementKey);
+        assertFalse(replacementRequest.requested, "failed automatic re-request should roll back replacement request");
+    }
+
     function test_priceDisputedOpensManualGateAfterAutomaticDisputeUsed() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
@@ -688,6 +719,35 @@ contract OOReporterTest {
 
         vm.expectRevert(IOOReporter.RequestResolutionUnavailable.selector);
         reporter.getRequestResolution(REQUEST_ID);
+    }
+
+    function test_priceSettledP4OpensManualGateWhenAutomaticRerequestReverts() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        vm.warp(block.timestamp + 1);
+        optimisticOracle.setMinimumDisputeWindow(uint256(LIVENESS) + 1);
+
+        optimisticOracle.settle(
+            address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, reporter.P4_PRICE()
+        );
+
+        RequestData memory afterP4 = reporter.getRequest(REQUEST_ID);
+        assertTrue(afterP4.rerequestAllowed, "failed automatic P4 re-request should open manual gate");
+
+        bytes32 activeRequestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+        MockOptimisticOracleV2.MockRequest memory activeRequest = optimisticOracle.getMockRequest(activeRequestKey);
+        assertTrue(activeRequest.settled, "P4 settlement should persist when automatic re-request fails");
+
+        bytes32 replacementKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+        MockOptimisticOracleV2.MockRequest memory replacementRequest = optimisticOracle.getMockRequest(replacementKey);
+        assertFalse(replacementRequest.requested, "failed automatic P4 re-request should roll back replacement request");
     }
 
     function test_priceSettledP4OpensManualGateWhenAutomaticRerequestsDisabled() external {
