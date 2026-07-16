@@ -175,6 +175,10 @@ interface IOOReporter {
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
+    /// @notice Emitted when an automatic re-request fails and the callback falls back to the manual gate.
+    event AutomaticRerequestFailed(
+        bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestType indexed rerequestType
+    );
     /// @notice Emitted when the reporter creates a replacement Managed OO request.
     /// @dev proposalBond and liveness are reporter-requested parameters. Effective proposal-time values can differ
     /// if Managed OO request-manager preconfigs apply.

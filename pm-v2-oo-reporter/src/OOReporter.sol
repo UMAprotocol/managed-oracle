@@ -335,7 +335,9 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             try this.executeAutomaticRerequest(requestId, RerequestType.AutomaticDispute) {
                 request.automaticDisputeRerequestUsed = true;
                 return;
-            } catch {}
+            } catch {
+                emit AutomaticRerequestFailed(requestId, timestamp, RerequestType.AutomaticDispute);
+            }
         }
 
         _allowRerequest(requestId, timestamp, request, RerequestTrigger.Dispute);
@@ -364,7 +366,9 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             if (_shouldAttemptAutomaticRerequest(request)) {
                 try this.executeAutomaticRerequest(requestId, RerequestType.AutomaticInvalidSettlement) {
                     return;
-                } catch {}
+                } catch {
+                    emit AutomaticRerequestFailed(requestId, timestamp, RerequestType.AutomaticInvalidSettlement);
+                }
             }
             _allowRerequest(requestId, timestamp, request, RerequestTrigger.InvalidSettlement);
         } else {

@@ -67,6 +67,9 @@ contract OOReporterTest {
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
+    event AutomaticRerequestFailed(
+        bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestType indexed rerequestType
+    );
     event RequestRerequested(
         bytes32 indexed requestId,
         uint256 indexed requestTimestamp,
@@ -497,6 +500,9 @@ contract OOReporterTest {
         vm.warp(block.timestamp + 1);
         optimisticOracle.setMinimumDisputeWindow(uint256(LIVENESS) + 1);
 
+        vm.expectEmit(address(reporter));
+        emit AutomaticRerequestFailed(REQUEST_ID, request.requestTimestamp, RerequestType.AutomaticDispute);
+
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
 
         RequestData memory allowedRequest = reporter.getRequest(REQUEST_ID);
@@ -731,6 +737,9 @@ contract OOReporterTest {
         RequestData memory request = reporter.getRequest(REQUEST_ID);
         vm.warp(block.timestamp + 1);
         optimisticOracle.setMinimumDisputeWindow(uint256(LIVENESS) + 1);
+
+        vm.expectEmit(address(reporter));
+        emit AutomaticRerequestFailed(REQUEST_ID, request.requestTimestamp, RerequestType.AutomaticInvalidSettlement);
 
         optimisticOracle.settle(
             address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, reporter.P4_PRICE()
