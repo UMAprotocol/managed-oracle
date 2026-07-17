@@ -67,13 +67,12 @@ liveness must be non-zero and inside the registered range. Each initialized requ
 Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
 `setAutomaticRerequestsEnabled(...)`. The current setting is evaluated when a dispute or P4 settlement callback arrives,
 not when the request was initialized or last re-requested. When enabled, the first dispute callback for a request
-automatically creates one replacement request without consuming manual re-request budget. Later dispute callbacks open
-the manual re-request gate and emit `RequestRerequestAllowed`.
+attempts one replacement without consuming manual re-request budget. Failed attempts and later dispute callbacks open
+the manual re-request gate without reverting the dispute.
 
 P4 settlements intentionally reset the active request's manual budget to the current default. When automatic re-requests
-are enabled, P4 settlements also create a replacement request without consuming manual budget. When automatic
-re-requests are disabled, P4 settlements open the manual re-request gate instead so UMA-controlled oracle initializers can
-continue recovery.
+are enabled, P4 settlements also attempt a replacement without consuming manual budget. Disabled or failed attempts open
+the manual re-request gate without reverting the settlement.
 
 An enabled oracle initializer can call `rerequest(requestId, reward, proposalBond, liveness)` while the manual gate is
 open and manual budget remains. Manual re-requests can update the active reward, proposal bond, and liveness for the
@@ -88,7 +87,7 @@ re-request-gate, rules-update, and resolution logs easy to correlate after a req
 ## Trusted Resolver Dependency
 
 `OOReporter` stores final outcomes only after Managed OO settles the active request and calls `priceSettled(...)` with a
-non-P4 price. A P4 settlement re-requests instead of finalizing.
+non-P4 price. A P4 settlement attempts a re-request or opens the manual gate instead of finalizing.
 Managed OO settlement is intentionally performed by trusted UMA resolver bots rather than permissionless callers. This
 lets UMA use short liveness for routine proposals while resolver infrastructure can escalate uncertain requests to
 human review before settlement.
