@@ -138,6 +138,103 @@ Importing only `IOOReporter` does not require OpenZeppelin remappings.
 
 Consumers that compile `OOReporter.sol` must provide compatible remappings for `@openzeppelin/contracts/` and `@openzeppelin/contracts-upgradeable/`; this package does so in `pm-v2-oo-reporter/foundry.toml` via its package-local `lib/openzeppelin-contracts-upgradeable` submodule.
 
+## Deployment
+
+`script/DeployOOReporter.s.sol` deploys the implementation and an initialized ERC1967 proxy. Run it from this package
+directory.
+
+The script accepts these environment variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MNEMONIC` | Yes | Mnemonic for the deployer wallet (uses derivation index 0). |
+| `INITIAL_OWNER` | No | Reporter owner; defaults to the deployer. |
+| `OPTIMISTIC_ORACLE` | No on Polygon | Managed Optimistic Oracle V2 address; defaults to the Polygon deployment. Required on other networks. |
+| `REWARD_CURRENCY` | No on Polygon | ERC20 reward currency; defaults to bridged USDC.e on Polygon. Required on other networks. |
+| `INITIAL_ORACLE_INITIALIZER` | No | Initial enabled oracle initializer; omitted or zero leaves the allowlist empty. |
+| `INITIAL_REQUESTER` | No | Initial enabled requester; omitted or zero leaves the allowlist empty. |
+| `INITIAL_DEFAULT_REREQUEST_BUDGET` | No | Initial default manual re-request budget; defaults to `5`. |
+
+On Polygon, the default Optimistic Oracle is Managed Optimistic Oracle V2 at
+`0x2C0367a9DB231dDeBd88a94b4f6461a6e47C58B1`, and the default reward currency is bridged USDC.e at
+`0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`. Setting either address to the zero address uses the same network default.
+
+### Deploy And Verify On Etherscan
+
+Etherscan is the default verification target. Set an
+[Etherscan API key](https://docs.etherscan.io/contract-verification/verify-with-foundry), then deploy with Foundry's
+verification flags:
+
+```bash
+cd pm-v2-oo-reporter
+
+MNEMONIC="your mnemonic phrase" forge script script/DeployOOReporter.s.sol \
+  --rpc-url "$RPC_URL" \
+  --broadcast \
+  --slow \
+  --verify \
+  --verifier etherscan \
+  --etherscan-api-key "$ETHERSCAN_API_KEY"
+```
+
+Foundry submits both the `OOReporter` implementation and the `ERC1967Proxy` from the broadcast sequence.
+
+If the deployment was broadcast without `--verify`, recover the exact addresses and proxy initialization calldata from
+the broadcast artifact and verify both contracts separately:
+
+```bash
+CHAIN_ID=137
+BROADCAST_PATH="broadcast/DeployOOReporter.s.sol/${CHAIN_ID}/run-latest.json"
+
+IMPLEMENTATION_ADDRESS=$(jq -r \
+  '.transactions[] | select(.contractName == "OOReporter") | .contractAddress' \
+  "$BROADCAST_PATH")
+PROXY_ADDRESS=$(jq -r \
+  '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' \
+  "$BROADCAST_PATH")
+INIT_DATA=$(jq -r \
+  '.transactions[] | select(.contractName == "ERC1967Proxy") | .arguments[1]' \
+  "$BROADCAST_PATH")
+PROXY_CONSTRUCTOR_ARGS=$(cast abi-encode \
+  "constructor(address,bytes)" \
+  "$IMPLEMENTATION_ADDRESS" \
+  "$INIT_DATA")
+
+forge verify-contract "$IMPLEMENTATION_ADDRESS" \
+  src/OOReporter.sol:OOReporter \
+  --chain "$CHAIN_ID" \
+  --verifier etherscan \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" \
+  --watch
+
+forge verify-contract "$PROXY_ADDRESS" \
+  lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy \
+  --chain "$CHAIN_ID" \
+  --verifier etherscan \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" \
+  --constructor-args "$PROXY_CONSTRUCTOR_ARGS" \
+  --watch
+```
+
+Both contracts must be verified: the implementation provides the application source and ABI, while the proxy provides
+the deployed entrypoint and ERC1967 implementation linkage.
+
+### Tenderly Virtual TestNet
+
+Use the same deployment or post-deployment verification flow, with only these changes:
+
+- Set `RPC_URL` to the Tenderly Virtual TestNet RPC URL.
+- Set `TENDERLY_VERIFIER_URL="${RPC_URL%/}/verify"`; the suffix must be exactly `/verify`.
+- Replace `--verifier etherscan` with `--verifier custom`.
+- Replace `--etherscan-api-key "$ETHERSCAN_API_KEY"` with
+  `--verifier-url "$TENDERLY_VERIFIER_URL"`.
+- Omit `--chain "$CHAIN_ID"` from post-deployment `forge verify-contract` calls.
+
+The Virtual TestNet RPC URL authenticates the verifier, so no separate Tenderly access key is required. Tenderly also
+requires the implementation and proxy to be verified separately for proxy-aware ABI decoding. See Tenderly's
+[deployment verification](https://docs.tenderly.co/virtual-environments/develop/deploy-contracts) and
+[proxy verification](https://docs.tenderly.co/virtual-environments/develop/verify-proxy-contracts) documentation.
+
 ## Build And Test
 
 From the managed-oracle repository root:
