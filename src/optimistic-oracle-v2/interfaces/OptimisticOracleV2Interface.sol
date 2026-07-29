@@ -53,6 +53,15 @@ abstract contract OptimisticOracleV2Interface {
         uint256 reward,
         uint256 finalFee
     );
+    event RewardUpdated(
+        address indexed requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes ancillaryData,
+        address updater,
+        uint256 oldReward,
+        uint256 newReward
+    );
     event ProposePrice(
         address indexed requester,
         address indexed proposer,
@@ -171,6 +180,19 @@ abstract contract OptimisticOracleV2Interface {
         external
         virtual
         returns (uint256 totalBond);
+
+    /**
+     * @notice Updates the reward associated with a price request.
+     * @dev Only callable by the requester while the request is in the Requested state. Reward increases are pulled
+     * from the caller, while decreases are refunded to the requester and may be deferred if the transfer fails.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @param newReward new reward amount, which can be zero.
+     */
+    function setReward(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData, uint256 newReward)
+        external
+        virtual;
 
     /**
      * @notice Sets the request to refund the reward if the proposal is disputed. This can help to "hedge" the caller

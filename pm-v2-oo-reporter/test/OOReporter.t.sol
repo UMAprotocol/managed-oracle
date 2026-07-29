@@ -63,6 +63,14 @@ contract OOReporterTest {
     event RequestRulesUpdated(
         bytes32 indexed requestId, uint256 indexed timestamp, address indexed updater, bytes updatedRules
     );
+    event RequestRewardUpdated(
+        bytes32 indexed requestId,
+        uint256 indexed requestTimestamp,
+        address indexed updater,
+        address rewardCurrency,
+        uint256 oldReward,
+        uint256 newReward
+    );
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
@@ -345,6 +353,152 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, 0, STRICT_MINIMUM_LIVENESS);
     }
 
+    function test_setRequestRewardRejectsUnauthorizedAndInvalidLifecycle() external {
+        bytes memory requestRules = _requestRules("primary");
+
+        vm.prank(unauthorized);
+        vm.expectRevert(IOOReporter.CallerNotOracleInitializer.selector);
+        reporter.setRequestReward(REQUEST_ID, 0);
+
+        vm.prank(oracleInitializer);
+        vm.expectRevert(IOOReporter.RequestNotRegistered.selector);
+        reporter.setRequestReward(REQUEST_ID, 0);
+
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(oracleInitializer);
+        vm.expectRevert(IOOReporter.RequestNotInitialized.selector);
+        reporter.setRequestReward(REQUEST_ID, 0);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
+
+        vm.prank(oracleInitializer);
+        vm.expectRevert(IOOReporter.RequestAlreadyResolved.selector);
+        reporter.setRequestReward(REQUEST_ID, 0);
+    }
+
+    function test_setRequestRewardUpdatesOracleCacheFundingAllowanceAndEvent() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        usdc.mint(address(reporter), REREQUEST_REWARD);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, REWARD, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        bytes32 requestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+
+        vm.prank(address(reporter));
+        usdc.approve(address(optimisticOracle), 0);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRewardUpdated(
+            REQUEST_ID, request.requestTimestamp, oracleInitializer, address(usdc), REWARD, REREQUEST_REWARD
+        );
+        vm.prank(oracleInitializer);
+        reporter.setRequestReward(REQUEST_ID, REREQUEST_REWARD);
+
+        RequestData memory increased = reporter.getRequest(REQUEST_ID);
+        assertEq(increased.reward, REREQUEST_REWARD, "cached increased reward mismatch");
+        assertEq(
+            optimisticOracle.getMockRequest(requestKey).reward, REREQUEST_REWARD, "oracle increased reward mismatch"
+        );
+        assertEq(increased.oracleInitializer, oracleInitializer, "stored initializer should not change");
+        assertEq(usdc.balanceOf(address(reporter)), 0, "increase should pull only the delta");
+        assertEq(usdc.balanceOf(address(optimisticOracle)), REREQUEST_REWARD, "oracle increase balance mismatch");
+        assertEq(
+            usdc.allowance(address(reporter), address(optimisticOracle)),
+            type(uint256).max,
+            "increase should restore max allowance"
+        );
+
+        vm.prank(oracleInitializer);
+        reporter.setRequestReward(REQUEST_ID, REWARD);
+
+        assertEq(reporter.getRequest(REQUEST_ID).reward, REWARD, "cached decreased reward mismatch");
+        assertEq(optimisticOracle.getMockRequest(requestKey).reward, REWARD, "oracle decreased reward mismatch");
+        assertEq(usdc.balanceOf(address(reporter)), REREQUEST_REWARD - REWARD, "decrease refund mismatch");
+
+        vm.prank(oracleInitializer);
+        reporter.setRequestReward(REQUEST_ID, 0);
+
+        assertEq(reporter.getRequest(REQUEST_ID).reward, 0, "cached zero reward mismatch");
+        assertEq(optimisticOracle.getMockRequest(requestKey).reward, 0, "oracle zero reward mismatch");
+        assertEq(usdc.balanceOf(address(reporter)), REREQUEST_REWARD, "zero reward refund mismatch");
+        assertEq(usdc.balanceOf(address(optimisticOracle)), 0, "oracle should hold no reward");
+    }
+
+    function test_setRequestRewardRejectsInsufficientDeltaBalance() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        usdc.mint(address(reporter), REWARD);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, REWARD, PROPOSAL_BOND, LIVENESS);
+
+        vm.prank(oracleInitializer);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IOOReporter.InsufficientRewardBalance.selector, address(usdc), 0, REREQUEST_REWARD - REWARD
+            )
+        );
+        reporter.setRequestReward(REQUEST_ID, REREQUEST_REWARD);
+
+        assertEq(reporter.getRequest(REQUEST_ID).reward, REWARD, "failed update should preserve cached reward");
+    }
+
+    function test_setRequestRewardUsesOracleRewardWhenCacheIsStale() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        usdc.mint(address(reporter), REWARD);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, REWARD, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        uint256 managedReward = REWARD / 2;
+        optimisticOracle.setRewardFor(
+            address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, managedReward
+        );
+        usdc.mint(address(reporter), REREQUEST_REWARD - REWARD);
+
+        vm.prank(address(reporter));
+        usdc.approve(address(optimisticOracle), 0);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRewardUpdated(
+            REQUEST_ID, request.requestTimestamp, oracleInitializer, address(usdc), managedReward, REREQUEST_REWARD
+        );
+        vm.prank(oracleInitializer);
+        reporter.setRequestReward(REQUEST_ID, REREQUEST_REWARD);
+
+        assertEq(reporter.getRequest(REQUEST_ID).reward, REREQUEST_REWARD, "cache should resync to new reward");
+        assertEq(usdc.balanceOf(address(reporter)), 0, "increase should use oracle reward as delta baseline");
+    }
+
+    function test_setRequestRewardRevertsAfterProposalWithoutChangingCache() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        optimisticOracle.markProposed(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+        usdc.mint(address(reporter), REWARD);
+
+        vm.prank(oracleInitializer);
+        vm.expectRevert(abi.encodeWithSignature("Error(string)", "already proposed"));
+        reporter.setRequestReward(REQUEST_ID, REWARD);
+
+        assertEq(reporter.getRequest(REQUEST_ID).reward, 0, "failed update should preserve cached reward");
+    }
+
     function test_updateRequestRulesForwardsToOptimisticOracle() external {
         bytes memory requestRules = _requestRules("primary");
         bytes memory firstUpdatedRules = bytes("first rules update");
@@ -482,6 +636,40 @@ contract OOReporterTest {
         assertTrue(afterAuto.automaticDisputeRerequestUsed, "automatic dispute re-request should be marked used");
         assertEq(afterAuto.requestTimestamp, block.timestamp, "automatic dispute should advance timestamp");
         assertEq(afterAuto.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "dispute should not consume budget");
+    }
+
+    function test_priceDisputedRerequestsWithEffectiveOracleRewardAfterManagerChange() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        usdc.mint(address(reporter), REWARD);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, REWARD, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        uint256 managedReward = REWARD / 2;
+        optimisticOracle.setRewardFor(
+            address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, managedReward
+        );
+        assertEq(reporter.getRequest(REQUEST_ID).reward, REWARD, "manager change should leave reporter cache stale");
+
+        vm.warp(block.timestamp + 1);
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+
+        RequestData memory rerequested = reporter.getRequest(REQUEST_ID);
+        bytes32 replacementKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+        assertEq(rerequested.reward, managedReward, "dispute refund should refresh cached reward");
+        assertEq(
+            optimisticOracle.getMockRequest(replacementKey).reward,
+            managedReward,
+            "automatic re-request should use effective reward"
+        );
+        assertEq(
+            usdc.balanceOf(address(reporter)),
+            REWARD - managedReward,
+            "automatic re-request should leave prior manager refund"
+        );
     }
 
     function test_executeAutomaticRerequestRejectsNonSelfCaller() external {

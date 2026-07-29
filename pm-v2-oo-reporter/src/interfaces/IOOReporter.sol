@@ -169,6 +169,15 @@ interface IOOReporter {
     event RequestRulesUpdated(
         bytes32 indexed requestId, uint256 indexed timestamp, address indexed updater, bytes updatedRules
     );
+    /// @notice Emitted when an approved oracle initializer updates the active Managed OO request reward.
+    event RequestRewardUpdated(
+        bytes32 indexed requestId,
+        uint256 indexed requestTimestamp,
+        address indexed updater,
+        address rewardCurrency,
+        uint256 oldReward,
+        uint256 newReward
+    );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
     /// @notice Emitted when a callback opens the oracle-initializer re-request path.
@@ -284,6 +293,13 @@ interface IOOReporter {
     /// @param requestId Registered request ID.
     /// @param updatedRules Updated prediction market request rules.
     function updateRequestRules(bytes32 requestId, bytes calldata updatedRules) external;
+
+    /// @notice Updates the reward on an initialized, unresolved Managed OO request before a proposal is made.
+    /// @dev Uses the reward currently stored by Managed OO as the source of truth. Reward increases are funded from
+    /// this reporter's configured reward-currency balance.
+    /// @param requestId Registered request ID.
+    /// @param newReward New reward amount for the active Managed OO request.
+    function setRequestReward(bytes32 requestId, uint256 newReward) external;
 
     /// @notice Creates the Managed OO request for a registered request.
     /// @param requestId Registered request ID.

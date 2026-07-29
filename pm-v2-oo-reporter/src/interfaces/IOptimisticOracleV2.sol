@@ -66,6 +66,13 @@ interface IOptimisticOracleV2 {
         uint256 reward
     ) external returns (uint256 totalBond);
 
+    /// @notice Updates the reward associated with a price request before a proposal is made.
+    /// @param identifier Price identifier to identify the existing request.
+    /// @param timestamp Timestamp to identify the existing request.
+    /// @param requestRules Request rules of the price being requested.
+    /// @param newReward New reward amount. Any increase will be pulled from the caller.
+    function setReward(bytes32 identifier, uint256 timestamp, bytes memory requestRules, uint256 newReward) external;
+
     /// @notice Set the proposal bond associated with a price request.
     /// @param identifier Price identifier to identify the existing request.
     /// @param timestamp Timestamp to identify the existing request.

@@ -14,6 +14,7 @@ contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
         bool callbackOnPriceDisputed;
         bool callbackOnPriceSettled;
         bool settled;
+        bool proposed;
         IERC20 currency;
         uint256 reward;
         uint256 bond;
@@ -96,6 +97,28 @@ contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
         }
 
         return request.bond;
+    }
+
+    function setReward(bytes32 identifier, uint256 timestamp, bytes memory requestRules, uint256 newReward) external {
+        _setReward(requests[requestKey(msg.sender, identifier, timestamp, requestRules)], msg.sender, newReward);
+    }
+
+    function setRewardFor(
+        address requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes memory requestRules,
+        uint256 newReward
+    ) external {
+        _setReward(requests[requestKey(requester, identifier, timestamp, requestRules)], requester, newReward);
+    }
+
+    function markProposed(address requester, bytes32 identifier, uint256 timestamp, bytes memory requestRules)
+        external
+    {
+        MockRequest storage request = requests[requestKey(requester, identifier, timestamp, requestRules)];
+        require(request.requested, "not requested");
+        request.proposed = true;
     }
 
     function setEventBased(bytes32 identifier, uint256 timestamp, bytes memory requestRules) external {
@@ -204,5 +227,22 @@ contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
 
     function setMinimumDisputeWindow(uint256 newMinimumDisputeWindow) external {
         minimumDisputeWindow = newMinimumDisputeWindow;
+    }
+
+    function _setReward(MockRequest storage request, address requester, uint256 newReward) private {
+        require(request.requested, "not requested");
+        require(!request.proposed, "already proposed");
+
+        uint256 oldReward = request.reward;
+        request.reward = newReward;
+
+        if (newReward > oldReward) {
+            require(
+                request.currency.transferFrom(msg.sender, address(this), newReward - oldReward),
+                "reward transfer failed"
+            );
+        } else if (oldReward > newReward) {
+            require(request.currency.transfer(requester, oldReward - newReward), "refund transfer failed");
+        }
     }
 }

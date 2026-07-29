@@ -237,14 +237,27 @@ contract OptimisticOracleV2 is
         nonReentrant
         returns (uint256 totalBond)
     {
-        require(
-            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
-        );
-        Request storage request = _getRequest(msg.sender, identifier, timestamp, ancillaryData);
+        Request storage request = _getRequestedRequest(msg.sender, identifier, timestamp, ancillaryData);
         request.requestSettings.bond = bond;
 
         // Total bond is the final fee + the newly set bond.
         return bond + request.finalFee;
+    }
+
+    /**
+     * @notice Updates the reward associated with a price request.
+     * @dev Only callable while the request is in State.Requested (before any proposal). Increases are pulled from the
+     * caller, while decreases are refunded to the requester and may be deferred if the transfer fails.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @param newReward new reward amount, which can be zero.
+     */
+    function setReward(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData, uint256 newReward)
+        external
+        override
+    {
+        _setReward(msg.sender, identifier, timestamp, ancillaryData, newReward);
     }
 
     /**
@@ -262,10 +275,7 @@ contract OptimisticOracleV2 is
         override
         nonReentrant
     {
-        require(
-            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
-        );
-        _getRequest(msg.sender, identifier, timestamp, ancillaryData).requestSettings.refundOnDispute = true;
+        _getRequestedRequest(msg.sender, identifier, timestamp, ancillaryData).requestSettings.refundOnDispute = true;
     }
 
     /**
@@ -284,11 +294,9 @@ contract OptimisticOracleV2 is
         bytes memory ancillaryData,
         uint256 customLiveness
     ) external override nonReentrant {
-        require(
-            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
-        );
+        Request storage request = _getRequestedRequest(msg.sender, identifier, timestamp, ancillaryData);
         _validateLiveness(customLiveness);
-        _getRequest(msg.sender, identifier, timestamp, ancillaryData).requestSettings.customLiveness = customLiveness;
+        request.requestSettings.customLiveness = customLiveness;
     }
 
     /**
@@ -316,10 +324,7 @@ contract OptimisticOracleV2 is
         override
         nonReentrant
     {
-        require(
-            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
-        );
-        Request storage request = _getRequest(msg.sender, identifier, timestamp, ancillaryData);
+        Request storage request = _getRequestedRequest(msg.sender, identifier, timestamp, ancillaryData);
         request.requestSettings.eventBased = true;
         request.requestSettings.refundOnDispute = true;
     }
@@ -343,10 +348,7 @@ contract OptimisticOracleV2 is
         bool callbackOnPriceDisputed,
         bool callbackOnPriceSettled
     ) external override nonReentrant {
-        require(
-            _getState(msg.sender, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
-        );
-        Request storage request = _getRequest(msg.sender, identifier, timestamp, ancillaryData);
+        Request storage request = _getRequestedRequest(msg.sender, identifier, timestamp, ancillaryData);
         request.requestSettings.callbackOnPriceProposed = callbackOnPriceProposed;
         request.requestSettings.callbackOnPriceDisputed = callbackOnPriceDisputed;
         request.requestSettings.callbackOnPriceSettled = callbackOnPriceSettled;
@@ -375,10 +377,7 @@ contract OptimisticOracleV2 is
         int256 proposedPrice
     ) public virtual override nonReentrant returns (uint256 totalBond) {
         require(proposer != address(0), ProposerAddressCannotBeZero());
-        require(
-            _getState(requester, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
-        );
-        Request storage request = _getRequest(requester, identifier, timestamp, ancillaryData);
+        Request storage request = _getRequestedRequest(requester, identifier, timestamp, ancillaryData);
         if (request.requestSettings.eventBased) {
             require(proposedPrice != TOO_EARLY_RESPONSE, CannotProposeTooEarly());
         }
@@ -725,6 +724,45 @@ contract OptimisticOracleV2 is
             OptimisticRequester(requester).priceSettled(identifier, timestamp, ancillaryData, request.resolvedPrice);
         }
         _endReentrantGuardDisabled();
+    }
+
+    function _setReward(
+        address requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes memory ancillaryData,
+        uint256 newReward
+    ) internal {
+        // Guard here so requester and request-manager entry points share one reentrancy boundary.
+        _preEntranceCheckAndSet();
+        Request storage request = _getRequestedRequest(requester, identifier, timestamp, ancillaryData);
+        uint256 oldReward = request.reward;
+        request.reward = newReward;
+
+        // Branch conditions guarantee the delta subtractions cannot underflow.
+        if (newReward > oldReward) {
+            unchecked {
+                request.currency.safeTransferFrom(msg.sender, address(this), newReward - oldReward);
+            }
+        } else if (newReward < oldReward) {
+            unchecked {
+                _transferOrDeferPayout(request.currency, requester, oldReward - newReward);
+            }
+        }
+
+        emit RewardUpdated(requester, identifier, timestamp, ancillaryData, msg.sender, oldReward, newReward);
+        _postEntranceReset();
+    }
+
+    function _getRequestedRequest(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        private
+        view
+        returns (Request storage request)
+    {
+        require(
+            _getState(requester, identifier, timestamp, ancillaryData) == State.Requested, RequestStateNotRequested()
+        );
+        return _getRequest(requester, identifier, timestamp, ancillaryData);
     }
 
     // Attempts to transfer a payout for a recipient. If the payout fails, it accrues the payout amount to the recipient
