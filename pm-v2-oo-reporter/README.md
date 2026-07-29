@@ -163,12 +163,17 @@ On Polygon, the default Optimistic Oracle is Managed Optimistic Oracle V2 at
 
 Etherscan is the default verification target. Set an
 [Etherscan API key](https://docs.etherscan.io/contract-verification/verify-with-foundry), then deploy with Foundry's
-verification flags:
+verification flags. If the first downstream integration address is known at deployment time, set it as
+`INITIAL_REQUESTER`; otherwise omit that variable and enable the integration after deployment.
 
 ```bash
 cd pm-v2-oo-reporter
 
-MNEMONIC="your mnemonic phrase" forge script script/DeployOOReporter.s.sol \
+export MNEMONIC="your mnemonic phrase"
+export DOWNSTREAM_REQUESTER="first downstream integration address"
+
+INITIAL_REQUESTER="$DOWNSTREAM_REQUESTER" \
+forge script script/DeployOOReporter.s.sol \
   --rpc-url "$RPC_URL" \
   --broadcast \
   --slow \
@@ -178,6 +183,91 @@ MNEMONIC="your mnemonic phrase" forge script script/DeployOOReporter.s.sol \
 ```
 
 Foundry submits both the `OOReporter` implementation and the `ERC1967Proxy` from the broadcast sequence.
+
+### Complete The Authorization Setup
+
+Two independent authorization edges must be configured before a downstream integration can use the reporter:
+
+1. The `OOReporter` proxy must be accepted as a requester by Managed Optimistic Oracle V2. The reporter itself is
+   `msg.sender` when it creates or updates Managed OO requests.
+2. The downstream integration, such as a Polymarket oracle module, must be enabled as a requester on the `OOReporter`
+   proxy so it can register and update reporter requests.
+
+Always configure the proxy address, not the implementation address.
+
+#### Add OOReporter To The Managed OO Requester Whitelist
+
+Read the active requester whitelist from the configured Managed OO and check whether it is enabled and whether it
+already accepts the reporter:
+
+```bash
+PROXY_ADDRESS="deployed OOReporter proxy address"
+OPTIMISTIC_ORACLE="configured Managed Optimistic Oracle V2 address"
+
+MOO_REQUESTER_WHITELIST=$(cast call "$OPTIMISTIC_ORACLE" \
+  "requesterWhitelist()(address)" \
+  --rpc-url "$RPC_URL")
+
+cast call "$MOO_REQUESTER_WHITELIST" \
+  "isWhitelistEnabled()(bool)" \
+  --rpc-url "$RPC_URL"
+
+cast call "$MOO_REQUESTER_WHITELIST" \
+  "isOnWhitelist(address)(bool)" \
+  "$PROXY_ADDRESS" \
+  --rpc-url "$RPC_URL"
+```
+
+If the whitelist is enabled and `isOnWhitelist` returns `false`, identify the owner of the standard Managed OO
+requester whitelist:
+
+```bash
+cast call "$MOO_REQUESTER_WHITELIST" \
+  "owner()(address)" \
+  --rpc-url "$RPC_URL"
+```
+
+That owner must execute:
+
+```bash
+cast send "$MOO_REQUESTER_WHITELIST" \
+  "addToWhitelist(address)" \
+  "$PROXY_ADDRESS" \
+  --rpc-url "$RPC_URL" \
+  --mnemonic "$MNEMONIC"
+```
+
+If the whitelist owner is a multisig or governance contract, submit the same `addToWhitelist(address)` call through
+that owner instead. No transaction is required when `isOnWhitelist` already returns `true`, including deployments that
+use a disabled requester whitelist.
+
+#### Enable A Downstream OOReporter Requester
+
+Passing `INITIAL_REQUESTER` to the deployment script enables one downstream requester atomically during proxy
+initialization. Confirm its status with:
+
+```bash
+cast call "$PROXY_ADDRESS" \
+  "isRequester(address)(bool)" \
+  "$DOWNSTREAM_REQUESTER" \
+  --rpc-url "$RPC_URL"
+```
+
+If it was not set during deployment, or another downstream integration must be added later, the `OOReporter` owner must
+execute:
+
+```bash
+cast send "$PROXY_ADDRESS" \
+  "setRequesterEnabled(address,bool)" \
+  "$DOWNSTREAM_REQUESTER" \
+  true \
+  --rpc-url "$RPC_URL" \
+  --mnemonic "$MNEMONIC"
+```
+
+When `INITIAL_OWNER` differs from the deployer or is a multisig, this call must be sent by that configured owner.
+`INITIAL_REQUESTER` is distinct from `INITIAL_ORACLE_INITIALIZER`: a requester registers and updates reporter requests,
+while an oracle initializer creates the corresponding Managed OO requests.
 
 If the deployment was broadcast without `--verify`, recover the exact addresses and proxy initialization calldata from
 the broadcast artifact and verify both contracts separately:
