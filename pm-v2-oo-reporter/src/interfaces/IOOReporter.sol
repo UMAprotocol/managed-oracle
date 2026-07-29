@@ -286,6 +286,8 @@ interface IOOReporter {
     function updateRequestRules(bytes32 requestId, bytes calldata updatedRules) external;
 
     /// @notice Creates the Managed OO request for a registered request.
+    /// @dev Pays the reward from the reporter's reward-currency balance and, when the Managed OO allowance is below
+    /// the reward, tops it up to an unbounded approval for the trusted oracle instead of approving per request.
     /// @param requestId Registered request ID.
     /// @param reward Reward offered to a successful OO proposer.
     /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective
@@ -295,6 +297,8 @@ interface IOOReporter {
     function initializeRequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
     /// @notice Allows an enabled oracle initializer to create a replacement Managed OO request after a callback opens the gate.
+    /// @dev Pays the reward from the reporter's reward-currency balance and, when the Managed OO allowance is below
+    /// the reward, tops it up to an unbounded approval for the trusted oracle instead of approving per request.
     /// @param requestId Registered request ID.
     /// @param reward Reward amount for the replacement request.
     /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective

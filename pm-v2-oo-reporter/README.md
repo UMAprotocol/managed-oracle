@@ -96,6 +96,18 @@ If no trusted resolver settles the active request, `isRequestResolved(requestId)
 `getRequestResolution(requestId)` reverts. Downstream integrations should monitor this resolver dependency and keep any
 timeout or administrative recovery path in the market-side module that translates raw UMA outcomes and finalizes markets.
 
+## Oracle Reward Allowance
+
+The reporter pays request rewards from its own reward-currency balance. When its Managed OO allowance is below a
+request's reward, `_requestPrice` tops the allowance up to `type(uint256).max` instead of approving per request. This
+unbounded approval is intentional: it saves an approval on every subsequent request and re-request, and Managed OO only
+pulls each request's committed reward.
+
+The standing allowance keeps the oracle authorized over the reporter's entire reward balance, which is accepted under
+the reporter's trust model: the Managed OO address is fixed at initialization (the reporter has no oracle setter), and
+it is UMA-governed infrastructure in the same trust domain as this UMA-owned reporter. To bound the impact of an oracle
+compromise, operators should fund the reporter with a working reward float rather than a treasury balance.
+
 ## Rules Updates
 
 Only the requester that registered a `requestId` can update rules for that request. The reporter does not store update

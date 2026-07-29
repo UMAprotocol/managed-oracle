@@ -522,6 +522,9 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             uint256 balance = currency.balanceOf(address(this));
             if (balance < reward) revert InsufficientRewardBalance(address(currency), balance, reward);
             if (currency.allowance(address(this), address(oracle)) < reward) {
+                // Unbounded approval is intentional: it saves an approval on every subsequent request, and the
+                // Managed OO is fixed at initialization within the same UMA-governed trust domain as this reporter.
+                // Exposure is capped by this contract's reward balance, which should hold only a working float.
                 currency.forceApprove(address(oracle), type(uint256).max);
             }
         }
