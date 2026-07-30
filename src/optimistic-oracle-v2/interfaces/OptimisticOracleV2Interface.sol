@@ -129,6 +129,12 @@ abstract contract OptimisticOracleV2Interface {
     // to accept a price request made with ancillary data length over a certain size.
     uint256 public constant ANCILLARY_BYTES_LIMIT = 8192;
 
+    /// @notice Deprecated compatibility getter. Use `ANCILLARY_BYTES_LIMIT()` instead.
+    /// @dev Preserves the selector published by earlier OptimisticOracleV2 deployments.
+    function ancillaryBytesLimit() external pure returns (uint256) {
+        return ANCILLARY_BYTES_LIMIT;
+    }
+
     function defaultLiveness() external view virtual returns (uint256);
 
     function finder() external view virtual returns (FinderInterface);
