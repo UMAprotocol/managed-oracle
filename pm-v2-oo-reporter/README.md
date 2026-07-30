@@ -98,9 +98,10 @@ treasury balance.
 
 The Managed OO request manager can also update an active reward directly. An increase is funded by the request-manager
 caller rather than pulled from the reporter, while a decrease is always refunded or deferred to the original requester
-(the reporter). This prevents the request manager from using the reporter's token allowance to pull arbitrary funds. If
-a direct manager update is followed by a dispute, the reporter synchronizes its cached reward from the refund callback
-before attempting an automatic re-request.
+(the reporter). This prevents the request manager from using the reporter's token allowance to pull arbitrary funds.
+Managed OO is authoritative after a direct manager update: `getRequest(requestId).reward` can retain its previous value
+until `setRequestReward` reads the live oracle reward or a dispute callback synchronizes the refunded reward. The dispute
+path updates the cache before attempting an automatic re-request.
 
 Setting a reward to zero does not cancel the request or stop proposals. To pause an abandoned or malformed request before
 proposal, the request manager must set its effective proposer whitelist to a real, enabled `AddressWhitelist` with no

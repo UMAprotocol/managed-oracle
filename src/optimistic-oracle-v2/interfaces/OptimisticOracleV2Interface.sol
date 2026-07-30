@@ -183,8 +183,8 @@ abstract contract OptimisticOracleV2Interface {
 
     /**
      * @notice Updates the reward associated with a price request.
-     * @dev Only callable by the requester while the request is in the Requested state. Reward increases are pulled
-     * from the caller, while decreases are refunded to the requester and may be deferred if the transfer fails.
+     * @dev Only callable by the requester while the request is in the Requested state. The requester funds increases
+     * and receives decreases, which may be deferred if the transfer fails.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.

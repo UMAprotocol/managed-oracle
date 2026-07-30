@@ -246,8 +246,8 @@ contract OptimisticOracleV2 is
 
     /**
      * @notice Updates the reward associated with a price request.
-     * @dev Only callable while the request is in State.Requested (before any proposal). Increases are pulled from the
-     * caller, while decreases are refunded to the requester and may be deferred if the transfer fails.
+     * @dev Only callable while the request is in State.Requested (before any proposal). The caller is the requester:
+     * it funds increases and receives decreases, which may be deferred if the transfer fails.
      * @param identifier price identifier to identify the existing request.
      * @param timestamp timestamp to identify the existing request.
      * @param ancillaryData ancillary data of the price being requested.
