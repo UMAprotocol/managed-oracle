@@ -57,7 +57,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     }
 
     // keccak256(abi.encode(uint256(keccak256("uma.storage.OOReporter")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant OOReporterStorageLocation =
+    bytes32 private constant OO_REPORTER_STORAGE_LOCATION =
         0xe597f8c3629f5ca2bbd4f416c338811ff317bd2d6db5ce34f2567207506cc400;
 
     /*--------------------------------------------------------------
@@ -71,7 +71,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
     function _getStorage() private pure returns (OOReporterStorage storage $) {
         assembly {
-            $.slot := OOReporterStorageLocation
+            $.slot := OO_REPORTER_STORAGE_LOCATION
         }
     }
 
