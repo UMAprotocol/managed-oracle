@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {MulticallUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/MulticallUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,7 +18,13 @@ import {IOptimisticRequester} from "./interfaces/IOptimisticRequester.sol";
 ///      then this reporter stores the final raw UMA price for market-side translation. Enabled requesters
 ///      share one owner-managed request namespace and are expected to coordinate on request identity.
 /// @custom:security-contact bugs@umaproject.org
-contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable, IOOReporter, IOptimisticRequester {
+contract OOReporter is
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    MulticallUpgradeable,
+    IOOReporter,
+    IOptimisticRequester
+{
     using SafeERC20 for IERC20;
 
     /*--------------------------------------------------------------
@@ -108,6 +114,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         }
 
         __Ownable_init(initialOwner);
+        __Ownable2Step_init();
         __Multicall_init();
 
         OOReporterStorage storage $ = _getStorage();

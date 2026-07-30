@@ -124,6 +124,26 @@ contract OOReporterTest {
         reporter = OOReporter(address(new SimpleProxy(address(implementation), initData)));
     }
 
+    function test_transferOwnershipRequiresPendingOwnerAcceptance() external {
+        vm.prank(owner);
+        reporter.transferOwnership(unauthorized);
+
+        assertEq(reporter.owner(), owner, "owner should remain until acceptance");
+        assertEq(reporter.pendingOwner(), unauthorized, "incorrect pending owner");
+
+        vm.prank(owner);
+        reporter.transferOwnership(secondRequester);
+
+        assertEq(reporter.owner(), owner, "owner should remain after replacing nominee");
+        assertEq(reporter.pendingOwner(), secondRequester, "replacement pending owner mismatch");
+
+        vm.prank(secondRequester);
+        reporter.acceptOwnership();
+
+        assertEq(reporter.owner(), secondRequester, "accepted owner mismatch");
+        assertEq(reporter.pendingOwner(), address(0), "pending owner should clear");
+    }
+
     function test_registerRequestStoresRequestWithoutInitializerSuffix() external {
         bytes memory requestRules = _requestRules("primary");
 
