@@ -526,6 +526,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             }
         }
 
+        // Managed OO validates identifier support only when creating this request. If governance removes it later,
+        // resolver-gated settlement and Polymarket's administrator/arbitrator `resolveResult` remain the backstops.
         oracle.requestPrice(priceIdentifier, requestTimestamp, requestRules, currency, reward);
         oracle.setEventBased(priceIdentifier, requestTimestamp, requestRules);
         oracle.setCallbacks(priceIdentifier, requestTimestamp, requestRules, false, true, true);
