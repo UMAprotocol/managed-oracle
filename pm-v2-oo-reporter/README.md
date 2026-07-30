@@ -84,6 +84,16 @@ Lifecycle events that refer to a specific Managed OO request consistently lead w
 the active OO `requestTimestamp` before actor or outcome fields. This keeps initialization, re-request,
 re-request-gate, rules-update, and resolution logs easy to correlate after a request has been replaced.
 
+## Bond And Liveness Events
+
+`BondUpdated` and `CustomLivenessUpdated` expose requester-controlled changes to the concrete Managed OO request. Each
+request starts with a bond equal to its `finalFee` and custom liveness equal to `0`, so the first update event for each
+setting reports that default as its old value.
+
+To reconstruct the effective bond and liveness at proposal time, consumers must combine those events with
+`CustomBondSet` and `CustomLivenessSet`. These request-manager overrides take precedence when `proposePriceFor(...)`
+applies the proposal settings, even if the requester changed the concrete request afterward.
+
 ## Reward Updates And Pre-Proposal Pauses
 
 Any enabled oracle initializer can call `setRequestReward(requestId, newReward)` while the active Managed OO request is

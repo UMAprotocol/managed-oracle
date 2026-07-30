@@ -238,7 +238,9 @@ contract OptimisticOracleV2 is
         returns (uint256 totalBond)
     {
         Request storage request = _getRequestedRequest(msg.sender, identifier, timestamp, ancillaryData);
+        uint256 oldBond = request.requestSettings.bond;
         request.requestSettings.bond = bond;
+        emit BondUpdated(msg.sender, identifier, timestamp, ancillaryData, oldBond, bond);
 
         // Total bond is the final fee + the newly set bond.
         return bond + request.finalFee;
@@ -296,7 +298,9 @@ contract OptimisticOracleV2 is
     ) external override nonReentrant {
         Request storage request = _getRequestedRequest(msg.sender, identifier, timestamp, ancillaryData);
         _validateLiveness(customLiveness);
+        uint256 oldCustomLiveness = request.requestSettings.customLiveness;
         request.requestSettings.customLiveness = customLiveness;
+        emit CustomLivenessUpdated(msg.sender, identifier, timestamp, ancillaryData, oldCustomLiveness, customLiveness);
     }
 
     /**
