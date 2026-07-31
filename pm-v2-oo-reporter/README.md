@@ -110,10 +110,11 @@ After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(reque
 request. The reporter commits its resolved state before making this external call, so the module can read the outcome
 during `report`.
 
-The callback is wrapped in `try/catch`. If the module reverts, Managed OO settlement still succeeds and the reporter
-emits `ReportCallbackFailed(requestId, reporterModule)`. The module's permissionless `report(requestId)` entry point can
-then be retried separately. P4 settlements, stale callbacks, unknown requests, and already-resolved requests do not
-trigger reporting.
+The callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
+`ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and
+the reporter emits `ReportCallbackFailed(requestId, reporterModule)`. The module's permissionless `report(requestId)`
+entry point can then be retried separately. P4 settlements, stale callbacks, unknown requests, and already-resolved
+requests do not trigger reporting.
 
 The reporter never calls market-side `finalize()`. Any reporting liveness, threshold, payout translation, and
 finalization logic remains enforced by the Polymarket V2 contracts.

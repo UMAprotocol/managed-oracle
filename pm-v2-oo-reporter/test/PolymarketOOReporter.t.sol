@@ -88,6 +88,7 @@ contract PolymarketOOReporterTest {
         PolymarketReporterVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
+    event ReportCallbackSucceeded(bytes32 indexed requestId, address indexed reporterModule);
     event ReportCallbackFailed(bytes32 indexed requestId, address indexed reporterModule);
 
     bytes32 private constant REQUEST_ID = keccak256("polymarket-request-id");
@@ -128,6 +129,11 @@ contract PolymarketOOReporterTest {
     function test_settlementAutomaticallyReportsResolvedOutcome() external {
         bytes memory requestRules = _registerAndInitialize();
         RequestData memory request = reporter.getRequest(REQUEST_ID);
+
+        vm.expectEmit(address(reporter));
+        emit RequestResolved(REQUEST_ID, request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(reporter));
+        emit ReportCallbackSucceeded(REQUEST_ID, address(module));
 
         optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
 
