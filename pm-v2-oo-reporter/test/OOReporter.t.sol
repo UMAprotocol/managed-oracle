@@ -144,6 +144,14 @@ contract OOReporterTest {
         assertEq(reporter.pendingOwner(), address(0), "pending owner should clear");
     }
 
+    function test_renounceOwnershipIsDisabled() external {
+        vm.prank(owner);
+        vm.expectRevert(OOReporter.OwnershipRenunciationDisabled.selector);
+        reporter.renounceOwnership();
+
+        assertEq(reporter.owner(), owner, "owner should remain");
+    }
+
     function test_registerRequestStoresRequestWithoutInitializerSuffix() external {
         bytes memory requestRules = _requestRules("primary");
 

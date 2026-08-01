@@ -27,6 +27,8 @@ contract OOReporter is
 {
     using SafeERC20 for IERC20;
 
+    error OwnershipRenunciationDisabled();
+
     /*--------------------------------------------------------------
                              CONSTANTS
     --------------------------------------------------------------*/
@@ -132,6 +134,11 @@ contract OOReporter is
         $.automaticRerequestsEnabled = true;
         emit DefaultRerequestBudgetSet(initialDefaultRerequestBudget);
         emit AutomaticRerequestsEnabledSet(true);
+    }
+
+    /// @notice Ownership renunciation is disabled to preserve administrative and upgrade authority.
+    function renounceOwnership() public pure override {
+        revert OwnershipRenunciationDisabled();
     }
 
     /// @notice Returns the configured Managed Optimistic Oracle V2 address.
