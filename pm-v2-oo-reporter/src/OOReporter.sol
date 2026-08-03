@@ -262,8 +262,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             _prepareReward(currency, oracle, newReward - oldReward);
         }
 
-        oracle.setReward(request.priceIdentifier, request.requestTimestamp, request.requestRules, newReward);
         request.reward = newReward;
+        oracle.setReward(request.priceIdentifier, request.requestTimestamp, request.requestRules, newReward);
 
         emit RequestRewardUpdated(
             requestId, request.requestTimestamp, msg.sender, address(currency), oldReward, newReward

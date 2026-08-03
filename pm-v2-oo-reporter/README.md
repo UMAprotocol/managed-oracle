@@ -90,7 +90,8 @@ Any enabled oracle initializer can call `setRequestReward(requestId, newReward)`
 still waiting for a proposal. The caller does not need to be the initializer that created the active request. Increasing
 the reward pulls only the delta from the reporter's reward balance; decreasing it, including setting it to zero, refunds
 the delta to the reporter or credits a deferred payout if the token transfer fails. The reporter updates its cached
-reward only after Managed OO accepts the change, so later automatic re-requests reuse the updated amount.
+reward before calling Managed OO so callbacks observe the new amount. If the oracle rejects the change, the transaction
+reverts the cache update as well; successful changes are reused by later automatic re-requests.
 
 Because enabled initializers can spend the reporter's reward balance, initializer infrastructure should enforce an
 operational maximum reward and the reporter should hold only the working balance needed for requests rather than a
