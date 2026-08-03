@@ -626,7 +626,7 @@ contract ManagedOptimisticOracleV2Test is Test {
 
         vm.prank(requester);
         moo.setReward(IDENTIFIER, t, ANCILLARY, 0);
-        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).reward, 0);
+        assertEq(moo.getRequestReward(requester, IDENTIFIER, t, ANCILLARY), 0);
         assertEq(
             uint8(moo.getState(requester, IDENTIFIER, t, ANCILLARY)), uint8(OptimisticOracleV2Interface.State.Requested)
         );

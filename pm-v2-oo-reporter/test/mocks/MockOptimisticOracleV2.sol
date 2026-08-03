@@ -69,6 +69,14 @@ contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
         });
     }
 
+    function getRequestReward(address requester, bytes32 identifier, uint256 timestamp, bytes memory requestRules)
+        external
+        view
+        returns (uint256 reward)
+    {
+        return requests[requestKey(requester, identifier, timestamp, requestRules)].reward;
+    }
+
     function requestKey(address requester, bytes32 identifier, uint256 timestamp, bytes memory requestRules)
         public
         pure

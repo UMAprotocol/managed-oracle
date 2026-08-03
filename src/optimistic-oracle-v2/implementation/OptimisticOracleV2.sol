@@ -586,6 +586,17 @@ contract OptimisticOracleV2 is
         emit ClaimedDeferredPayout(address(currency), deferredRecipient, repaymentAddress, amount);
     }
 
+    /// @inheritdoc OptimisticOracleV2Interface
+    function getRequestReward(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        public
+        view
+        override
+        nonReentrantView
+        returns (uint256 reward)
+    {
+        return _getRequest(requester, identifier, timestamp, ancillaryData).reward;
+    }
+
     /**
      * @notice Gets the current data structure containing all information about a price request.
      * @param requester sender of the initial price request.

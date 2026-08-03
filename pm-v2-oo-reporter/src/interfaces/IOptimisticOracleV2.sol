@@ -123,6 +123,17 @@ interface IOptimisticOracleV2 {
     /// @param updatedRules Updated request rules to record for the request.
     function updateRequestRules(bytes32 identifier, bytes memory requestRules, bytes memory updatedRules) external;
 
+    /// @notice Gets the current reward for an OO request tuple.
+    /// @param requester Sender of the initial price request.
+    /// @param identifier Price identifier to identify the existing request.
+    /// @param timestamp Timestamp to identify the existing request.
+    /// @param requestRules Request rules of the price being requested.
+    /// @return reward Current reward amount.
+    function getRequestReward(address requester, bytes32 identifier, uint256 timestamp, bytes memory requestRules)
+        external
+        view
+        returns (uint256 reward);
+
     /// @notice Gets current request data for an OO request tuple.
     /// @param requester Sender of the initial price request.
     /// @param identifier Price identifier to identify the existing request.

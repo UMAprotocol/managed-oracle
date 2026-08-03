@@ -364,6 +364,20 @@ abstract contract OptimisticOracleV2Interface {
     function claimDeferredPayout(IERC20 currency, address repaymentAddress) external virtual;
 
     /**
+     * @notice Gets the current reward for a price request.
+     * @param requester sender of the initial price request.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return reward current reward amount.
+     */
+    function getRequestReward(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        public
+        view
+        virtual
+        returns (uint256 reward);
+
+    /**
      * @notice Gets the current data structure containing all information about a price request.
      * @param requester sender of the initial price request.
      * @param identifier price identifier to identify the existing request.
