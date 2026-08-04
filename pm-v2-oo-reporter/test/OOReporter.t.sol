@@ -245,6 +245,29 @@ contract OOReporterTest {
         reporter.registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, belowOracleMinimum);
     }
 
+    function test_initializeRequestAcceptsLivenessWithinPartiallyOverlappingRange() external {
+        bytes memory requestRules = _requestRules("primary");
+        uint64 oracleMinimumLiveness = uint64(optimisticOracle.minimumDisputeWindow());
+        uint64 oracleMaximumLiveness = uint64(reporter.MAXIMUM_CUSTOM_LIVENESS());
+
+        vm.prank(requester);
+        reporter.registerRequest(
+            REQUEST_ID, BINARY_IDENTIFIER, requestRules, oracleMinimumLiveness - 1, oracleMaximumLiveness
+        );
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, 0, oracleMinimumLiveness);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        assertEq(request.liveness, oracleMinimumLiveness, "selected liveness mismatch");
+
+        bytes32 requestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+        assertEq(
+            optimisticOracle.getMockRequest(requestKey).customLiveness, oracleMinimumLiveness, "OO liveness mismatch"
+        );
+    }
+
     function test_initializeRequestSeedsDefaultBudgetAndCreatesManagedOORequest() external {
         bytes memory requestRules = _requestRules("numerical");
         _registerRequest(REQUEST_ID, NUMERICAL_IDENTIFIER, requestRules);
