@@ -227,42 +227,80 @@ Importing only `IOOReporter` does not require OpenZeppelin remappings.
 
 Consumers that compile `OOReporter.sol` must provide compatible remappings for `@openzeppelin/contracts/` and `@openzeppelin/contracts-upgradeable/`; this package does so in `pm-v2-oo-reporter/foundry.toml` via its package-local `lib/openzeppelin-contracts-upgradeable` submodule.
 
-## Deployment
+## Deployment And Upgrades
 
-`script/DeployOOReporter.s.sol` deploys the implementation and an initialized ERC1967 proxy. Run it from this package
-directory.
+Run every reporter script from this package directory so implementation bytecode uses its Solidity 0.8.34, optimizer,
+and dependency settings. Choose the entrypoint explicitly:
 
-The script accepts these environment variables:
+| Script | Use |
+| --- | --- |
+| `script/DeployOOReporter.s.sol` | Fresh pull-only `OOReporter` implementation and initialized ERC1967 proxy. |
+| `script/DeployPolymarketOOReporter.s.sol` | Fresh callback-enabled `PolymarketOOReporter` implementation and initialized ERC1967 proxy. |
+| `script/UpgradeOOReporter.s.sol` | Upgrade an existing `OOReporter` UUPS proxy to `PolymarketOOReporter`. |
+
+The fresh deployment scripts share the same initialization flow. The upgrade script preserves the proxy address and
+state, deploys only a new implementation, and calls `upgradeToAndCall(newImplementation, "")`. It deliberately does
+not call `initialize` or a reinitializer.
+
+### Managed OO Compatibility Prerequisite
+
+Upgrade Managed Optimistic Oracle V2 before either deploying a fresh post-audit reporter or upgrading an existing
+reporter proxy. The current reporter's `setRequestReward` path depends on the new Managed OO `getRequestReward` getter.
+A reporter can still deploy against the older implementation, but reward updates will revert.
+
+Use the repository's [Managed OO upgrade flow](../script/README.md#managedoptimisticoraclev2-upgrade) with empty
+upgrade calldata. Then confirm the configured Managed OO proxy exposes the getter; an unused request key returns zero:
+
+```bash
+# Uses the Polygon default when unset. Set OPTIMISTIC_ORACLE explicitly first on any other network.
+export OPTIMISTIC_ORACLE="${OPTIMISTIC_ORACLE:-0x2C0367a9DB231dDeBd88a94b4f6461a6e47C58B1}"
+
+cast call "$OPTIMISTIC_ORACLE" \
+  "getRequestReward(address,bytes32,uint256,bytes)(uint256)" \
+  0x0000000000000000000000000000000000000000 \
+  0x0000000000000000000000000000000000000000000000000000000000000000 \
+  0 \
+  0x \
+  --rpc-url "$RPC_URL"
+```
+
+Run this check against the exact `OPTIMISTIC_ORACLE` address selected for a fresh deployment or already stored in an
+existing reporter proxy. Do not proceed unless the call succeeds and returns `0`.
+
+### Fresh Deployment Configuration
+
+Both fresh deployment scripts accept:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `MNEMONIC` | Yes | Mnemonic for the deployer wallet (uses derivation index 0). |
-| `INITIAL_OWNER` | No | Reporter owner; defaults to the deployer. |
+| `INITIAL_OWNER` | Recommended | Reporter owner; defaults to the deployer. Set the intended Safe or administration account explicitly for production. |
 | `OPTIMISTIC_ORACLE` | No on Polygon | Managed Optimistic Oracle V2 address; defaults to the Polygon deployment. Required on other networks. |
 | `REWARD_CURRENCY` | No on Polygon | ERC20 reward currency; defaults to bridged USDC.e on Polygon. Required on other networks. |
-| `INITIAL_ORACLE_INITIALIZER` | No | Initial enabled oracle initializer; omitted or zero leaves the allowlist empty. |
-| `INITIAL_REQUESTER` | No | Initial enabled requester; omitted or zero leaves the allowlist empty. |
+| `INITIAL_ORACLE_INITIALIZER` | Recommended | Initial enabled oracle initializer; omitted or zero leaves the allowlist empty. |
+| `INITIAL_REQUESTER` | Recommended | Initial enabled requester; omitted or zero leaves the allowlist empty. |
 | `INITIAL_DEFAULT_REREQUEST_BUDGET` | No | Initial default manual re-request budget; defaults to `5`. |
 
 On Polygon, the default Optimistic Oracle is Managed Optimistic Oracle V2 at
 `0x2C0367a9DB231dDeBd88a94b4f6461a6e47C58B1`, and the default reward currency is bridged USDC.e at
 `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`. Setting either address to the zero address uses the same network default.
 
-### Deploy And Verify On Etherscan
+### Fresh Polymarket Deployment
 
 Etherscan is the default verification target. Set an
 [Etherscan API key](https://docs.etherscan.io/contract-verification/verify-with-foundry), then deploy with Foundry's
-verification flags. If the first downstream integration address is known at deployment time, set it as
-`INITIAL_REQUESTER`; otherwise omit that variable and enable the integration after deployment.
+verification flags. Production deployments should initialize the intended owner, oracle initializer, and requester
+explicitly.
 
 ```bash
 cd pm-v2-oo-reporter
 
 export MNEMONIC="your mnemonic phrase"
-export DOWNSTREAM_REQUESTER="first downstream integration address"
+export INITIAL_OWNER="reporter owner or Safe"
+export INITIAL_ORACLE_INITIALIZER="UMA initializer address"
+export INITIAL_REQUESTER="Polymarket OOReporterModule address"
 
-INITIAL_REQUESTER="$DOWNSTREAM_REQUESTER" \
-forge script script/DeployOOReporter.s.sol \
+forge script script/DeployPolymarketOOReporter.s.sol \
   --rpc-url "$RPC_URL" \
   --broadcast \
   --slow \
@@ -271,18 +309,67 @@ forge script script/DeployOOReporter.s.sol \
   --etherscan-api-key "$ETHERSCAN_API_KEY"
 ```
 
-Foundry submits both the `OOReporter` implementation and the `ERC1967Proxy` from the broadcast sequence.
+Use `script/DeployOOReporter.s.sol` instead only when downstream integrations will pull results and no automatic
+`report(requestId)` callback is wanted. Foundry submits and verifies both the selected implementation and the
+`ERC1967Proxy`.
+
+### Upgrade An Existing Reporter Proxy
+
+The reporter upgrade accepts:
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `MNEMONIC` | Yes | Mnemonic for the implementation deployer, using derivation index 0. |
+| `PROXY_ADDRESS` | Yes | Existing reporter ERC1967 proxy. |
+| `EXPECTED_CHAIN_ID` | Yes | Independently chosen chain ID guard; do not derive it from an untrusted RPC URL. |
+| `EXPECTED_CURRENT_IMPLEMENTATION` | Yes | Exact current implementation expected in the proxy's EIP-1967 slot. |
+
+Resolve the current implementation independently from deployment records or a block explorer before running the
+script. The script rejects a wrong chain, a proxy whose implementation differs, an address without code, a zero owner,
+or a new implementation with the wrong UUPS UUID.
+
+```bash
+cd pm-v2-oo-reporter
+
+export MNEMONIC="implementation deployer mnemonic"
+export PROXY_ADDRESS="existing reporter proxy"
+export EXPECTED_CHAIN_ID=137
+export EXPECTED_CURRENT_IMPLEMENTATION="verified current implementation"
+
+forge script script/UpgradeOOReporter.s.sol \
+  --rpc-url "$RPC_URL" \
+  --broadcast \
+  --slow
+```
+
+If the mnemonic derives the current reporter owner, the script broadcasts both the implementation deployment and the
+proxy upgrade. Otherwise it broadcasts only the implementation deployment, simulates the owner-authorized upgrade, and
+prints the exact Safe transaction target, zero value, and `upgradeToAndCall` calldata. Verify the implementation before
+the Safe submits that transaction. The script labels this path as simulated; the proxy remains unchanged onchain until
+the owner executes the printed transaction.
+
+The upgrade preserves the owner, Managed OO, reward currency, default re-request budget, automatic re-request setting,
+allowlists, request lookup keys, and request data. The script checks scalar configuration before and after its direct
+upgrade or local simulation, while the upgrade regression test covers allowlists, lookup keys, and resolved and pending
+requests.
+
+Requests that settle after the upgrade use the automatic callback. Requests resolved before the upgrade receive no
+retroactive callback and must use the module's permissionless `report(requestId)` path. A legacy requester that does not
+implement `report(bytes32)` produces `ReportCallbackFailed`, but settlement remains nonblocking.
 
 ### Complete The Authorization Setup
 
-Two independent authorization edges must be configured before a downstream integration can use the reporter:
+Three independent authorization edges must be configured before a downstream integration can use a fresh reporter:
 
 1. The `OOReporter` proxy must be accepted as a requester by Managed Optimistic Oracle V2. The reporter itself is
    `msg.sender` when it creates or updates Managed OO requests.
 2. The downstream integration, such as a Polymarket oracle module, must be enabled as a requester on the `OOReporter`
    proxy so it can register and update reporter requests.
+3. At least one UMA oracle initializer must be enabled on the `OOReporter` proxy so it can initialize and operate the
+   authorized recovery paths.
 
-Always configure the proxy address, not the implementation address.
+Always configure the proxy address, not the implementation address. An upgrade preserves these edges, so they do not
+need to be recreated unless an address is intentionally changing.
 
 #### Add OOReporter To The Managed OO Requester Whitelist
 
@@ -358,15 +445,48 @@ When `INITIAL_OWNER` differs from the deployer or is a multisig, this call must 
 `INITIAL_REQUESTER` is distinct from `INITIAL_ORACLE_INITIALIZER`: a requester registers and updates reporter requests,
 while an oracle initializer creates the corresponding Managed OO requests.
 
-If the deployment was broadcast without `--verify`, recover the exact addresses and proxy initialization calldata from
-the broadcast artifact and verify both contracts separately:
+#### Enable An OOReporter Oracle Initializer
+
+Passing `INITIAL_ORACLE_INITIALIZER` enables the first initializer atomically during proxy initialization. Confirm its
+status with:
 
 ```bash
-CHAIN_ID=137
-BROADCAST_PATH="broadcast/DeployOOReporter.s.sol/${CHAIN_ID}/run-latest.json"
+ORACLE_INITIALIZER="UMA initializer address"
+
+cast call "$PROXY_ADDRESS" \
+  "isOracleInitializer(address)(bool)" \
+  "$ORACLE_INITIALIZER" \
+  --rpc-url "$RPC_URL"
+```
+
+If it was not set during deployment, or another initializer must be added later, the reporter owner must execute:
+
+```bash
+cast send "$PROXY_ADDRESS" \
+  "setOracleInitializerEnabled(address,bool)" \
+  "$ORACLE_INITIALIZER" \
+  true \
+  --rpc-url "$RPC_URL" \
+  --mnemonic "$MNEMONIC"
+```
+
+Use the configured owner or its Safe workflow when the deployer is not the owner.
+
+### Manual Verification
+
+If a fresh deployment was broadcast without `--verify`, recover the exact addresses and proxy initialization calldata
+from its artifact. The following selects the callback-enabled variant; use `DeployOOReporter`, `OOReporter`, and
+`src/OOReporter.sol:OOReporter` instead for the pull-only variant:
+
+```bash
+CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL")
+DEPLOY_SCRIPT=DeployPolymarketOOReporter
+IMPLEMENTATION_NAME=PolymarketOOReporter
+IMPLEMENTATION_SOURCE=src/PolymarketOOReporter.sol:PolymarketOOReporter
+BROADCAST_PATH="broadcast/${DEPLOY_SCRIPT}.s.sol/${CHAIN_ID}/run-latest.json"
 
 IMPLEMENTATION_ADDRESS=$(jq -r \
-  '.transactions[] | select(.contractName == "OOReporter") | .contractAddress' \
+  ".transactions[] | select(.contractName == \"${IMPLEMENTATION_NAME}\") | .contractAddress" \
   "$BROADCAST_PATH")
 PROXY_ADDRESS=$(jq -r \
   '.transactions[] | select(.contractName == "ERC1967Proxy") | .contractAddress' \
@@ -380,7 +500,7 @@ PROXY_CONSTRUCTOR_ARGS=$(cast abi-encode \
   "$INIT_DATA")
 
 forge verify-contract "$IMPLEMENTATION_ADDRESS" \
-  src/OOReporter.sol:OOReporter \
+  "$IMPLEMENTATION_SOURCE" \
   --chain "$CHAIN_ID" \
   --verifier etherscan \
   --etherscan-api-key "$ETHERSCAN_API_KEY" \
@@ -398,9 +518,43 @@ forge verify-contract "$PROXY_ADDRESS" \
 Both contracts must be verified: the implementation provides the application source and ABI, while the proxy provides
 the deployed entrypoint and ERC1967 implementation linkage.
 
+For an upgrade, verify only the new implementation; the proxy was already deployed and its address does not change:
+
+```bash
+CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL")
+UPGRADE_BROADCAST="broadcast/UpgradeOOReporter.s.sol/${CHAIN_ID}/run-latest.json"
+NEW_IMPLEMENTATION=$(jq -r \
+  '.transactions[] | select(.contractName == "PolymarketOOReporter") | .contractAddress' \
+  "$UPGRADE_BROADCAST")
+
+forge verify-contract "$NEW_IMPLEMENTATION" \
+  src/PolymarketOOReporter.sol:PolymarketOOReporter \
+  --chain "$CHAIN_ID" \
+  --verifier etherscan \
+  --etherscan-api-key "$ETHERSCAN_API_KEY" \
+  --watch
+```
+
+After the owner executes the upgrade, confirm the EIP-1967 implementation slot and preserved configuration:
+
+```bash
+IMPLEMENTATION_SLOT=0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
+cast storage "$PROXY_ADDRESS" "$IMPLEMENTATION_SLOT" --rpc-url "$RPC_URL"
+cast call "$PROXY_ADDRESS" "owner()(address)" --rpc-url "$RPC_URL"
+cast call "$PROXY_ADDRESS" "optimisticOracle()(address)" --rpc-url "$RPC_URL"
+cast call "$PROXY_ADDRESS" "rewardCurrency()(address)" --rpc-url "$RPC_URL"
+cast call "$PROXY_ADDRESS" "defaultRerequestBudget()(uint256)" --rpc-url "$RPC_URL"
+cast call "$PROXY_ADDRESS" "automaticRerequestsEnabled()(bool)" --rpc-url "$RPC_URL"
+```
+
 ### Tenderly Virtual TestNet
 
-Use the same deployment or post-deployment verification flow, with only these changes:
+Tenderly Virtual TestNets commonly use a custom chain ID rather than `137`. Read that chain ID from the RPC for
+broadcast-artifact paths and verification, but set `EXPECTED_CHAIN_ID` independently when exercising the upgrade guard.
+Unless the Virtual TestNet itself uses chain ID `137`, set `OPTIMISTIC_ORACLE` and `REWARD_CURRENCY` explicitly because
+the deployment scripts cannot apply Polygon defaults.
+
+Use the same deployment or post-deployment verification flow with these verifier changes:
 
 - Set `RPC_URL` to the Tenderly Virtual TestNet RPC URL.
 - Set `TENDERLY_VERIFIER_URL="${RPC_URL%/}/verify"`; the suffix must be exactly `/verify`.
@@ -409,8 +563,9 @@ Use the same deployment or post-deployment verification flow, with only these ch
   `--verifier-url "$TENDERLY_VERIFIER_URL"`.
 - Omit `--chain "$CHAIN_ID"` from post-deployment `forge verify-contract` calls.
 
-The Virtual TestNet RPC URL authenticates the verifier, so no separate Tenderly access key is required. Tenderly also
-requires the implementation and proxy to be verified separately for proxy-aware ABI decoding. See Tenderly's
+The Virtual TestNet RPC URL authenticates the verifier, so no separate Tenderly access key is required. Tenderly
+requires fresh implementations and proxies to be verified separately for proxy-aware ABI decoding. An upgrade requires
+verification of the new implementation only. See Tenderly's
 [deployment verification](https://docs.tenderly.co/virtual-environments/develop/deploy-contracts) and
 [proxy verification](https://docs.tenderly.co/virtual-environments/develop/verify-proxy-contracts) documentation.
 

@@ -63,14 +63,14 @@ contract DeployOOReporter is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        OOReporter implementation = new OOReporter();
-        reporter = OOReporter(address(new ERC1967Proxy(address(implementation), initData)));
+        address implementation = _deployImplementation();
+        reporter = OOReporter(address(new ERC1967Proxy(implementation, initData)));
 
         vm.stopBroadcast();
 
         console.log("\n=== Deployment Summary ===");
         console.log("Proxy address:", address(reporter));
-        console.log("Implementation address:", address(implementation));
+        console.log("Implementation address:", implementation);
         console.log("Chain ID:", block.chainid);
         console.log("Owner:", reporter.owner());
         console.log("Optimistic Oracle:", address(reporter.optimisticOracle()));
@@ -81,6 +81,10 @@ contract DeployOOReporter is Script {
 
     function _getDeployerPrivateKey() internal view returns (uint256) {
         return vm.deriveKey(vm.envString("MNEMONIC"), 0);
+    }
+
+    function _deployImplementation() internal virtual returns (address) {
+        return address(new OOReporter());
     }
 
     function _getDefaultOptimisticOracle() internal view returns (address) {
