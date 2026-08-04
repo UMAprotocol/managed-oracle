@@ -21,8 +21,7 @@ contract PrepareManagedOptimisticOracleV2VNetSafeTest is Test {
 
     function testSafeCalldataInitializesV2AndTransfersResolverAdministration() public {
         ManagedOptimisticOracleV2 moo = _deployFreshMoo();
-        PrepareManagedOptimisticOracleV2VNetSafe prepareScript =
-            new PrepareManagedOptimisticOracleV2VNetSafe();
+        PrepareManagedOptimisticOracleV2VNetSafe prepareScript = new PrepareManagedOptimisticOracleV2VNetSafe();
 
         bytes memory safeData = prepareScript.buildSafeCalldata();
         vm.prank(UPGRADE_ADMIN_SAFE);
@@ -32,9 +31,14 @@ contract PrepareManagedOptimisticOracleV2VNetSafeTest is Test {
         assertEq(moo.minimumDisputeWindow(), 5 minutes);
         assertTrue(moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), RESOLVER_ADMIN));
         assertFalse(moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), UPGRADE_ADMIN_SAFE));
+        assertEq(moo.getRoleAdmin(moo.RESOLVER_ROLE()), moo.RESOLVER_ADMIN_ROLE());
+        assertEq(moo.getRoleAdmin(moo.RESOLVER_ADMIN_ROLE()), moo.RESOLVER_ADMIN_ROLE());
         assertTrue(moo.hasRole(moo.RESOLVER_ROLE(), RESOLVER_1));
         assertTrue(moo.hasRole(moo.RESOLVER_ROLE(), RESOLVER_2));
         assertTrue(moo.hasRole(moo.RESOLVER_ROLE(), RESOLVER_3));
+        assertEq(moo.owner(), UPGRADE_ADMIN_SAFE);
+        assertTrue(moo.hasRole(moo.DEFAULT_ADMIN_ROLE(), UPGRADE_ADMIN_SAFE));
+        assertTrue(moo.hasRole(moo.CONFIG_ADMIN_ROLE(), CONFIG_ADMIN));
     }
 
     function _deployFreshMoo() private returns (ManagedOptimisticOracleV2 moo) {
@@ -49,8 +53,7 @@ contract PrepareManagedOptimisticOracleV2VNetSafeTest is Test {
         ManagedOptimisticOracleV2.CurrencyBondRange[] memory ranges =
             new ManagedOptimisticOracleV2.CurrencyBondRange[](1);
         ranges[0] = ManagedOptimisticOracleV2.CurrencyBondRange({
-            currency: currency,
-            range: ManagedOptimisticOracleV2.BondRange({minimumBond: 100e6, maximumBond: 100_000e6})
+            currency: currency, range: ManagedOptimisticOracleV2.BondRange({minimumBond: 100e6, maximumBond: 100_000e6})
         });
 
         ManagedOptimisticOracleV2 implementation = new ManagedOptimisticOracleV2();

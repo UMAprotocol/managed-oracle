@@ -312,6 +312,9 @@ The deployment script never reads a mnemonic or private key. Supply only the pub
 let Forge obtain the signer externally:
 
 ```bash
+# Install the versions pinned by yarn.lock before OpenZeppelin runs its FFI validation.
+yarn install --frozen-lockfile
+
 export DEPLOYER_ADDRESS=0x9A8f92a830A5cB89a3816e3D267CB7791c16b04D
 
 # Required preflight: validates the VNet sentinels and simulates both deployments.
@@ -328,6 +331,7 @@ the existing Safe. Complete V2 initialization in a second step:
 
 ```bash
 export PROXY_ADDRESS=<NEW_MOO_PROXY>
+export EXPECTED_IMPLEMENTATION=<NEW_MOO_IMPLEMENTATION>
 
 forge script script/PrepareManagedOptimisticOracleV2VNetSafe.s.sol:PrepareManagedOptimisticOracleV2VNetSafe \
   --rpc-url "$VNET_RPC_URL" -vvv
@@ -342,8 +346,30 @@ as the Safe. The atomic payload:
 3. Grants `RESOLVER_ADMIN_ROLE` to the existing resolver admin.
 4. Revokes the temporary resolver-admin role from the Safe.
 
-Execute this Safe transaction before changing the sentinel OOReporter implementation. No request-manager role is
-granted by this deployment; add one later through the config admin only if a concrete request manager is required.
+On this VNet only, an Admin RPC can execute the payload as the Safe without a Safe signature. Fund the impersonated
+Safe for gas if necessary, then submit the exact payload printed above:
+
+```bash
+export UPGRADE_ADMIN_SAFE=0x7FB4492Ff58E4326a99D7d4F66aE1f47c8286Fc6
+export SAFE_DATA=<PRINTED_SAFE_TRANSACTION_DATA>
+
+cast rpc --rpc-url "$VNET_ADMIN_RPC_URL" tenderly_setBalance "$UPGRADE_ADMIN_SAFE" 0x21e19e0c9bab2400000
+cast send --unlocked --from "$UPGRADE_ADMIN_SAFE" "$PROXY_ADDRESS" \
+  --data "$SAFE_DATA" --rpc-url "$VNET_ADMIN_RPC_URL"
+```
+
+This impersonation intentionally bypasses Gnosis Safe signatures and its internal nonce; never use it outside a
+Tenderly Virtual TestNet. Immediately verify the committed state with the read-only script:
+
+```bash
+forge script script/VerifyManagedOptimisticOracleV2VNet.s.sol:VerifyManagedOptimisticOracleV2VNet \
+  --rpc-url "$VNET_RPC_URL" -vvv
+```
+
+Execute and verify this Safe transaction before changing the sentinel OOReporter implementation. No request-manager
+role is granted by this deployment; add one later through the config admin only if a concrete request manager is
+required. The existing requester whitelist is deliberately reused, so all three addresses currently on that whitelist
+remain authorized on the fresh MOO, not only OOReporter.
 
 ## ManagedOptimisticOracleV2 Upgrade
 

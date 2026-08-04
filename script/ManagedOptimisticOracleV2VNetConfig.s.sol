@@ -31,6 +31,7 @@ abstract contract ManagedOptimisticOracleV2VNetConfig is Script {
     uint128 internal constant MAXIMUM_USDC_E_BOND = 100_000e6;
     uint256 internal constant DEFAULT_LIVENESS = 2 hours;
     uint256 internal constant MINIMUM_DISPUTE_WINDOW = 5 minutes;
+    uint48 internal constant DEFAULT_ADMIN_DELAY = 3 days;
 
     address internal constant LEGACY_MOO = 0x2C0367a9DB231dDeBd88a94b4f6461a6e47C58B1;
     address internal constant LEGACY_MOO_IMPLEMENTATION = 0x7d660195eD02AC61A42408780233F06dDd6A2E42;
@@ -55,12 +56,9 @@ abstract contract ManagedOptimisticOracleV2VNetConfig is Script {
         require(OO_REPORTER.code.length != 0, "VNet guard: OOReporter missing");
 
         require(_implementationOf(LEGACY_MOO) == LEGACY_MOO_IMPLEMENTATION, "VNet guard: legacy MOO changed");
+        require(_implementationOf(OO_REPORTER) == OO_REPORTER_IMPLEMENTATION, "VNet guard: OOReporter changed");
         require(
-            _implementationOf(OO_REPORTER) == OO_REPORTER_IMPLEMENTATION, "VNet guard: OOReporter changed"
-        );
-        require(
-            IOOReporterVNetSentinel(OO_REPORTER).optimisticOracle() == LEGACY_MOO,
-            "VNet guard: reporter oracle changed"
+            IOOReporterVNetSentinel(OO_REPORTER).optimisticOracle() == LEGACY_MOO, "VNet guard: reporter oracle changed"
         );
         require(
             AddressWhitelistInterface(REQUESTER_WHITELIST).isOnWhitelist(OO_REPORTER),
@@ -77,8 +75,34 @@ abstract contract ManagedOptimisticOracleV2VNetConfig is Script {
         require(_implementationOf(address(moo)).code.length != 0, "Deployment check: implementation missing");
         _assertBaseConfiguration(moo);
         require(moo.minimumDisputeWindow() == 0, "Deployment check: V2 already initialized");
+        require(!moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), RESOLVER_ADMIN), "Deployment check: resolver admin already set");
+    }
+
+    function _assertFreshV2Configuration(ManagedOptimisticOracleV2 moo) internal view {
+        require(address(moo).code.length != 0, "Post-deployment check: proxy missing");
+        require(_implementationOf(address(moo)).code.length != 0, "Post-deployment check: implementation missing");
+        _assertBaseConfiguration(moo);
+        require(moo.minimumDisputeWindow() == MINIMUM_DISPUTE_WINDOW, "Post-deployment check: wrong dispute window");
+
+        bytes32 resolverAdminRole = moo.RESOLVER_ADMIN_ROLE();
+        require(moo.hasRole(resolverAdminRole, RESOLVER_ADMIN), "Post-deployment check: resolver admin role missing");
         require(
-            !moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), RESOLVER_ADMIN), "Deployment check: resolver admin already set"
+            !moo.hasRole(resolverAdminRole, UPGRADE_ADMIN_SAFE),
+            "Post-deployment check: temporary resolver admin remains"
+        );
+        require(
+            moo.getRoleAdmin(moo.RESOLVER_ROLE()) == resolverAdminRole, "Post-deployment check: wrong resolver admin"
+        );
+        require(
+            moo.getRoleAdmin(resolverAdminRole) == resolverAdminRole,
+            "Post-deployment check: wrong resolver-admin admin"
+        );
+        require(moo.hasRole(moo.RESOLVER_ROLE(), RESOLVER_1), "Post-deployment check: resolver 1 missing");
+        require(moo.hasRole(moo.RESOLVER_ROLE(), RESOLVER_2), "Post-deployment check: resolver 2 missing");
+        require(moo.hasRole(moo.RESOLVER_ROLE(), RESOLVER_3), "Post-deployment check: resolver 3 missing");
+        require(
+            AddressWhitelistInterface(REQUESTER_WHITELIST).isOnWhitelist(OO_REPORTER),
+            "Post-deployment check: reporter not whitelisted"
         );
     }
 
@@ -89,14 +113,29 @@ abstract contract ManagedOptimisticOracleV2VNetConfig is Script {
             "Configuration check: wrong proposer whitelist"
         );
         require(
-            address(moo.requesterWhitelist()) == REQUESTER_WHITELIST,
-            "Configuration check: wrong requester whitelist"
+            address(moo.requesterWhitelist()) == REQUESTER_WHITELIST, "Configuration check: wrong requester whitelist"
         );
         require(moo.defaultLiveness() == DEFAULT_LIVENESS, "Configuration check: wrong default liveness");
         require(moo.owner() == UPGRADE_ADMIN_SAFE, "Configuration check: wrong upgrade admin");
+        require(moo.defaultAdmin() == UPGRADE_ADMIN_SAFE, "Configuration check: wrong default admin");
+        require(moo.defaultAdminDelay() == DEFAULT_ADMIN_DELAY, "Configuration check: wrong default admin delay");
+        require(moo.hasRole(moo.CONFIG_ADMIN_ROLE(), CONFIG_ADMIN), "Configuration check: config admin role missing");
         require(
-            moo.hasRole(moo.CONFIG_ADMIN_ROLE(), CONFIG_ADMIN), "Configuration check: config admin role missing"
+            moo.getRoleAdmin(moo.CONFIG_ADMIN_ROLE()) == moo.DEFAULT_ADMIN_ROLE(),
+            "Configuration check: wrong config-role admin"
         );
+        require(
+            moo.getRoleAdmin(moo.REQUEST_MANAGER_ROLE()) == moo.CONFIG_ADMIN_ROLE(),
+            "Configuration check: wrong request-manager admin"
+        );
+
+        (address pendingDefaultAdmin, uint48 pendingDefaultAdminSchedule) = moo.pendingDefaultAdmin();
+        require(
+            pendingDefaultAdmin == address(0) && pendingDefaultAdminSchedule == 0,
+            "Configuration check: pending default admin"
+        );
+        (uint48 pendingDelay, uint48 pendingDelaySchedule) = moo.pendingDefaultAdminDelay();
+        require(pendingDelay == 0 && pendingDelaySchedule == 0, "Configuration check: pending admin delay");
 
         (uint128 minimumBond, uint128 maximumBond) = moo.allowedBondRanges(IERC20(USDC_E));
         require(minimumBond == MINIMUM_USDC_E_BOND, "Configuration check: wrong minimum bond");

@@ -15,7 +15,9 @@ import {ManagedOptimisticOracleV2VNetConfig} from "./ManagedOptimisticOracleV2VN
 contract PrepareManagedOptimisticOracleV2VNetSafe is ManagedOptimisticOracleV2VNetConfig {
     function run() external returns (bytes memory safeData) {
         address proxyAddress = vm.envAddress("PROXY_ADDRESS");
+        address expectedImplementation = vm.envAddress("EXPECTED_IMPLEMENTATION");
         _assertVNet(EXPECTED_DEPLOYER);
+        require(_implementationOf(proxyAddress) == expectedImplementation, "Preparation check: wrong implementation");
 
         ManagedOptimisticOracleV2 moo = ManagedOptimisticOracleV2(proxyAddress);
         _assertFreshV1Configuration(moo);
@@ -32,39 +34,19 @@ contract PrepareManagedOptimisticOracleV2VNetSafe is ManagedOptimisticOracleV2VN
         (bool success, bytes memory returnData) = proxyAddress.call(safeData);
         if (!success) _revertWithData(returnData);
 
-        _assertV2Configuration(moo);
+        _assertFreshV2Configuration(moo);
         console.log("Safe transaction simulation: success");
     }
 
     function buildSafeCalldata() public pure returns (bytes memory) {
         bytes[] memory calls = new bytes[](6);
-        calls[0] = abi.encodeCall(
-            ManagedOptimisticOracleV2.initializeV2, (MINIMUM_DISPUTE_WINDOW, UPGRADE_ADMIN_SAFE)
-        );
+        calls[0] = abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (MINIMUM_DISPUTE_WINDOW, UPGRADE_ADMIN_SAFE));
         calls[1] = abi.encodeCall(ManagedOptimisticOracleV2.addResolver, (RESOLVER_1));
         calls[2] = abi.encodeCall(ManagedOptimisticOracleV2.addResolver, (RESOLVER_2));
         calls[3] = abi.encodeCall(ManagedOptimisticOracleV2.addResolver, (RESOLVER_3));
         calls[4] = abi.encodeCall(IAccessControl.grantRole, (keccak256("RESOLVER_ADMIN_ROLE"), RESOLVER_ADMIN));
-        calls[5] =
-            abi.encodeCall(IAccessControl.revokeRole, (keccak256("RESOLVER_ADMIN_ROLE"), UPGRADE_ADMIN_SAFE));
+        calls[5] = abi.encodeCall(IAccessControl.revokeRole, (keccak256("RESOLVER_ADMIN_ROLE"), UPGRADE_ADMIN_SAFE));
         return abi.encodeCall(MultiCaller.multicall, (calls));
-    }
-
-    function _assertV2Configuration(ManagedOptimisticOracleV2 moo) private view {
-        require(
-            moo.minimumDisputeWindow() == MINIMUM_DISPUTE_WINDOW, "Post-deployment check: wrong dispute window"
-        );
-        require(
-            moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), RESOLVER_ADMIN),
-            "Post-deployment check: resolver admin role missing"
-        );
-        require(
-            !moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), UPGRADE_ADMIN_SAFE),
-            "Post-deployment check: temporary resolver admin remains"
-        );
-        require(moo.hasRole(moo.RESOLVER_ROLE(), RESOLVER_1), "Post-deployment check: resolver 1 missing");
-        require(moo.hasRole(moo.RESOLVER_ROLE(), RESOLVER_2), "Post-deployment check: resolver 2 missing");
-        require(moo.hasRole(moo.RESOLVER_ROLE(), RESOLVER_3), "Post-deployment check: resolver 3 missing");
     }
 
     function _revertWithData(bytes memory returnData) private pure {
