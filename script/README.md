@@ -298,6 +298,53 @@ The `ManagedOptimisticOracleV2` contract:
 - Enforces maximum bonds and minimum liveness set by admins
 - Requires whitelisted requesters and proposers
 
+## Polymarket Polygon VNet fresh deployment
+
+`DeployManagedOptimisticOracleV2VNet.s.sol` is intentionally specific to the current Polymarket Tenderly VNet. It
+uses the current Finder, proposer whitelist, requester whitelist, admins, USDC.e bond range, and liveness values. It
+also checks the existing MOO and OOReporter implementations and wiring before starting a broadcast. These sentinels
+are required because the VNet and Polygon both report chain id 137.
+
+The build is pinned in `foundry.toml` to Solidity 0.8.30, EVM Prague, optimizer runs 1, and via-IR. The resulting MOO
+runtime is 24,524 bytes, leaving 52 bytes below the EIP-170 limit.
+
+The deployment script never reads a mnemonic or private key. Supply only the public sender address to the script and
+let Forge obtain the signer externally:
+
+```bash
+export DEPLOYER_ADDRESS=0x9A8f92a830A5cB89a3816e3D267CB7791c16b04D
+
+# Required preflight: validates the VNet sentinels and simulates both deployments.
+forge script script/DeployManagedOptimisticOracleV2VNet.s.sol:DeployManagedOptimisticOracleV2VNet \
+  --rpc-url "$VNET_RPC_URL" -vvv
+
+# Broadcast only after reviewing the preflight output. Forge prompts for the key without putting it in an argument.
+forge script script/DeployManagedOptimisticOracleV2VNet.s.sol:DeployManagedOptimisticOracleV2VNet \
+  --rpc-url "$VNET_RPC_URL" --sender "$DEPLOYER_ADDRESS" --interactive --broadcast -vvv
+```
+
+The proxy is deliberately deployed with the seven-argument `initialize` call and the upgrade admin set directly to
+the existing Safe. Complete V2 initialization in a second step:
+
+```bash
+export PROXY_ADDRESS=<NEW_MOO_PROXY>
+
+forge script script/PrepareManagedOptimisticOracleV2VNetSafe.s.sol:PrepareManagedOptimisticOracleV2VNetSafe \
+  --rpc-url "$VNET_RPC_URL" -vvv
+```
+
+The preparation script does not broadcast. It validates the new proxy, prints a Safe transaction with the proxy as
+target, zero value, `CALL` operation, and a single `multicall(bytes[])` payload, then simulates that payload locally
+as the Safe. The atomic payload:
+
+1. Calls `initializeV2` with a five-minute minimum dispute window and the Safe as temporary resolver admin.
+2. Grants `RESOLVER_ROLE` to the three resolvers configured on the existing VNet MOO.
+3. Grants `RESOLVER_ADMIN_ROLE` to the existing resolver admin.
+4. Revokes the temporary resolver-admin role from the Safe.
+
+Execute this Safe transaction before changing the sentinel OOReporter implementation. No request-manager role is
+granted by this deployment; add one later through the config admin only if a concrete request manager is required.
+
 ## ManagedOptimisticOracleV2 Upgrade
 
 The `UpgradeManagedOptimisticOracleV2.s.sol` script upgrades the `ManagedOptimisticOracleV2` contract implementation using OpenZeppelin Upgrades library.
