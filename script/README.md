@@ -346,13 +346,15 @@ as the Safe. The atomic payload:
 3. Grants `RESOLVER_ADMIN_ROLE` to the existing resolver admin.
 4. Revokes the temporary resolver-admin role from the Safe.
 
-On this VNet only, an Admin RPC can execute the payload as the Safe without a Safe signature. Fund the impersonated
-Safe for gas if necessary, then submit the exact payload printed above:
+On this VNet only, an Admin RPC can execute the payload as the Safe without a Safe signature. Copy the distinct Admin
+RPC URL from the Tenderly dashboard—the regular VNet RPC does not expose these methods—and verify it before funding
+the impersonated Safe and submitting the exact payload printed above:
 
 ```bash
 export UPGRADE_ADMIN_SAFE=0x7FB4492Ff58E4326a99D7d4F66aE1f47c8286Fc6
 export SAFE_DATA=<PRINTED_SAFE_TRANSACTION_DATA>
 
+cast rpc --rpc-url "$VNET_ADMIN_RPC_URL" evm_getLatest
 cast rpc --rpc-url "$VNET_ADMIN_RPC_URL" tenderly_setBalance "$UPGRADE_ADMIN_SAFE" 0x21e19e0c9bab2400000
 cast send --unlocked --from "$UPGRADE_ADMIN_SAFE" "$PROXY_ADDRESS" \
   --data "$SAFE_DATA" --rpc-url "$VNET_ADMIN_RPC_URL"
