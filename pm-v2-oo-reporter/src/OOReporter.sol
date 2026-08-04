@@ -536,10 +536,10 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         oracle.setCustomLiveness(priceIdentifier, requestTimestamp, requestRules, liveness);
     }
 
-    /// @dev Keeps the reporter off Managed OO's default liveness path and within the registered bounds.
+    /// @dev Keeps the reporter off Managed OO's default liveness path and above the registered minimum.
     function _requireValidRequestLiveness(RequestData storage request, uint64 liveness) private view {
         if (liveness == 0) revert RequestLivenessCannotBeZero();
-        if (liveness < request.minimumLiveness || liveness > request.maximumLiveness) {
+        if (liveness < request.minimumLiveness) {
             revert RequestLivenessOutOfRange(liveness, request.minimumLiveness, request.maximumLiveness);
         }
     }

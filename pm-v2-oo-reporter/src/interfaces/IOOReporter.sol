@@ -36,9 +36,9 @@ struct RequestData {
     /// @dev Seeded from the default at initialization, owner-adjustable, and intentionally refreshed to the default after
     /// DVM-resolved P4 settlements so UMA-controlled oracle initializers can keep recovery moving.
     uint256 manualRerequestsRemaining;
-    /// @notice Minimum liveness UMA is allowed to use for this request.
+    /// @notice Minimum custom liveness enforced by the reporter for this request.
     uint64 minimumLiveness;
-    /// @notice Maximum liveness UMA is allowed to use for this request.
+    /// @notice Target maximum custom liveness for offchain initializers, not an onchain runtime ceiling.
     uint64 maximumLiveness;
 }
 
@@ -120,7 +120,7 @@ interface IOOReporter {
     );
     /// @notice Thrown when the oracle initializer tries to use the Managed OO default liveness path.
     error RequestLivenessCannotBeZero();
-    /// @notice Thrown when selected liveness is outside the registered bounds.
+    /// @notice Thrown when selected liveness is below the registered minimum.
     error RequestLivenessOutOfRange(uint64 liveness, uint64 minimumLiveness, uint64 maximumLiveness);
     /// @notice Thrown when a final reporter outcome is requested before one is available.
     error RequestResolutionUnavailable();
@@ -262,13 +262,13 @@ interface IOOReporter {
     /// Enabled requesters share one owner-managed request namespace; the contract does not isolate identical UMA
     /// request identities per requester. Independent integrations that need the exact same UMA request identity should
     /// use separate reporter deployments; integrations with similar rules can domain-separate request rules so their
-    /// UMA request identities differ. Requesters should preserve an admin recovery path for rules or liveness ranges
-    /// that become unusable before initialization.
+    /// UMA request identities differ. minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness
+    /// remains a registration-time bound and offchain target that does not cap initialization or re-requests.
     /// @param requestId Requester-defined request ID to bind to the UMA request identity.
     /// @param priceIdentifier UMA price identifier to request.
     /// @param requestRules Raw UMA request rules supplied by the requester.
     /// @param minimumLiveness Minimum custom liveness the oracle initializer may use.
-    /// @param maximumLiveness Maximum custom liveness the oracle initializer may use.
+    /// @param maximumLiveness Target maximum custom liveness for offchain initialization.
     function registerRequest(
         bytes32 requestId,
         bytes32 priceIdentifier,
@@ -290,8 +290,9 @@ interface IOOReporter {
     /// @param reward Reward offered to a successful OO proposer.
     /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective
     /// proposal bond can differ if Managed OO request-manager preconfigs apply at proposal time.
-    /// @param liveness Custom OO liveness period within the registered bounds. The effective proposal liveness can
-    /// differ if Managed OO request-manager preconfigs apply at proposal time.
+    /// @param liveness Custom OO liveness period at or above the registered minimum. It may exceed the registered
+    /// target maximum and remains subject to Managed OO constraints. The effective proposal liveness can differ if
+    /// Managed OO request-manager preconfigs apply at proposal time.
     function initializeRequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
     /// @notice Allows an enabled oracle initializer to create a replacement Managed OO request after a callback opens the gate.
@@ -299,8 +300,9 @@ interface IOOReporter {
     /// @param reward Reward amount for the replacement request.
     /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective
     /// proposal bond can differ if Managed OO request-manager preconfigs apply at proposal time.
-    /// @param liveness Custom OO liveness period within the registered bounds. The effective proposal liveness can
-    /// differ if Managed OO request-manager preconfigs apply at proposal time.
+    /// @param liveness Custom OO liveness period at or above the registered minimum. It may exceed the registered
+    /// target maximum and remains subject to Managed OO constraints. The effective proposal liveness can differ if
+    /// Managed OO request-manager preconfigs apply at proposal time.
     function rerequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness) external;
 
     /// @notice Updates the remaining manual re-request budget for an initialized unresolved request.
