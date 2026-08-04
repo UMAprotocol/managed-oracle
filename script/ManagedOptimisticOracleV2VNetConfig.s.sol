@@ -23,7 +23,7 @@ abstract contract ManagedOptimisticOracleV2VNetConfig is Script {
     address internal constant DEFAULT_PROPOSER_WHITELIST = 0x9F35885CE8f67a942D7B2f4Fbf937987DA08c463;
     address internal constant REQUESTER_WHITELIST = 0x0f79d0039956D58a7d5d006a6Dd64a35616Aa2c6;
     address internal constant CONFIG_ADMIN = 0x3dcE0a29139A851Da1dFCa56Af8e8a6440b4D952;
-    address internal constant UPGRADE_ADMIN_SAFE = 0x7FB4492Ff58E4326a99D7d4F66aE1f47c8286Fc6;
+    address internal constant LEGACY_UPGRADE_ADMIN_SAFE = 0x7FB4492Ff58E4326a99D7d4F66aE1f47c8286Fc6;
     address internal constant RESOLVER_ADMIN = 0x6ee4D971142afadEa1828445124D6137080B4146;
 
     address internal constant USDC_E = 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174;
@@ -66,14 +66,14 @@ abstract contract ManagedOptimisticOracleV2VNetConfig is Script {
         );
 
         ManagedOptimisticOracleV2 legacyMoo = ManagedOptimisticOracleV2(LEGACY_MOO);
-        _assertBaseConfiguration(legacyMoo);
+        _assertBaseConfiguration(legacyMoo, LEGACY_UPGRADE_ADMIN_SAFE);
         require(legacyMoo.minimumDisputeWindow() == MINIMUM_DISPUTE_WINDOW, "VNet guard: dispute window changed");
     }
 
     function _assertFreshV1Configuration(ManagedOptimisticOracleV2 moo) internal view {
         require(address(moo).code.length != 0, "Deployment check: proxy missing");
         require(_implementationOf(address(moo)).code.length != 0, "Deployment check: implementation missing");
-        _assertBaseConfiguration(moo);
+        _assertBaseConfiguration(moo, EXPECTED_DEPLOYER);
         require(moo.minimumDisputeWindow() == 0, "Deployment check: V2 already initialized");
         require(!moo.hasRole(moo.RESOLVER_ADMIN_ROLE(), RESOLVER_ADMIN), "Deployment check: resolver admin already set");
     }
@@ -81,13 +81,13 @@ abstract contract ManagedOptimisticOracleV2VNetConfig is Script {
     function _assertFreshV2Configuration(ManagedOptimisticOracleV2 moo) internal view {
         require(address(moo).code.length != 0, "Post-deployment check: proxy missing");
         require(_implementationOf(address(moo)).code.length != 0, "Post-deployment check: implementation missing");
-        _assertBaseConfiguration(moo);
+        _assertBaseConfiguration(moo, EXPECTED_DEPLOYER);
         require(moo.minimumDisputeWindow() == MINIMUM_DISPUTE_WINDOW, "Post-deployment check: wrong dispute window");
 
         bytes32 resolverAdminRole = moo.RESOLVER_ADMIN_ROLE();
         require(moo.hasRole(resolverAdminRole, RESOLVER_ADMIN), "Post-deployment check: resolver admin role missing");
         require(
-            !moo.hasRole(resolverAdminRole, UPGRADE_ADMIN_SAFE),
+            !moo.hasRole(resolverAdminRole, EXPECTED_DEPLOYER),
             "Post-deployment check: temporary resolver admin remains"
         );
         require(
@@ -106,7 +106,7 @@ abstract contract ManagedOptimisticOracleV2VNetConfig is Script {
         );
     }
 
-    function _assertBaseConfiguration(ManagedOptimisticOracleV2 moo) private view {
+    function _assertBaseConfiguration(ManagedOptimisticOracleV2 moo, address expectedUpgradeAdmin) private view {
         require(address(moo.finder()) == FINDER, "Configuration check: wrong Finder");
         require(
             address(moo.defaultProposerWhitelist()) == DEFAULT_PROPOSER_WHITELIST,
@@ -116,8 +116,8 @@ abstract contract ManagedOptimisticOracleV2VNetConfig is Script {
             address(moo.requesterWhitelist()) == REQUESTER_WHITELIST, "Configuration check: wrong requester whitelist"
         );
         require(moo.defaultLiveness() == DEFAULT_LIVENESS, "Configuration check: wrong default liveness");
-        require(moo.owner() == UPGRADE_ADMIN_SAFE, "Configuration check: wrong upgrade admin");
-        require(moo.defaultAdmin() == UPGRADE_ADMIN_SAFE, "Configuration check: wrong default admin");
+        require(moo.owner() == expectedUpgradeAdmin, "Configuration check: wrong upgrade admin");
+        require(moo.defaultAdmin() == expectedUpgradeAdmin, "Configuration check: wrong default admin");
         require(moo.defaultAdminDelay() == DEFAULT_ADMIN_DELAY, "Configuration check: wrong default admin delay");
         require(moo.hasRole(moo.CONFIG_ADMIN_ROLE(), CONFIG_ADMIN), "Configuration check: config admin role missing");
         require(

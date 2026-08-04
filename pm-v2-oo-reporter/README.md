@@ -251,9 +251,9 @@ Managed OO `getRequestReward` getter. A reporter can still point at the older im
 revert.
 
 For the Polymarket Tenderly VNet, use the repository's
-[fresh Managed OO flow](../script/README.md#polymarket-polygon-vnet-fresh-deployment), including the Safe V2
-initialization and resolver-role transaction. Then confirm the replacement proxy exposes the getter; an unused request
-key returns zero:
+[fresh Managed OO flow](../script/README.md#polymarket-polygon-vnet-fresh-deployment), including its deployer-signed
+post-deployment V2 initialization and resolver-role transaction. Then confirm the replacement proxy exposes the getter;
+an unused request key returns zero:
 
 ```bash
 # Uses the Polygon default when unset. Set OPTIMISTIC_ORACLE explicitly first on any other network.

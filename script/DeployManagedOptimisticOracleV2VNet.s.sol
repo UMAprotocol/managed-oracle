@@ -2,9 +2,11 @@
 pragma solidity ^0.8.27;
 
 import {console} from "forge-std/console.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Upgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
 
+import {MultiCaller} from "../src/common/implementation/MultiCaller.sol";
 import {ManagedOptimisticOracleV2} from "../src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol";
 import {ManagedOptimisticOracleV2VNetConfig} from "./ManagedOptimisticOracleV2VNetConfig.s.sol";
 
@@ -37,7 +39,7 @@ contract DeployManagedOptimisticOracleV2VNet is ManagedOptimisticOracleV2VNetCon
                         REQUESTER_WHITELIST,
                         currencyBondRanges,
                         CONFIG_ADMIN,
-                        UPGRADE_ADMIN_SAFE
+                        EXPECTED_DEPLOYER
                     )
                 )
             )
@@ -45,11 +47,36 @@ contract DeployManagedOptimisticOracleV2VNet is ManagedOptimisticOracleV2VNetCon
         vm.stopBroadcast();
 
         _assertFreshV1Configuration(proxy);
+
+        bytes memory v2InitializationData = buildV2InitializationCalldata();
+        vm.startBroadcast(deployer);
+        (bool success, bytes memory returnData) = address(proxy).call(v2InitializationData);
+        vm.stopBroadcast();
+        if (!success) _revertWithData(returnData);
+
+        _assertFreshV2Configuration(proxy);
         proxyAddress = address(proxy);
         implementationAddress = _implementationOf(proxyAddress);
 
         console.log("ManagedOptimisticOracleV2 proxy:", proxyAddress);
         console.log("ManagedOptimisticOracleV2 implementation:", implementationAddress);
-        console.log("Safe post-deployment initialization required:", UPGRADE_ADMIN_SAFE);
+        console.log("ManagedOptimisticOracleV2 upgrade/default admin:", EXPECTED_DEPLOYER);
+    }
+
+    function buildV2InitializationCalldata() public pure returns (bytes memory) {
+        bytes[] memory calls = new bytes[](6);
+        calls[0] = abi.encodeCall(ManagedOptimisticOracleV2.initializeV2, (MINIMUM_DISPUTE_WINDOW, EXPECTED_DEPLOYER));
+        calls[1] = abi.encodeCall(ManagedOptimisticOracleV2.addResolver, (RESOLVER_1));
+        calls[2] = abi.encodeCall(ManagedOptimisticOracleV2.addResolver, (RESOLVER_2));
+        calls[3] = abi.encodeCall(ManagedOptimisticOracleV2.addResolver, (RESOLVER_3));
+        calls[4] = abi.encodeCall(IAccessControl.grantRole, (keccak256("RESOLVER_ADMIN_ROLE"), RESOLVER_ADMIN));
+        calls[5] = abi.encodeCall(IAccessControl.revokeRole, (keccak256("RESOLVER_ADMIN_ROLE"), EXPECTED_DEPLOYER));
+        return abi.encodeCall(MultiCaller.multicall, (calls));
+    }
+
+    function _revertWithData(bytes memory returnData) private pure {
+        assembly {
+            revert(add(returnData, 0x20), mload(returnData))
+        }
     }
 }

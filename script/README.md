@@ -317,7 +317,7 @@ yarn install --frozen-lockfile
 
 export DEPLOYER_ADDRESS=0x9A8f92a830A5cB89a3816e3D267CB7791c16b04D
 
-# Required preflight: validates the VNet sentinels and simulates both deployments.
+# Required preflight: validates the VNet sentinels and simulates the full deployment and configuration flow.
 forge script script/DeployManagedOptimisticOracleV2VNet.s.sol:DeployManagedOptimisticOracleV2VNet \
   --rpc-url "$VNET_RPC_URL" -vvv
 
@@ -326,49 +326,29 @@ forge script script/DeployManagedOptimisticOracleV2VNet.s.sol:DeployManagedOptim
   --rpc-url "$VNET_RPC_URL" --sender "$DEPLOYER_ADDRESS" --interactive --broadcast -vvv
 ```
 
-The proxy is deliberately deployed with the seven-argument `initialize` call and the upgrade admin set directly to
-the existing Safe. Complete V2 initialization in a second step:
+The script deploys the proxy with the seven-argument `initialize` call and `DEPLOYER_ADDRESS` as its final upgrade and
+default admin. It then stops the deployment broadcast, verifies the fresh V1 state, and sends a separate transaction
+from the deployer containing one atomic `multicall(bytes[])` payload. That payload:
+
+1. Calls `initializeV2` with a five-minute minimum dispute window and the deployer as temporary resolver admin.
+2. Grants `RESOLVER_ROLE` to the three resolvers configured on the existing VNet MOO.
+3. Grants `RESOLVER_ADMIN_ROLE` to the existing resolver admin.
+4. Revokes the temporary resolver-admin role from the deployer.
+
+If any call fails, the complete post-deployment configuration transaction reverts. No Safe transaction, Safe signature,
+or Tenderly Admin RPC is required. After the deployment succeeds, export the printed addresses and verify the committed
+state with the read-only script:
 
 ```bash
 export PROXY_ADDRESS=<NEW_MOO_PROXY>
 export EXPECTED_IMPLEMENTATION=<NEW_MOO_IMPLEMENTATION>
 
-forge script script/PrepareManagedOptimisticOracleV2VNetSafe.s.sol:PrepareManagedOptimisticOracleV2VNetSafe \
-  --rpc-url "$VNET_RPC_URL" -vvv
-```
-
-The preparation script does not broadcast. It validates the new proxy, prints a Safe transaction with the proxy as
-target, zero value, `CALL` operation, and a single `multicall(bytes[])` payload, then simulates that payload locally
-as the Safe. The atomic payload:
-
-1. Calls `initializeV2` with a five-minute minimum dispute window and the Safe as temporary resolver admin.
-2. Grants `RESOLVER_ROLE` to the three resolvers configured on the existing VNet MOO.
-3. Grants `RESOLVER_ADMIN_ROLE` to the existing resolver admin.
-4. Revokes the temporary resolver-admin role from the Safe.
-
-On this VNet only, an Admin RPC can execute the payload as the Safe without a Safe signature. Copy the distinct Admin
-RPC URL from the Tenderly dashboard—the regular VNet RPC does not expose these methods—and verify it before funding
-the impersonated Safe and submitting the exact payload printed above:
-
-```bash
-export UPGRADE_ADMIN_SAFE=0x7FB4492Ff58E4326a99D7d4F66aE1f47c8286Fc6
-export SAFE_DATA=<PRINTED_SAFE_TRANSACTION_DATA>
-
-cast rpc --rpc-url "$VNET_ADMIN_RPC_URL" evm_getLatest
-cast rpc --rpc-url "$VNET_ADMIN_RPC_URL" tenderly_setBalance "$UPGRADE_ADMIN_SAFE" 0x21e19e0c9bab2400000
-cast send --unlocked --from "$UPGRADE_ADMIN_SAFE" "$PROXY_ADDRESS" \
-  --data "$SAFE_DATA" --rpc-url "$VNET_ADMIN_RPC_URL"
-```
-
-This impersonation intentionally bypasses Gnosis Safe signatures and its internal nonce; never use it outside a
-Tenderly Virtual TestNet. Immediately verify the committed state with the read-only script:
-
-```bash
 forge script script/VerifyManagedOptimisticOracleV2VNet.s.sol:VerifyManagedOptimisticOracleV2VNet \
   --rpc-url "$VNET_RPC_URL" -vvv
 ```
 
-Execute and verify this Safe transaction before changing the sentinel OOReporter implementation. No request-manager
+Verify the fresh MOO before changing the sentinel OOReporter implementation. The legacy sentinel deliberately still
+requires the existing MOO's Safe admin, while the new MOO remains administered by `DEPLOYER_ADDRESS`. No request-manager
 role is granted by this deployment; add one later through the config admin only if a concrete request manager is
 required. The existing requester whitelist is deliberately reused, so all three addresses currently on that whitelist
 remain authorized on the fresh MOO, not only OOReporter.
