@@ -4,12 +4,9 @@ pragma solidity 0.8.34;
 import {Script} from "forge-std/Script.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {OOReporter} from "../src/OOReporter.sol";
 import {PolymarketOOReporter} from "../src/PolymarketOOReporter.sol";
-import {PolymarketOOReporterOracleMigration} from "../src/PolymarketOOReporterOracleMigration.sol";
-import {IOptimisticOracleV2} from "../src/interfaces/IOptimisticOracleV2.sol";
 import {RequestData} from "../src/interfaces/IOOReporter.sol";
 
 interface IUUPSUpgradeable {
@@ -22,67 +19,47 @@ interface IAddressWhitelist {
     function isWhitelistEnabled() external view returns (bool);
 }
 
-interface IManagedOptimisticOracleMigrationTarget {
-    function defaultLiveness() external view returns (uint256);
-
-    function finder() external view returns (address);
-
-    function defaultProposerWhitelist() external view returns (address);
-
+interface IManagedOptimisticOracleConfiguration {
     function requesterWhitelist() external view returns (address);
-
-    function minimumDisputeWindow() external view returns (uint256);
-
-    function allowedBondRanges(IERC20 currency) external view returns (uint128 minimumBond, uint128 maximumBond);
-
-    function CONFIG_ADMIN_ROLE() external view returns (bytes32);
-
-    function RESOLVER_ROLE() external view returns (bytes32);
-
-    function RESOLVER_ADMIN_ROLE() external view returns (bytes32);
-
-    function DEFAULT_ADMIN_ROLE() external view returns (bytes32);
-
-    function hasRole(bytes32 role, address account) external view returns (bool);
 }
 
-/// @title Atomic OOReporter implementation and Managed OO migration
-/// @notice Installs the final Polymarket reporter and moves future requests to a fully configured replacement Managed OO.
-/// @dev The script discovers every registered request from on-chain events, refuses unresolved initialized requests,
-///      deploys a constructor-bound temporary bridge and final implementation, then atomically migrates and removes the
-///      bridge. The reporter must remain operationally frozen between the preflight simulation and broadcast.
-///      Use an external signer with `--sender <DEPLOYER_ADDRESS> --interactive`; no private key or mnemonic is read here.
+interface IOOReporterModuleConfiguration {
+    function ooReporter() external view returns (address);
+}
+
+/// @title Guarded OOReporter implementation upgrade
+/// @notice Installs PolymarketOOReporter on an existing proxy without changing its Managed OO or reporter state.
+/// @dev The script discovers every registered request from on-chain events, validates live configuration and wiring,
+///      deploys the final implementation, and invokes `upgradeToAndCall` with empty calldata. Use an external signer
+///      with `--sender <DEPLOYER_ADDRESS> --interactive`; no private key or mnemonic is read here.
 contract UpgradeOOReporter is Script {
     bytes32 internal constant IMPLEMENTATION_SLOT = bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1);
     bytes32 internal constant INITIALIZABLE_STORAGE_SLOT =
         0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
     bytes32 internal constant REQUEST_REGISTERED_TOPIC =
         keccak256("RequestRegistered(bytes32,address,bytes32,bytes,uint64,uint64)");
+    bytes32 internal constant REQUESTER_ENABLED_TOPIC = keccak256("RequesterEnabledSet(address,bool)");
     bytes32 internal constant ORACLE_INITIALIZER_ENABLED_TOPIC = keccak256("OracleInitializerEnabledSet(address,bool)");
     bytes32 internal constant INITIALIZED_TOPIC = keccak256("Initialized(uint64)");
 
-    error ActiveRequest(bytes32 requestId);
     error AddressHasNoCode(address target);
     error AddressMismatch(string field, address expected, address actual);
     error Bytes32Mismatch(string field, bytes32 expected, bytes32 actual);
     error ChainIdMismatch(uint256 expected, uint256 actual);
-    error DeferredPayoutOutstanding(uint256 amount);
+    error DuplicateRegisteredRequest(bytes32 requestId);
+    error ExpectedAddressNotEnabled(bytes32 eventTopic, address account);
     error InvalidDeploymentBlock(uint256 deploymentBlock, uint256 currentBlock);
-    error InvalidOracleInitializerLog(uint256 logIndex);
-    error InvalidRegisteredRequestLog(uint256 logIndex);
+    error InvalidEnabledAddressLog(bytes32 eventTopic, uint256 logIndex);
     error InvalidProxiableUUID(address implementation, bytes32 actual);
-    error MissingRole(bytes32 role, address account);
-    error NoExpectedResolvers();
+    error InvalidRegisteredRequestLog(uint256 logIndex);
     error OwnerMismatch(address expected, address actual);
     error PostUpgradeStateMismatch();
-    error RequestLivenessIncompatible(bytes32 requestId, uint64 maximumLiveness, uint256 minimumDisputeWindow);
-    error RequestStateChanged(bytes32 requestId);
-    error UintMismatch(string field, uint256 expected, uint256 actual);
-    error UnexpectedEnabledOracleInitializer(address oracleInitializer);
-    error UnexpectedRole(bytes32 role, address account);
-    error WhitelistDisabled(address whitelist);
-    error ReporterNotWhitelisted(address whitelist, address reporter);
+    error RegisteredRequestStateMismatch(bytes32 requestId);
     error ReporterInitializationNotFound(uint256 deploymentBlock);
+    error ReporterNotWhitelisted(address whitelist, address reporter);
+    error RequestStateChanged(bytes32 requestId);
+    error UnexpectedEnabledAddress(bytes32 eventTopic, address account);
+    error WhitelistDisabled(address whitelist);
 
     struct Config {
         uint256 expectedChainId;
@@ -92,26 +69,17 @@ contract UpgradeOOReporter is Script {
         bytes32 expectedProxyCodehash;
         address expectedCurrentImplementation;
         bytes32 expectedCurrentImplementationCodehash;
+        bytes32 expectedFinalImplementationCreationCodehash;
         address expectedCurrentOptimisticOracle;
         bytes32 expectedCurrentOptimisticOracleCodehash;
-        address newOptimisticOracle;
-        bytes32 expectedNewMooProxyCodehash;
-        address expectedNewMooImplementation;
-        bytes32 expectedNewMooImplementationCodehash;
+        address expectedCurrentMooImplementation;
+        bytes32 expectedCurrentMooImplementationCodehash;
+        address expectedMooRequesterWhitelist;
+        bytes32 expectedMooRequesterWhitelistCodehash;
         address expectedRewardCurrency;
         address expectedRequester;
+        bytes32 expectedRequesterCodehash;
         address expectedOracleInitializer;
-        address expectedNewFinder;
-        address expectedNewDefaultProposerWhitelist;
-        address expectedNewRequesterWhitelist;
-        uint256 expectedNewDefaultLiveness;
-        uint256 expectedNewMinimumDisputeWindow;
-        uint256 expectedNewMinimumBond;
-        uint256 expectedNewMaximumBond;
-        address expectedNewConfigAdmin;
-        address expectedNewUpgradeAdmin;
-        address expectedNewResolverAdmin;
-        address[] expectedNewResolvers;
     }
 
     struct ReporterState {
@@ -126,76 +94,53 @@ contract UpgradeOOReporter is Script {
         bytes32[] requestHashes;
     }
 
-    function run() external returns (address migrationImplementation, address finalImplementation) {
+    function run() external returns (address finalImplementation) {
         Config memory config = _loadConfig();
         if (block.chainid != config.expectedChainId) {
             revert ChainIdMismatch(config.expectedChainId, block.chainid);
         }
 
-        _requireCode(config.proxy);
-        _requireCode(config.expectedCurrentImplementation);
-        _requireCode(config.expectedCurrentOptimisticOracle);
-        _requireCode(config.newOptimisticOracle);
-        _requireCode(config.expectedNewMooImplementation);
-        _expectCodehash("reporter proxy", config.expectedProxyCodehash, config.proxy.codehash);
-        _expectCodehash(
-            "current reporter implementation",
-            config.expectedCurrentImplementationCodehash,
-            config.expectedCurrentImplementation.codehash
-        );
-        _expectCodehash(
-            "current Managed OO proxy",
-            config.expectedCurrentOptimisticOracleCodehash,
-            config.expectedCurrentOptimisticOracle.codehash
-        );
-        _expectCodehash("new Managed OO proxy", config.expectedNewMooProxyCodehash, config.newOptimisticOracle.codehash);
-        _expectCodehash(
-            "new Managed OO implementation",
-            config.expectedNewMooImplementationCodehash,
-            config.expectedNewMooImplementation.codehash
-        );
-
-        _expectAddress("current implementation", config.expectedCurrentImplementation, _getImplementation(config.proxy));
+        _validateCodeAndImplementations(config);
 
         OOReporter reporter = OOReporter(config.proxy);
         _validateCurrentReporter(reporter, config);
-        _validateNewManagedOracle(config);
-
         _validateReporterDeploymentBlock(config.proxy, config.reporterDeploymentBlock);
-        bytes32[] memory registeredRequestIds = _loadRegisteredRequestIds(config.proxy, config.reporterDeploymentBlock);
-        _validateExclusiveOracleInitializer(
-            config.proxy, config.reporterDeploymentBlock, config.expectedOracleInitializer
+
+        bytes32[] memory registeredRequestIds = _loadAndValidateRegisteredRequests(
+            reporter, config.proxy, config.reporterDeploymentBlock, config.expectedRequester
         );
-        _validateRequests(reporter, registeredRequestIds, config.expectedNewMinimumDisputeWindow);
+        _validateExclusiveEnabledAddress(
+            config.proxy, config.reporterDeploymentBlock, REQUESTER_ENABLED_TOPIC, config.expectedRequester
+        );
+        _validateExclusiveEnabledAddress(
+            config.proxy,
+            config.reporterDeploymentBlock,
+            ORACLE_INITIALIZER_ENABLED_TOPIC,
+            config.expectedOracleInitializer
+        );
         ReporterState memory stateBefore = _snapshotReporterState(reporter, config, registeredRequestIds);
 
-        uint256 deferredPayout = IOptimisticOracleV2(config.expectedCurrentOptimisticOracle)
-            .deferredPayouts(IERC20(config.expectedRewardCurrency), config.proxy);
-        if (deferredPayout != 0) revert DeferredPayoutOutstanding(deferredPayout);
+        _expectCodehash(
+            "final reporter implementation creation code",
+            config.expectedFinalImplementationCreationCodehash,
+            keccak256(type(PolymarketOOReporter).creationCode)
+        );
 
-        console.log("Deployer:", config.deployer);
+        console.log("Deployer and owner:", config.deployer);
         console.log("Reporter proxy:", config.proxy);
-        console.log("Current Managed OO:", config.expectedCurrentOptimisticOracle);
-        console.log("New Managed OO:", config.newOptimisticOracle);
+        console.log("Current reporter implementation:", config.expectedCurrentImplementation);
+        console.log("Preserved Managed OO:", config.expectedCurrentOptimisticOracle);
+        console.log("Requester module:", config.expectedRequester);
         console.log("Registered requests discovered:", registeredRequestIds.length);
 
         vm.startBroadcast(config.deployer);
         PolymarketOOReporter finalReporterImplementation = new PolymarketOOReporter();
-        PolymarketOOReporterOracleMigration migration = new PolymarketOOReporterOracleMigration(
-            config.expectedCurrentOptimisticOracle, config.newOptimisticOracle, address(finalReporterImplementation)
-        );
         vm.stopBroadcast();
 
-        migrationImplementation = address(migration);
         finalImplementation = address(finalReporterImplementation);
-        _requireUUPSImplementation(migrationImplementation);
         _requireUUPSImplementation(finalImplementation);
 
-        bytes memory migrationCall = abi.encodeCall(
-            PolymarketOOReporterOracleMigration.migrateOptimisticOracleAndFinalize, (registeredRequestIds)
-        );
-        bytes memory upgradeCall =
-            abi.encodeCall(IUUPSUpgradeable.upgradeToAndCall, (migrationImplementation, migrationCall));
+        bytes memory upgradeCall = abi.encodeCall(IUUPSUpgradeable.upgradeToAndCall, (finalImplementation, bytes("")));
 
         vm.startBroadcast(config.deployer);
         _callUpgrade(config.proxy, upgradeCall);
@@ -203,11 +148,10 @@ contract UpgradeOOReporter is Script {
 
         _validatePostUpgrade(reporter, config, stateBefore, registeredRequestIds, finalImplementation);
 
-        console.log("\n=== Atomic migration complete ===");
+        console.log("\n=== Reporter implementation upgrade complete ===");
         console.log("Reporter proxy:", config.proxy);
-        console.log("Temporary migration implementation:", migrationImplementation);
         console.log("Final Polymarket implementation:", finalImplementation);
-        console.log("Managed OO:", address(reporter.optimisticOracle()));
+        console.log("Managed OO (unchanged):", address(reporter.optimisticOracle()));
         console.log("Owner:", reporter.owner());
     }
 
@@ -219,27 +163,58 @@ contract UpgradeOOReporter is Script {
         config.expectedProxyCodehash = vm.envBytes32("EXPECTED_PROXY_CODEHASH");
         config.expectedCurrentImplementation = vm.envAddress("EXPECTED_CURRENT_IMPLEMENTATION");
         config.expectedCurrentImplementationCodehash = vm.envBytes32("EXPECTED_CURRENT_IMPLEMENTATION_CODEHASH");
+        config.expectedFinalImplementationCreationCodehash =
+            vm.envBytes32("EXPECTED_FINAL_IMPLEMENTATION_CREATION_CODEHASH");
         config.expectedCurrentOptimisticOracle = vm.envAddress("EXPECTED_CURRENT_OPTIMISTIC_ORACLE");
         config.expectedCurrentOptimisticOracleCodehash = vm.envBytes32("EXPECTED_CURRENT_OPTIMISTIC_ORACLE_CODEHASH");
-        config.newOptimisticOracle = vm.envAddress("NEW_OPTIMISTIC_ORACLE");
-        config.expectedNewMooProxyCodehash = vm.envBytes32("EXPECTED_NEW_MOO_PROXY_CODEHASH");
-        config.expectedNewMooImplementation = vm.envAddress("EXPECTED_NEW_MOO_IMPLEMENTATION");
-        config.expectedNewMooImplementationCodehash = vm.envBytes32("EXPECTED_NEW_MOO_IMPLEMENTATION_CODEHASH");
+        config.expectedCurrentMooImplementation = vm.envAddress("EXPECTED_CURRENT_MOO_IMPLEMENTATION");
+        config.expectedCurrentMooImplementationCodehash = vm.envBytes32("EXPECTED_CURRENT_MOO_IMPLEMENTATION_CODEHASH");
+        config.expectedMooRequesterWhitelist = vm.envAddress("EXPECTED_MOO_REQUESTER_WHITELIST");
+        config.expectedMooRequesterWhitelistCodehash = vm.envBytes32("EXPECTED_MOO_REQUESTER_WHITELIST_CODEHASH");
         config.expectedRewardCurrency = vm.envAddress("EXPECTED_REWARD_CURRENCY");
         config.expectedRequester = vm.envAddress("EXPECTED_REQUESTER");
+        config.expectedRequesterCodehash = vm.envBytes32("EXPECTED_REQUESTER_CODEHASH");
         config.expectedOracleInitializer = vm.envAddress("EXPECTED_ORACLE_INITIALIZER");
-        config.expectedNewFinder = vm.envAddress("EXPECTED_NEW_FINDER");
-        config.expectedNewDefaultProposerWhitelist = vm.envAddress("EXPECTED_NEW_DEFAULT_PROPOSER_WHITELIST");
-        config.expectedNewRequesterWhitelist = vm.envAddress("EXPECTED_NEW_REQUESTER_WHITELIST");
-        config.expectedNewDefaultLiveness = vm.envUint("EXPECTED_NEW_DEFAULT_LIVENESS");
-        config.expectedNewMinimumDisputeWindow = vm.envUint("EXPECTED_NEW_MINIMUM_DISPUTE_WINDOW");
-        config.expectedNewMinimumBond = vm.envUint("EXPECTED_NEW_MINIMUM_BOND");
-        config.expectedNewMaximumBond = vm.envUint("EXPECTED_NEW_MAXIMUM_BOND");
-        config.expectedNewConfigAdmin = vm.envAddress("EXPECTED_NEW_CONFIG_ADMIN");
-        config.expectedNewUpgradeAdmin = vm.envAddress("EXPECTED_NEW_UPGRADE_ADMIN");
-        config.expectedNewResolverAdmin = vm.envAddress("EXPECTED_NEW_RESOLVER_ADMIN");
-        config.expectedNewResolvers = vm.envAddress("EXPECTED_NEW_RESOLVERS", ",");
-        if (config.expectedNewResolvers.length == 0) revert NoExpectedResolvers();
+    }
+
+    function _validateCodeAndImplementations(Config memory config) private view {
+        _requireCode(config.proxy);
+        _requireCode(config.expectedCurrentImplementation);
+        _requireCode(config.expectedCurrentOptimisticOracle);
+        _requireCode(config.expectedCurrentMooImplementation);
+        _requireCode(config.expectedMooRequesterWhitelist);
+        _requireCode(config.expectedRewardCurrency);
+        _requireCode(config.expectedRequester);
+
+        _expectCodehash("reporter proxy", config.expectedProxyCodehash, config.proxy.codehash);
+        _expectCodehash(
+            "current reporter implementation",
+            config.expectedCurrentImplementationCodehash,
+            config.expectedCurrentImplementation.codehash
+        );
+        _expectCodehash(
+            "current Managed OO proxy",
+            config.expectedCurrentOptimisticOracleCodehash,
+            config.expectedCurrentOptimisticOracle.codehash
+        );
+        _expectCodehash(
+            "current Managed OO implementation",
+            config.expectedCurrentMooImplementationCodehash,
+            config.expectedCurrentMooImplementation.codehash
+        );
+        _expectCodehash(
+            "Managed OO requester whitelist",
+            config.expectedMooRequesterWhitelistCodehash,
+            config.expectedMooRequesterWhitelist.codehash
+        );
+        _expectCodehash("requester module", config.expectedRequesterCodehash, config.expectedRequester.codehash);
+
+        _expectAddress("current implementation", config.expectedCurrentImplementation, _getImplementation(config.proxy));
+        _expectAddress(
+            "current Managed OO implementation",
+            config.expectedCurrentMooImplementation,
+            _getImplementation(config.expectedCurrentOptimisticOracle)
+        );
     }
 
     function _validateCurrentReporter(OOReporter reporter, Config memory config) private view {
@@ -252,70 +227,65 @@ contract UpgradeOOReporter is Script {
         _expectAddress("reward currency", config.expectedRewardCurrency, address(reporter.rewardCurrency()));
         if (!reporter.isRequester(config.expectedRequester)) revert PostUpgradeStateMismatch();
         if (!reporter.isOracleInitializer(config.expectedOracleInitializer)) revert PostUpgradeStateMismatch();
+
+        _validateExternalWiring(config);
     }
 
-    function _validateNewManagedOracle(Config memory config) private view {
+    function _validateExternalWiring(Config memory config) private view {
         _expectAddress(
-            "new MOO implementation",
-            config.expectedNewMooImplementation,
-            _getImplementation(config.newOptimisticOracle)
+            "requester module reporter",
+            config.proxy,
+            IOOReporterModuleConfiguration(config.expectedRequester).ooReporter()
         );
 
-        IManagedOptimisticOracleMigrationTarget oracle =
-            IManagedOptimisticOracleMigrationTarget(config.newOptimisticOracle);
-        _expectAddress("new MOO finder", config.expectedNewFinder, oracle.finder());
-        _expectAddress(
-            "new MOO proposer whitelist", config.expectedNewDefaultProposerWhitelist, oracle.defaultProposerWhitelist()
-        );
-        _expectAddress("new MOO requester whitelist", config.expectedNewRequesterWhitelist, oracle.requesterWhitelist());
-        _expectUint("new MOO default liveness", config.expectedNewDefaultLiveness, oracle.defaultLiveness());
-        _expectUint(
-            "new MOO minimum dispute window", config.expectedNewMinimumDisputeWindow, oracle.minimumDisputeWindow()
-        );
+        address requesterWhitelist =
+            IManagedOptimisticOracleConfiguration(config.expectedCurrentOptimisticOracle).requesterWhitelist();
+        _expectAddress("Managed OO requester whitelist", config.expectedMooRequesterWhitelist, requesterWhitelist);
 
-        (uint128 minimumBond, uint128 maximumBond) = oracle.allowedBondRanges(IERC20(config.expectedRewardCurrency));
-        _expectUint("new MOO minimum bond", config.expectedNewMinimumBond, minimumBond);
-        _expectUint("new MOO maximum bond", config.expectedNewMaximumBond, maximumBond);
-
-        IAddressWhitelist proposerWhitelist = IAddressWhitelist(config.expectedNewDefaultProposerWhitelist);
-        IAddressWhitelist requesterWhitelist = IAddressWhitelist(config.expectedNewRequesterWhitelist);
-        _requireCode(address(proposerWhitelist));
-        _requireCode(address(requesterWhitelist));
-        if (!proposerWhitelist.isWhitelistEnabled()) revert WhitelistDisabled(address(proposerWhitelist));
-        if (!requesterWhitelist.isWhitelistEnabled()) revert WhitelistDisabled(address(requesterWhitelist));
-        if (!requesterWhitelist.isOnWhitelist(config.proxy)) {
-            revert ReporterNotWhitelisted(address(requesterWhitelist), config.proxy);
-        }
-
-        _requireRole(oracle, oracle.CONFIG_ADMIN_ROLE(), config.expectedNewConfigAdmin);
-        _requireRole(oracle, oracle.DEFAULT_ADMIN_ROLE(), config.expectedNewUpgradeAdmin);
-        bytes32 resolverAdminRole = oracle.RESOLVER_ADMIN_ROLE();
-        _requireRole(oracle, resolverAdminRole, config.expectedNewResolverAdmin);
-        if (
-            config.expectedNewUpgradeAdmin != config.expectedNewResolverAdmin
-                && oracle.hasRole(resolverAdminRole, config.expectedNewUpgradeAdmin)
-        ) revert UnexpectedRole(resolverAdminRole, config.expectedNewUpgradeAdmin);
-        bytes32 resolverRole = oracle.RESOLVER_ROLE();
-        for (uint256 i = 0; i < config.expectedNewResolvers.length; i++) {
-            _requireRole(oracle, resolverRole, config.expectedNewResolvers[i]);
-        }
+        IAddressWhitelist whitelist = IAddressWhitelist(requesterWhitelist);
+        if (!whitelist.isWhitelistEnabled()) revert WhitelistDisabled(requesterWhitelist);
+        if (!whitelist.isOnWhitelist(config.proxy)) revert ReporterNotWhitelisted(requesterWhitelist, config.proxy);
     }
 
-    function _loadRegisteredRequestIds(address proxy, uint256 deploymentBlock)
-        private
-        returns (bytes32[] memory requestIds)
-    {
-        if (deploymentBlock > block.number) revert InvalidDeploymentBlock(deploymentBlock, block.number);
+    function _loadAndValidateRegisteredRequests(
+        OOReporter reporter,
+        address proxy,
+        uint256 deploymentBlock,
+        address expectedRequester
+    ) private returns (bytes32[] memory requestIds) {
+        if (deploymentBlock > block.number) {
+            revert InvalidDeploymentBlock(deploymentBlock, block.number);
+        }
 
         bytes32[] memory topics = new bytes32[](1);
         topics[0] = REQUEST_REGISTERED_TOPIC;
         Vm.EthGetLogs[] memory logs = vm.eth_getLogs(deploymentBlock, block.number, proxy, topics);
         requestIds = new bytes32[](logs.length);
+
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].removed || logs[i].topics.length != 4 || logs[i].topics[0] != REQUEST_REGISTERED_TOPIC) {
                 revert InvalidRegisteredRequestLog(i);
             }
-            requestIds[i] = logs[i].topics[1];
+
+            bytes32 requestId = logs[i].topics[1];
+            for (uint256 j = 0; j < i; j++) {
+                if (requestIds[j] == requestId) revert DuplicateRegisteredRequest(requestId);
+            }
+            requestIds[i] = requestId;
+
+            address requester = address(uint160(uint256(logs[i].topics[2])));
+            bytes32 priceIdentifier = logs[i].topics[3];
+            (bytes memory requestRules, uint64 minimumLiveness, uint64 maximumLiveness) =
+                abi.decode(logs[i].data, (bytes, uint64, uint64));
+            RequestData memory request = reporter.getRequest(requestId);
+
+            if (
+                !request.registered || requester != expectedRequester || request.requester != requester
+                    || request.priceIdentifier != priceIdentifier
+                    || keccak256(request.requestRules) != keccak256(requestRules)
+                    || request.minimumLiveness != minimumLiveness || request.maximumLiveness != maximumLiveness
+                    || reporter.getRequestId(priceIdentifier, requestRules) != requestId
+            ) revert RegisteredRequestStateMismatch(requestId);
         }
     }
 
@@ -334,53 +304,43 @@ contract UpgradeOOReporter is Script {
         revert ReporterInitializationNotFound(deploymentBlock);
     }
 
-    function _validateRequests(OOReporter reporter, bytes32[] memory requestIds, uint256 newMinimumDisputeWindow)
-        private
-        view
-    {
-        for (uint256 i = 0; i < requestIds.length; i++) {
-            RequestData memory request = reporter.getRequest(requestIds[i]);
-            if (request.initialized && !request.resolved) revert ActiveRequest(requestIds[i]);
-            if (!request.initialized && request.maximumLiveness < newMinimumDisputeWindow) {
-                revert RequestLivenessIncompatible(requestIds[i], request.maximumLiveness, newMinimumDisputeWindow);
-            }
-        }
-    }
-
-    function _validateExclusiveOracleInitializer(address proxy, uint256 deploymentBlock, address expectedInitializer)
-        private
-    {
+    function _validateExclusiveEnabledAddress(
+        address proxy,
+        uint256 deploymentBlock,
+        bytes32 eventTopic,
+        address expectedAccount
+    ) private {
         bytes32[] memory topics = new bytes32[](1);
-        topics[0] = ORACLE_INITIALIZER_ENABLED_TOPIC;
+        topics[0] = eventTopic;
         Vm.EthGetLogs[] memory logs = vm.eth_getLogs(deploymentBlock, block.number, proxy, topics);
-        address[] memory initializers = new address[](logs.length);
+        address[] memory accounts = new address[](logs.length);
         bool[] memory enabled = new bool[](logs.length);
-        uint256 initializerCount;
+        uint256 accountCount;
 
         for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].removed || logs[i].topics.length != 2 || logs[i].topics[0] != ORACLE_INITIALIZER_ENABLED_TOPIC) revert InvalidOracleInitializerLog(i);
+            if (logs[i].removed || logs[i].topics.length != 2 || logs[i].topics[0] != eventTopic) {
+                revert InvalidEnabledAddressLog(eventTopic, i);
+            }
 
-            address initializer = address(uint160(uint256(logs[i].topics[1])));
+            address account = address(uint160(uint256(logs[i].topics[1])));
             uint256 index;
-            while (index < initializerCount && initializers[index] != initializer) {
+            while (index < accountCount && accounts[index] != account) {
                 index++;
             }
-            if (index == initializerCount) {
-                initializers[index] = initializer;
-                initializerCount++;
+            if (index == accountCount) {
+                accounts[index] = account;
+                accountCount++;
             }
             enabled[index] = abi.decode(logs[i].data, (bool));
         }
 
-        bool expectedInitializerEnabled;
-        for (uint256 i = 0; i < initializerCount; i++) {
+        bool expectedAccountEnabled;
+        for (uint256 i = 0; i < accountCount; i++) {
             if (!enabled[i]) continue;
-            if (initializers[i] != expectedInitializer) {
-                revert UnexpectedEnabledOracleInitializer(initializers[i]);
-            }
-            expectedInitializerEnabled = true;
+            if (accounts[i] != expectedAccount) revert UnexpectedEnabledAddress(eventTopic, accounts[i]);
+            expectedAccountEnabled = true;
         }
-        if (!expectedInitializerEnabled) revert PostUpgradeStateMismatch();
+        if (!expectedAccountEnabled) revert ExpectedAddressNotEnabled(eventTopic, expectedAccount);
     }
 
     function _snapshotReporterState(OOReporter reporter, Config memory config, bytes32[] memory requestIds)
@@ -410,36 +370,33 @@ contract UpgradeOOReporter is Script {
         address finalImplementation
     ) private view {
         _expectAddress("final reporter implementation", finalImplementation, _getImplementation(address(reporter)));
+        _expectAddress(
+            "current Managed OO implementation",
+            config.expectedCurrentMooImplementation,
+            _getImplementation(config.expectedCurrentOptimisticOracle)
+        );
 
         if (
             reporter.owner() != expectedState.owner
-                || address(reporter.optimisticOracle()) != config.newOptimisticOracle
+                || address(reporter.optimisticOracle()) != expectedState.optimisticOracle
                 || address(reporter.rewardCurrency()) != expectedState.rewardCurrency
                 || reporter.defaultRerequestBudget() != expectedState.defaultRerequestBudget
                 || reporter.automaticRerequestsEnabled() != expectedState.automaticRerequestsEnabled
                 || reporter.isRequester(config.expectedRequester) != expectedState.requesterEnabled
-                || reporter.isOracleInitializer(config.expectedOracleInitializer)
-                    != expectedState.oracleInitializerEnabled
+                || reporter.isOracleInitializer(config.expectedOracleInitializer) != expectedState.oracleInitializerEnabled
                 || vm.load(address(reporter), INITIALIZABLE_STORAGE_SLOT) != expectedState.initializableStorage
                 || PolymarketOOReporter(address(reporter)).pendingOwner() != address(0)
         ) revert PostUpgradeStateMismatch();
 
         for (uint256 i = 0; i < requestIds.length; i++) {
-            if (keccak256(abi.encode(reporter.getRequest(requestIds[i]))) != expectedState.requestHashes[i]) {
-                revert RequestStateChanged(requestIds[i]);
-            }
+            RequestData memory request = reporter.getRequest(requestIds[i]);
+            if (
+                keccak256(abi.encode(request)) != expectedState.requestHashes[i]
+                    || reporter.getRequestId(request.priceIdentifier, request.requestRules) != requestIds[i]
+            ) revert RequestStateChanged(requestIds[i]);
         }
 
-        uint256 oldAllowance =
-            IERC20(config.expectedRewardCurrency).allowance(address(reporter), config.expectedCurrentOptimisticOracle);
-        if (oldAllowance != 0) revert UintMismatch("old MOO allowance", 0, oldAllowance);
-        uint256 deferredPayout = IOptimisticOracleV2(config.expectedCurrentOptimisticOracle)
-            .deferredPayouts(IERC20(config.expectedRewardCurrency), address(reporter));
-        if (deferredPayout != 0) revert DeferredPayoutOutstanding(deferredPayout);
-    }
-
-    function _requireRole(IManagedOptimisticOracleMigrationTarget oracle, bytes32 role, address account) private view {
-        if (!oracle.hasRole(role, account)) revert MissingRole(role, account);
+        _validateExternalWiring(config);
     }
 
     function _requireUUPSImplementation(address implementation) private view {
@@ -458,10 +415,6 @@ contract UpgradeOOReporter is Script {
 
     function _expectAddress(string memory field, address expected, address actual) private pure {
         if (actual != expected) revert AddressMismatch(field, expected, actual);
-    }
-
-    function _expectUint(string memory field, uint256 expected, uint256 actual) private pure {
-        if (actual != expected) revert UintMismatch(field, expected, actual);
     }
 
     function _expectCodehash(string memory field, bytes32 expected, bytes32 actual) private pure {
