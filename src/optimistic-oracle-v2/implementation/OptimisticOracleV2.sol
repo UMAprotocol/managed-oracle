@@ -93,7 +93,7 @@ contract OptimisticOracleV2 is
 
     // This is effectively the extra ancillary data to add ",ooRequester:0000000000000000000000000000000000000000".
     uint256 private constant MAX_ADDED_ANCILLARY_DATA = 53;
-    uint256 public constant OO_ANCILLARY_DATA_LIMIT = ancillaryBytesLimit - MAX_ADDED_ANCILLARY_DATA;
+    uint256 public constant OO_ANCILLARY_DATA_LIMIT = ANCILLARY_BYTES_LIMIT - MAX_ADDED_ANCILLARY_DATA;
     int256 public constant TOO_EARLY_RESPONSE = type(int256).min;
 
     // Mapping of collateral currency to deferred payout recipient and to their outstanding payouts. Used when reward

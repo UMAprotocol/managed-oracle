@@ -166,7 +166,13 @@ abstract contract OptimisticOracleV2Interface {
     // This value must be <= the Voting contract's `ancillaryBytesLimit` value otherwise it is possible
     // that a price can be requested to this contract successfully, but cannot be disputed because the DVM refuses
     // to accept a price request made with ancillary data length over a certain size.
-    uint256 public constant ancillaryBytesLimit = 8192;
+    uint256 public constant ANCILLARY_BYTES_LIMIT = 8192;
+
+    /// @notice Deprecated compatibility getter. Use `ANCILLARY_BYTES_LIMIT()` instead.
+    /// @dev Preserves the selector published by earlier OptimisticOracleV2 deployments.
+    function ancillaryBytesLimit() external pure returns (uint256) {
+        return ANCILLARY_BYTES_LIMIT;
+    }
 
     function defaultLiveness() external view virtual returns (uint256);
 
