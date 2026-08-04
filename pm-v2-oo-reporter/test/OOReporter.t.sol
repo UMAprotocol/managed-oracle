@@ -253,6 +253,29 @@ contract OOReporterTest {
         reporter.registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, belowOracleMinimum);
     }
 
+    function test_initializeRequestAcceptsLivenessWithinPartiallyOverlappingRange() external {
+        bytes memory requestRules = _requestRules("primary");
+        uint64 oracleMinimumLiveness = uint64(optimisticOracle.minimumDisputeWindow());
+        uint64 oracleMaximumLiveness = uint64(reporter.MAXIMUM_CUSTOM_LIVENESS());
+
+        vm.prank(requester);
+        reporter.registerRequest(
+            REQUEST_ID, BINARY_IDENTIFIER, requestRules, oracleMinimumLiveness - 1, oracleMaximumLiveness
+        );
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, 0, oracleMinimumLiveness);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        assertEq(request.liveness, oracleMinimumLiveness, "selected liveness mismatch");
+
+        bytes32 requestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+        assertEq(
+            optimisticOracle.getMockRequest(requestKey).customLiveness, oracleMinimumLiveness, "OO liveness mismatch"
+        );
+    }
+
     function test_initializeRequestSeedsDefaultBudgetAndCreatesManagedOORequest() external {
         bytes memory requestRules = _requestRules("numerical");
         _registerRequest(REQUEST_ID, NUMERICAL_IDENTIFIER, requestRules);
@@ -321,7 +344,7 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, 0, 0);
     }
 
-    function test_initializeRequestRejectsLivenessOutsideRegisteredRange() external {
+    function test_initializeRequestRejectsLivenessBelowRegisteredMinimum() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequestWithLivenessRange(
             REQUEST_ID, BINARY_IDENTIFIER, requestRules, STRICT_MINIMUM_LIVENESS, STRICT_MAXIMUM_LIVENESS
@@ -339,18 +362,46 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, 0, STRICT_MINIMUM_LIVENESS - 1);
 
         vm.prank(oracleInitializer);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IOOReporter.RequestLivenessOutOfRange.selector,
-                STRICT_MAXIMUM_LIVENESS + 1,
-                STRICT_MINIMUM_LIVENESS,
-                STRICT_MAXIMUM_LIVENESS
-            )
+        reporter.initializeRequest(REQUEST_ID, 0, 0, STRICT_MINIMUM_LIVENESS);
+    }
+
+    function test_initializeRequestAcceptsCurrentOracleMinimumAboveRegisteredMaximum() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequestWithLivenessRange(
+            REQUEST_ID, BINARY_IDENTIFIER, requestRules, STRICT_MINIMUM_LIVENESS, STRICT_MAXIMUM_LIVENESS
         );
-        reporter.initializeRequest(REQUEST_ID, 0, 0, STRICT_MAXIMUM_LIVENESS + 1);
+
+        uint64 currentOracleMinimum = STRICT_MAXIMUM_LIVENESS + 1;
+        optimisticOracle.setMinimumDisputeWindow(currentOracleMinimum);
 
         vm.prank(oracleInitializer);
-        reporter.initializeRequest(REQUEST_ID, 0, 0, STRICT_MINIMUM_LIVENESS);
+        reporter.initializeRequest(REQUEST_ID, 0, 0, currentOracleMinimum);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        assertEq(request.liveness, currentOracleMinimum, "selected liveness mismatch");
+        assertEq(request.maximumLiveness, STRICT_MAXIMUM_LIVENESS, "target maximum should remain stored");
+
+        bytes32 requestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+        assertEq(
+            optimisticOracle.getMockRequest(requestKey).customLiveness, currentOracleMinimum, "OO liveness mismatch"
+        );
+    }
+
+    function test_initializeRequestPreservesManagedOOLivenessBounds() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        optimisticOracle.setMinimumDisputeWindow(uint256(LIVENESS) + 1);
+
+        vm.prank(oracleInitializer);
+        vm.expectRevert(abi.encodeWithSignature("Error(string)", "liveness below minimum"));
+        reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+
+        uint64 maximumCustomLiveness = uint64(reporter.MAXIMUM_CUSTOM_LIVENESS());
+        vm.prank(oracleInitializer);
+        vm.expectRevert(abi.encodeWithSignature("Error(string)", "liveness too long"));
+        reporter.initializeRequest(REQUEST_ID, 0, 0, maximumCustomLiveness);
     }
 
     function test_setRequestRewardRejectsUnauthorizedAndInvalidLifecycle() external {
@@ -678,16 +729,19 @@ contract OOReporterTest {
         reporter.executeAutomaticRerequest(REQUEST_ID, RerequestType.AutomaticDispute);
     }
 
-    function test_priceDisputedOpensManualGateWhenAutomaticRerequestReverts() external {
+    function test_priceDisputedAllowsManualRecoveryAboveRegisteredMaximumAfterConfigurationDrift() external {
         bytes memory requestRules = _requestRules("primary");
-        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        _registerRequestWithLivenessRange(
+            REQUEST_ID, BINARY_IDENTIFIER, requestRules, STRICT_MINIMUM_LIVENESS, LIVENESS
+        );
 
         vm.prank(oracleInitializer);
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
         vm.warp(block.timestamp + 1);
-        optimisticOracle.setMinimumDisputeWindow(uint256(LIVENESS) + 1);
+        uint64 currentOracleMinimum = LIVENESS + 1;
+        optimisticOracle.setMinimumDisputeWindow(currentOracleMinimum);
 
         vm.expectEmit(address(reporter));
         emit AutomaticRerequestFailed(REQUEST_ID, request.requestTimestamp, RerequestType.AutomaticDispute);
@@ -705,6 +759,18 @@ contract OOReporterTest {
             optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
         MockOptimisticOracleV2.MockRequest memory replacementRequest = optimisticOracle.getMockRequest(replacementKey);
         assertFalse(replacementRequest.requested, "failed automatic re-request should roll back replacement request");
+
+        vm.prank(oracleInitializer);
+        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, currentOracleMinimum);
+
+        RequestData memory recoveredRequest = reporter.getRequest(REQUEST_ID);
+        assertFalse(recoveredRequest.rerequestAllowed, "manual recovery should close gate");
+        assertEq(recoveredRequest.liveness, currentOracleMinimum, "manual recovery liveness mismatch");
+        assertEq(
+            optimisticOracle.getMockRequest(replacementKey).customLiveness,
+            currentOracleMinimum,
+            "replacement OO liveness mismatch"
+        );
     }
 
     function test_priceDisputedOpensManualGateAfterAutomaticDisputeUsed() external {
@@ -1111,7 +1177,7 @@ contract OOReporterTest {
         reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
     }
 
-    function test_rerequestRejectsManualLivenessOutsideRegisteredRange() external {
+    function test_rerequestRejectsManualLivenessBelowRegisteredMinimum() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequestWithLivenessRange(
             REQUEST_ID, BINARY_IDENTIFIER, requestRules, STRICT_MINIMUM_LIVENESS, STRICT_MAXIMUM_LIVENESS
@@ -1131,12 +1197,12 @@ contract OOReporterTest {
         vm.expectRevert(
             abi.encodeWithSelector(
                 IOOReporter.RequestLivenessOutOfRange.selector,
-                STRICT_MAXIMUM_LIVENESS + 1,
+                STRICT_MINIMUM_LIVENESS - 1,
                 STRICT_MINIMUM_LIVENESS,
                 STRICT_MAXIMUM_LIVENESS
             )
         );
-        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, STRICT_MAXIMUM_LIVENESS + 1);
+        reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, STRICT_MINIMUM_LIVENESS - 1);
     }
 
     function test_rerequestBudgetExhaustsAndOwnerCanTopUp() external {

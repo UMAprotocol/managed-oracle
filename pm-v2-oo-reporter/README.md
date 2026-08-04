@@ -44,7 +44,8 @@ domain-separate request rules so their UMA request identities differ.
 - requester/module allowlisting;
 - UMA oracle initializer allowlisting;
 - Managed OO request creation;
-- reward, bond, request-specific liveness bounds, automatic re-request controls, and manual re-request budget controls;
+- reward, bond, request-specific liveness minimums and target maximums, automatic re-request controls, and manual
+  re-request budget controls;
 - forwarding request rules updates to the Managed OO for active requests;
 - raw UMA settlement storage.
 
@@ -57,18 +58,23 @@ The prediction market integration owns:
 ## Request Lifecycle
 
 An enabled requester first calls `registerRequest(...)` with its external `requestId`, UMA price identifier, raw request
-rules, and allowed liveness range. The reporter reserves the `(priceIdentifier, requestRules)` tuple globally within
-the deployment so two request IDs cannot point at the same UMA request identity.
+rules, and liveness range. Registration requires an internally consistent range that overlaps the Managed OO bounds at
+that time. The minimum remains an onchain floor, while the maximum is stored, returned, and emitted as an offchain
+initialization target rather than an onchain ceiling. The reporter reserves the `(priceIdentifier, requestRules)` tuple
+globally within the deployment so two request IDs cannot point at the same UMA request identity.
 
 An enabled UMA oracle initializer later calls `initializeRequest(requestId, reward, proposalBond, liveness)`. The selected
-liveness must be non-zero and inside the registered range. Each initialized request receives the current
-`defaultRerequestBudget` as its manual re-request budget.
+liveness must be non-zero and at or above the registered minimum, but it may exceed the registered target maximum. The
+Managed OO independently enforces its current `minimumDisputeWindow` and technical maximum. Each initialized request
+receives the current `defaultRerequestBudget` as its manual re-request budget.
 
 Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
 `setAutomaticRerequestsEnabled(...)`. The current setting is evaluated when a dispute or P4 settlement callback arrives,
 not when the request was initialized or last re-requested. When enabled, the first dispute callback for a request
 attempts one replacement without consuming manual re-request budget. Failed attempts and later dispute callbacks open
-the manual re-request gate without reverting the dispute.
+the manual re-request gate without reverting the dispute. If Managed OO configuration drift invalidates the active
+liveness, an automatic replacement can fail and an enabled oracle initializer can recover manually with a valid
+liveness above the registered target maximum.
 
 P4 settlements intentionally reset the active request's manual budget to the current default. When automatic re-requests
 are enabled, P4 settlements also attempt a replacement without consuming manual budget. Disabled or failed attempts open
@@ -141,6 +147,18 @@ human review before settlement.
 If no trusted resolver settles the active request, `isRequestResolved(requestId)` remains false and
 `getRequestResolution(requestId)` reverts. Downstream integrations should monitor this resolver dependency and keep any
 timeout or administrative recovery path in the market-side module that translates raw UMA outcomes and finalizes markets.
+
+## Oracle Reward Allowance
+
+The reporter pays request rewards from its own reward-currency balance. When its Managed OO allowance is below a
+request's reward, `_requestPrice` tops the allowance up to `type(uint256).max` instead of approving per request. This
+unbounded approval is intentional: it saves an approval on every subsequent request and re-request, and Managed OO only
+pulls each request's committed reward.
+
+The standing allowance keeps the oracle authorized over the reporter's entire reward balance, which is accepted under
+the reporter's trust model: the Managed OO address is fixed at initialization (the reporter has no oracle setter), and
+it is UMA-governed infrastructure in the same trust domain as this UMA-owned reporter. To bound the impact of an oracle
+compromise, operators should fund the reporter with a working reward float rather than a treasury balance.
 
 ## Rules Updates
 

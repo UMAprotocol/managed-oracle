@@ -562,14 +562,17 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         uint256 balance = currency.balanceOf(address(this));
         if (balance < amount) revert InsufficientRewardBalance(address(currency), balance, amount);
         if (currency.allowance(address(this), address(oracle)) < amount) {
+            // Unbounded approval is intentional: it saves an approval on every subsequent request, and the
+            // Managed OO is fixed at initialization within the same UMA-governed trust domain as this reporter.
+            // Exposure is capped by this contract's reward balance, which should hold only a working float.
             currency.forceApprove(address(oracle), type(uint256).max);
         }
     }
 
-    /// @dev Keeps the reporter off Managed OO's default liveness path and within the registered bounds.
+    /// @dev Keeps the reporter off Managed OO's default liveness path and above the registered minimum.
     function _requireValidRequestLiveness(RequestData storage request, uint64 liveness) private view {
         if (liveness == 0) revert RequestLivenessCannotBeZero();
-        if (liveness < request.minimumLiveness || liveness > request.maximumLiveness) {
+        if (liveness < request.minimumLiveness) {
             revert RequestLivenessOutOfRange(liveness, request.minimumLiveness, request.maximumLiveness);
         }
     }
