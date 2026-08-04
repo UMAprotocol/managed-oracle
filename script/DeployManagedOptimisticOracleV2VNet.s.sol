@@ -21,9 +21,7 @@ contract DeployManagedOptimisticOracleV2VNet is ManagedOptimisticOracleV2VNetCon
             new ManagedOptimisticOracleV2.CurrencyBondRange[](1);
         currencyBondRanges[0] = ManagedOptimisticOracleV2.CurrencyBondRange({
             currency: IERC20(USDC_E),
-            range: ManagedOptimisticOracleV2.BondRange({
-                minimumBond: MINIMUM_USDC_E_BOND, maximumBond: MAXIMUM_USDC_E_BOND
-            })
+            range: ManagedOptimisticOracleV2.BondRange({minimumBond: MINIMUM_USDC_E_BOND, maximumBond: MAXIMUM_USDC_E_BOND})
         });
 
         vm.startBroadcast(deployer);

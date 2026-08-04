@@ -53,7 +53,8 @@ contract PrepareManagedOptimisticOracleV2VNetSafeTest is Test {
         ManagedOptimisticOracleV2.CurrencyBondRange[] memory ranges =
             new ManagedOptimisticOracleV2.CurrencyBondRange[](1);
         ranges[0] = ManagedOptimisticOracleV2.CurrencyBondRange({
-            currency: currency, range: ManagedOptimisticOracleV2.BondRange({minimumBond: 100e6, maximumBond: 100_000e6})
+            currency: currency,
+            range: ManagedOptimisticOracleV2.BondRange({minimumBond: 100e6, maximumBond: 100_000e6})
         });
 
         ManagedOptimisticOracleV2 implementation = new ManagedOptimisticOracleV2();
