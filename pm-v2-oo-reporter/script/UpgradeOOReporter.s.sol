@@ -383,7 +383,8 @@ contract UpgradeOOReporter is Script {
                 || reporter.defaultRerequestBudget() != expectedState.defaultRerequestBudget
                 || reporter.automaticRerequestsEnabled() != expectedState.automaticRerequestsEnabled
                 || reporter.isRequester(config.expectedRequester) != expectedState.requesterEnabled
-                || reporter.isOracleInitializer(config.expectedOracleInitializer) != expectedState.oracleInitializerEnabled
+                || reporter.isOracleInitializer(config.expectedOracleInitializer)
+                    != expectedState.oracleInitializerEnabled
                 || vm.load(address(reporter), INITIALIZABLE_STORAGE_SLOT) != expectedState.initializableStorage
                 || PolymarketOOReporter(address(reporter)).pendingOwner() != address(0)
         ) revert PostUpgradeStateMismatch();
