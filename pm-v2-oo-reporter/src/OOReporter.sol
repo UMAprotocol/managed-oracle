@@ -248,6 +248,29 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     }
 
     /// @inheritdoc IOOReporter
+    function setRequestReward(bytes32 requestId, uint256 newReward) external onlyOracleInitializer {
+        RequestData storage request = _requireRegistered(requestId);
+        if (!request.initialized) revert RequestNotInitialized();
+        if (request.resolved) revert RequestAlreadyResolved();
+
+        IERC20 currency = rewardCurrency();
+        IOptimisticOracleV2 oracle = optimisticOracle();
+        uint256 oldReward = oracle.getRequestReward(
+            address(this), request.priceIdentifier, request.requestTimestamp, request.requestRules
+        );
+        if (newReward > oldReward) {
+            _prepareReward(currency, oracle, newReward - oldReward);
+        }
+
+        request.reward = newReward;
+        oracle.setReward(request.priceIdentifier, request.requestTimestamp, request.requestRules, newReward);
+
+        emit RequestRewardUpdated(
+            requestId, request.requestTimestamp, msg.sender, address(currency), oldReward, newReward
+        );
+    }
+
+    /// @inheritdoc IOOReporter
     function initializeRequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness)
         external
         onlyOracleInitializer
@@ -322,7 +345,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
     /// @notice Managed OO dispute callback. Attempts one auto re-request, otherwise opens the manual gate.
     /// @inheritdoc IOptimisticRequester
-    function priceDisputed(bytes32 identifier, uint256 timestamp, bytes memory requestRules, uint256)
+    function priceDisputed(bytes32 identifier, uint256 timestamp, bytes memory requestRules, uint256 refund)
         external
         override
         onlyOptimisticOracle
@@ -330,6 +353,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         (bytes32 requestId, RequestData storage request, bool shouldIgnore) =
             _loadCallbackRequest(identifier, timestamp, requestRules);
         if (shouldIgnore || request.resolved) return;
+
+        request.reward = refund;
 
         if (!request.automaticDisputeRerequestUsed && _shouldAttemptAutomaticRerequest(request)) {
             try this.executeAutomaticRerequest(requestId, RerequestType.AutomaticDispute) {
@@ -519,14 +544,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         IERC20 currency = rewardCurrency();
         IOptimisticOracleV2 oracle = optimisticOracle();
         if (reward > 0) {
-            uint256 balance = currency.balanceOf(address(this));
-            if (balance < reward) revert InsufficientRewardBalance(address(currency), balance, reward);
-            if (currency.allowance(address(this), address(oracle)) < reward) {
-                // Unbounded approval is intentional: it saves an approval on every subsequent request, and the
-                // Managed OO is fixed at initialization within the same UMA-governed trust domain as this reporter.
-                // Exposure is capped by this contract's reward balance, which should hold only a working float.
-                currency.forceApprove(address(oracle), type(uint256).max);
-            }
+            _prepareReward(currency, oracle, reward);
         }
 
         oracle.requestPrice(priceIdentifier, requestTimestamp, requestRules, currency, reward);
@@ -537,6 +555,18 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         }
 
         oracle.setCustomLiveness(priceIdentifier, requestTimestamp, requestRules, liveness);
+    }
+
+    /// @dev Verifies reporter funding and grants the oracle a reusable allowance for a reward pull.
+    function _prepareReward(IERC20 currency, IOptimisticOracleV2 oracle, uint256 amount) private {
+        uint256 balance = currency.balanceOf(address(this));
+        if (balance < amount) revert InsufficientRewardBalance(address(currency), balance, amount);
+        if (currency.allowance(address(this), address(oracle)) < amount) {
+            // Unbounded approval is intentional: it saves an approval on every subsequent request, and the
+            // Managed OO is fixed at initialization within the same UMA-governed trust domain as this reporter.
+            // Exposure is capped by this contract's reward balance, which should hold only a working float.
+            currency.forceApprove(address(oracle), type(uint256).max);
+        }
     }
 
     /// @dev Keeps the reporter off Managed OO's default liveness path and above the registered minimum.

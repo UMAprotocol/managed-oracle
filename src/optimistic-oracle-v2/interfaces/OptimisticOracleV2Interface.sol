@@ -53,6 +53,45 @@ abstract contract OptimisticOracleV2Interface {
         uint256 reward,
         uint256 finalFee
     );
+    event RewardUpdated(
+        address indexed requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes ancillaryData,
+        address updater,
+        uint256 oldReward,
+        uint256 newReward
+    );
+    /// @notice Emitted when the proposal bond associated with a price request is updated.
+    /// @param requester sender of the initial price request.
+    /// @param identifier price identifier identifying the existing request.
+    /// @param timestamp timestamp identifying the existing request.
+    /// @param ancillaryData ancillary data of the price being requested.
+    /// @param oldBond previous custom bond amount.
+    /// @param newBond new custom bond amount.
+    event BondUpdated(
+        address indexed requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes ancillaryData,
+        uint256 oldBond,
+        uint256 newBond
+    );
+    /// @notice Emitted when the custom liveness associated with a price request is updated.
+    /// @param requester sender of the initial price request.
+    /// @param identifier price identifier identifying the existing request.
+    /// @param timestamp timestamp identifying the existing request.
+    /// @param ancillaryData ancillary data of the price being requested.
+    /// @param oldCustomLiveness previous custom liveness value.
+    /// @param newCustomLiveness new custom liveness value.
+    event CustomLivenessUpdated(
+        address indexed requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes ancillaryData,
+        uint256 oldCustomLiveness,
+        uint256 newCustomLiveness
+    );
     event ProposePrice(
         address indexed requester,
         address indexed proposer,
@@ -171,6 +210,19 @@ abstract contract OptimisticOracleV2Interface {
         external
         virtual
         returns (uint256 totalBond);
+
+    /**
+     * @notice Updates the reward associated with a price request.
+     * @dev Only callable by the requester while the request is in the Requested state. The requester funds increases
+     * and receives decreases, which may be deferred if the transfer fails.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @param newReward new reward amount, which can be zero.
+     */
+    function setReward(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData, uint256 newReward)
+        external
+        virtual;
 
     /**
      * @notice Sets the request to refund the reward if the proposal is disputed. This can help to "hedge" the caller
@@ -340,6 +392,20 @@ abstract contract OptimisticOracleV2Interface {
      * @param repaymentAddress address to which the payout will be sent (can be different from the deferred recipient).
      */
     function claimDeferredPayout(IERC20 currency, address repaymentAddress) external virtual;
+
+    /**
+     * @notice Gets the current reward for a price request.
+     * @param requester sender of the initial price request.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the existing request.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @return reward current reward amount.
+     */
+    function getRequestReward(address requester, bytes32 identifier, uint256 timestamp, bytes memory ancillaryData)
+        public
+        view
+        virtual
+        returns (uint256 reward);
 
     /**
      * @notice Gets the current data structure containing all information about a price request.

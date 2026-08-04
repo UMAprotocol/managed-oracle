@@ -578,13 +578,38 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.requestManagerSetBond(requester, IDENTIFIER, ANCILLARY, IERC20(address(otherCurrency)), 1);
     }
 
+    function testRequesterSetBondEventsAndLifecycle() external {
+        uint256 t = moo.getCurrentTime();
+        _makeRequest(requester, t, 0);
+
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.BondUpdated(requester, IDENTIFIER, t, ANCILLARY, 10 ether, 3 ether);
+        vm.prank(requester);
+        assertEq(moo.setBond(IDENTIFIER, t, ANCILLARY, 3 ether), 13 ether);
+
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.BondUpdated(requester, IDENTIFIER, t, ANCILLARY, 3 ether, 4 ether);
+        vm.prank(requester);
+        assertEq(moo.setBond(IDENTIFIER, t, ANCILLARY, 4 ether), 14 ether);
+
+        _proposeFor(sender, proposer, requester, t, 100);
+
+        vm.prank(requester);
+        vm.expectRevert(OptimisticOracleV2Interface.RequestStateNotRequested.selector);
+        moo.setBond(IDENTIFIER, t, ANCILLARY, 5 ether);
+    }
+
     function testCustomBondAppliedOnPropose() external {
         uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
+        vm.prank(requester);
+        moo.setBond(IDENTIFIER, t, ANCILLARY, 3 ether);
+
         // Set custom bond of 5 ether
         vm.prank(requestManager);
         moo.requestManagerSetBond(requester, IDENTIFIER, ANCILLARY, IERC20(address(currency)), 5 ether);
+        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).requestSettings.bond, 3 ether);
 
         // Propose and verify total bond = custom bond + final fee (10 ether)
         uint256 totalBond = _proposeFor(sender, proposer, requester, t, 100);
@@ -593,6 +618,108 @@ contract ManagedOptimisticOracleV2Test is Test {
         // Also read back the request and check bond updated
         OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
         assertEq(req.requestSettings.bond, 5 ether);
+    }
+
+    // -------------------- Reward Management --------------------
+
+    function testRequesterSetRewardUpdatesDeltaAndAllowsZero() external {
+        uint256 t = moo.getCurrentTime();
+        _makeRequest(requester, t, 10 ether);
+        currency.mint(requester, 10 ether);
+
+        vm.prank(nonRequester);
+        vm.expectRevert(OptimisticOracleV2Interface.RequestStateNotRequested.selector);
+        moo.setReward(IDENTIFIER, t, ANCILLARY, 1 ether);
+
+        uint256 requesterBalance = currency.balanceOf(requester);
+        uint256 oracleBalance = currency.balanceOf(address(moo));
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.RewardUpdated(
+            requester, IDENTIFIER, t, ANCILLARY, requester, 10 ether, 15 ether
+        );
+        vm.prank(requester);
+        moo.setReward(IDENTIFIER, t, ANCILLARY, 15 ether);
+        assertEq(currency.balanceOf(requester), requesterBalance - 5 ether);
+        assertEq(currency.balanceOf(address(moo)), oracleBalance + 5 ether);
+
+        requesterBalance = currency.balanceOf(requester);
+        oracleBalance = currency.balanceOf(address(moo));
+        vm.prank(requester);
+        moo.setReward(IDENTIFIER, t, ANCILLARY, 4 ether);
+        assertEq(currency.balanceOf(requester), requesterBalance + 11 ether);
+        assertEq(currency.balanceOf(address(moo)), oracleBalance - 11 ether);
+
+        vm.prank(requester);
+        moo.setReward(IDENTIFIER, t, ANCILLARY, 0);
+        assertEq(moo.getRequestReward(requester, IDENTIFIER, t, ANCILLARY), 0);
+        assertEq(
+            uint8(moo.getState(requester, IDENTIFIER, t, ANCILLARY)), uint8(OptimisticOracleV2Interface.State.Requested)
+        );
+
+        _proposeFor(sender, proposer, requester, t, 42);
+        assertEq(
+            uint8(moo.getState(requester, IDENTIFIER, t, ANCILLARY)), uint8(OptimisticOracleV2Interface.State.Proposed)
+        );
+    }
+
+    function testRequestManagerSetRewardUsesCallerFundsAndRefundsRequester() external {
+        uint256 t = moo.getCurrentTime();
+        _makeRequest(requester, t, 10 ether);
+        currency.mint(requester, 100 ether);
+        _prepareFunds(requestManager);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, address(this), moo.REQUEST_MANAGER_ROLE()
+            )
+        );
+        moo.requestManagerSetReward(requester, IDENTIFIER, t, ANCILLARY, 11 ether);
+
+        vm.prank(requestManager);
+        vm.expectRevert(OptimisticOracleV2Interface.RequestStateNotRequested.selector);
+        moo.requestManagerSetReward(requester, IDENTIFIER, t + 1, ANCILLARY, 11 ether);
+
+        uint256 requesterBalance = currency.balanceOf(requester);
+        uint256 managerBalance = currency.balanceOf(requestManager);
+        uint256 oracleBalance = currency.balanceOf(address(moo));
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.RewardUpdated(
+            requester, IDENTIFIER, t, ANCILLARY, requestManager, 10 ether, 16 ether
+        );
+        vm.prank(requestManager);
+        moo.requestManagerSetReward(requester, IDENTIFIER, t, ANCILLARY, 16 ether);
+        assertEq(currency.balanceOf(requester), requesterBalance);
+        assertEq(currency.balanceOf(requestManager), managerBalance - 6 ether);
+        assertEq(currency.balanceOf(address(moo)), oracleBalance + 6 ether);
+
+        requesterBalance = currency.balanceOf(requester);
+        managerBalance = currency.balanceOf(requestManager);
+        oracleBalance = currency.balanceOf(address(moo));
+        vm.prank(requestManager);
+        moo.requestManagerSetReward(requester, IDENTIFIER, t, ANCILLARY, 4 ether);
+        assertEq(currency.balanceOf(requester), requesterBalance + 12 ether);
+        assertEq(currency.balanceOf(requestManager), managerBalance);
+        assertEq(currency.balanceOf(address(moo)), oracleBalance - 12 ether);
+
+        vm.prank(requestManager);
+        moo.requestManagerSetReward(requester, IDENTIFIER, t, ANCILLARY, 0);
+        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).reward, 0);
+        assertEq(currency.balanceOf(requestManager), managerBalance);
+        assertEq(currency.balanceOf(requester), requesterBalance + 16 ether);
+    }
+
+    function testRewardUpdatesRevertAfterProposal() external {
+        uint256 t = moo.getCurrentTime();
+        _makeRequest(requester, t, 1 ether);
+        _proposeFor(sender, proposer, requester, t, 42);
+
+        vm.prank(requester);
+        vm.expectRevert(OptimisticOracleV2Interface.RequestStateNotRequested.selector);
+        moo.setReward(IDENTIFIER, t, ANCILLARY, 0);
+
+        vm.prank(requestManager);
+        vm.expectRevert(OptimisticOracleV2Interface.RequestStateNotRequested.selector);
+        moo.requestManagerSetReward(requester, IDENTIFIER, t, ANCILLARY, 0);
     }
 
     // -------------------- Liveness Management --------------------
@@ -702,12 +829,16 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.expectRevert(OptimisticOracleV2Interface.LivenessTooLarge.selector);
         moo.requestManagerSetCustomLiveness(requester, IDENTIFIER, ANCILLARY, 5200 weeks);
 
+        vm.prank(requester);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 1 hours);
+
         // Valid set and event
         vm.expectEmit(true, true, true, true);
         bytes32 managedId = moo.getManagedRequestId(requester, IDENTIFIER, ANCILLARY);
         emit ManagedOptimisticOracleV2Interface.CustomLivenessSet(managedId, requester, IDENTIFIER, ANCILLARY, 3 hours);
         vm.prank(requestManager);
         moo.requestManagerSetCustomLiveness(requester, IDENTIFIER, ANCILLARY, 3 hours);
+        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).requestSettings.customLiveness, 1 hours);
 
         // Propose and check expiration time = now + 3 hours
         vm.warp(t + 10);
@@ -716,7 +847,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(req.expirationTime, moo.getCurrentTime() + 3 hours);
     }
 
-    function testRequesterSetCustomLivenessValidation() external {
+    function testRequesterSetCustomLivenessValidationEventsAndLifecycle() external {
         uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
@@ -731,14 +862,29 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 5200 weeks);
 
         // Valid set at minimum dispute window
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.CustomLivenessUpdated(
+            requester, IDENTIFIER, t, ANCILLARY, 0, MINIMUM_DISPUTE_WINDOW
+        );
         vm.prank(requester);
         moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, MINIMUM_DISPUTE_WINDOW);
 
-        // Propose and check expiration time = now + MINIMUM_DISPUTE_WINDOW
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.CustomLivenessUpdated(
+            requester, IDENTIFIER, t, ANCILLARY, MINIMUM_DISPUTE_WINDOW, 1 hours
+        );
+        vm.prank(requester);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 1 hours);
+
+        // Propose and check expiration time = now + custom liveness
         vm.warp(t + 10);
         _proposeFor(sender, proposer, requester, t, 123);
         OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
-        assertEq(req.expirationTime, moo.getCurrentTime() + MINIMUM_DISPUTE_WINDOW);
+        assertEq(req.expirationTime, moo.getCurrentTime() + 1 hours);
+
+        vm.prank(requester);
+        vm.expectRevert(OptimisticOracleV2Interface.RequestStateNotRequested.selector);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 2 hours);
     }
 
     // -------------------- Utility --------------------
@@ -938,23 +1084,25 @@ contract ManagedOptimisticOracleV2Test is Test {
         uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
-        // Disable whitelist per-request
+        // A real enabled whitelist with no members pauses proposals.
+        AddressWhitelist emptyWhitelist = new AddressWhitelist();
         vm.prank(requestManager);
-        moo.requestManagerSetProposerWhitelist(requester, IDENTIFIER, ANCILLARY, address(disabledWhitelist));
+        moo.requestManagerSetProposerWhitelist(requester, IDENTIFIER, ANCILLARY, address(emptyWhitelist));
+        _prepareFunds(sender);
+        vm.prank(sender);
+        vm.expectRevert(ManagedOptimisticOracleV2Interface.ProposerNotWhitelisted.selector);
+        moo.proposePriceFor(proposer, requester, IDENTIFIER, t, ANCILLARY, 7);
+        assertEq(
+            uint8(moo.getState(requester, IDENTIFIER, t, ANCILLARY)), uint8(OptimisticOracleV2Interface.State.Requested)
+        );
 
-        // Any addresses can propose
-        address freeSender = makeAddr("freeSender");
-        address freeProposer = makeAddr("freeProposer");
-        _proposeFor(freeSender, freeProposer, requester, t, 7);
-
-        // Reset to default by setting zero address
+        // Zero restores the default whitelist rather than cancelling the request.
         vm.prank(requestManager);
         moo.requestManagerSetProposerWhitelist(requester, IDENTIFIER, ANCILLARY, address(0));
-
-        // Now free addresses should be blocked by default whitelist (first check proposer)
-        vm.prank(freeSender);
-        vm.expectRevert(ManagedOptimisticOracleV2Interface.ProposerNotWhitelisted.selector);
-        moo.proposePriceFor(freeProposer, requester, IDENTIFIER, t + 1, ANCILLARY, 1);
+        _proposeFor(sender, proposer, requester, t, 7);
+        assertEq(
+            uint8(moo.getState(requester, IDENTIFIER, t, ANCILLARY)), uint8(OptimisticOracleV2Interface.State.Proposed)
+        );
     }
 
     function testAllowedBondRangeEventAndBehavior() external {
