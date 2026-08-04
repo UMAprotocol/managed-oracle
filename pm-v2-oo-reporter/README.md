@@ -2,7 +2,9 @@
 
 UMA-owned Managed Optimistic Oracle requester and raw outcome source for prediction market request IDs.
 
-This package is intended to pair with a market-side requester module. The market-side module registers request IDs here, then later pulls raw UMA outcomes for market-owned payout translation and finalization.
+This package is intended to pair with a market-side requester module. The market-side module registers request IDs here,
+then either pulls raw UMA outcomes from `OOReporter` or receives an automatic `report(requestId)` callback from
+`PolymarketOOReporter`. Payout translation and finalization remain market-side responsibilities.
 
 ## Boundary
 
@@ -32,6 +34,10 @@ Each `OOReporter` deployment exposes one owner-managed request namespace. Enable
 coordinate on request identity within that namespace; the contract does not isolate identical UMA request identities
 per requester.
 
+`PolymarketOOReporter` extends the base reporter with an automatic callback to the module that registered the request.
+Deploy the base `OOReporter` for pull-only integrations and the Polymarket variant when every enabled requester
+implements `IOOReporterModule.report(bytes32)`.
+
 The reporter reserves each `(priceIdentifier, requestRules)` tuple globally across enabled requesters in the
 deployment. This prevents two request IDs from pointing at the same UMA request identity. Independent integrations that
 need the exact same UMA request identity should use separate reporter deployments; integrations with similar rules can
@@ -44,9 +50,12 @@ domain-separate request rules so their UMA request identities differ.
 - requester/module allowlisting;
 - UMA oracle initializer allowlisting;
 - Managed OO request creation;
-- reward, bond, request-specific liveness bounds, automatic re-request controls, and manual re-request budget controls;
+- reward, bond, request-specific liveness minimums and target maximums, automatic re-request controls, and manual
+  re-request budget controls;
 - forwarding request rules updates to the Managed OO for active requests;
 - raw UMA settlement storage.
+
+`PolymarketOOReporter` additionally attempts to notify the registering module after storing a final outcome.
 
 The prediction market integration owns:
 
@@ -57,18 +66,23 @@ The prediction market integration owns:
 ## Request Lifecycle
 
 An enabled requester first calls `registerRequest(...)` with its external `requestId`, UMA price identifier, raw request
-rules, and allowed liveness range. The reporter reserves the `(priceIdentifier, requestRules)` tuple globally within
-the deployment so two request IDs cannot point at the same UMA request identity.
+rules, and liveness range. Registration requires an internally consistent range that overlaps the Managed OO bounds at
+that time. The minimum remains an onchain floor, while the maximum is stored, returned, and emitted as an offchain
+initialization target rather than an onchain ceiling. The reporter reserves the `(priceIdentifier, requestRules)` tuple
+globally within the deployment so two request IDs cannot point at the same UMA request identity.
 
 An enabled UMA oracle initializer later calls `initializeRequest(requestId, reward, proposalBond, liveness)`. The selected
-liveness must be non-zero and inside the registered range. Each initialized request receives the current
-`defaultRerequestBudget` as its manual re-request budget.
+liveness must be non-zero and at or above the registered minimum, but it may exceed the registered target maximum. The
+Managed OO independently enforces its current `minimumDisputeWindow` and technical maximum. Each initialized request
+receives the current `defaultRerequestBudget` as its manual re-request budget.
 
 Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
 `setAutomaticRerequestsEnabled(...)`. The current setting is evaluated when a dispute or P4 settlement callback arrives,
 not when the request was initialized or last re-requested. When enabled, the first dispute callback for a request
 attempts one replacement without consuming manual re-request budget. Failed attempts and later dispute callbacks open
-the manual re-request gate without reverting the dispute.
+the manual re-request gate without reverting the dispute. If Managed OO configuration drift invalidates the active
+liveness, an automatic replacement can fail and an enabled oracle initializer can recover manually with a valid
+liveness above the registered target maximum.
 
 P4 settlements intentionally reset the active request's manual budget to the current default. When automatic re-requests
 are enabled, P4 settlements also attempt a replacement without consuming manual budget. Disabled or failed attempts open
@@ -84,6 +98,52 @@ Lifecycle events that refer to a specific Managed OO request consistently lead w
 the active OO `requestTimestamp` before actor or outcome fields. This keeps initialization, re-request,
 re-request-gate, rules-update, and resolution logs easy to correlate after a request has been replaced.
 
+## Bond And Liveness Events
+
+`BondUpdated` and `CustomLivenessUpdated` expose requester-controlled changes to the concrete Managed OO request. Each
+request starts with a bond equal to its `finalFee` and custom liveness equal to `0`, so the first update event for each
+setting reports that default as its old value.
+
+To reconstruct the effective bond and liveness at proposal time, consumers must combine those events with
+`CustomBondSet` and `CustomLivenessSet`. These request-manager overrides take precedence when `proposePriceFor(...)`
+applies the proposal settings, even if the requester changed the concrete request afterward.
+
+## Reward Updates And Pre-Proposal Pauses
+
+Any enabled oracle initializer can call `setRequestReward(requestId, newReward)` while the active Managed OO request is
+still waiting for a proposal. The caller does not need to be the initializer that created the active request. Increasing
+the reward pulls only the delta from the reporter's reward balance; decreasing it, including setting it to zero, refunds
+the delta to the reporter or credits a deferred payout if the token transfer fails. The reporter updates its cached
+reward before calling Managed OO so callbacks observe the new amount. If the oracle rejects the change, the transaction
+reverts the cache update as well; successful changes are reused by later automatic re-requests.
+
+Because enabled initializers can spend the reporter's reward balance, initializer infrastructure should enforce an
+operational maximum reward and the reporter should hold only the working balance needed for requests rather than a
+treasury balance.
+
+The Managed OO request manager can also update an active reward directly. An increase is funded by the request-manager
+caller rather than pulled from the reporter, while a decrease is always refunded or deferred to the original requester
+(the reporter). This prevents the request manager from using the reporter's token allowance to pull arbitrary funds.
+Managed OO is authoritative after a direct manager update: `getRequest(requestId).reward` can retain its previous value
+until `setRequestReward` reads the live oracle reward or a dispute callback synchronizes the refunded reward. The dispute
+path updates the cache before attempting an automatic re-request.
+
+Setting a reward to zero does not cancel the request or stop proposals. To pause an abandoned or malformed request before
+proposal, the request manager must set its effective proposer whitelist to a real, enabled `AddressWhitelist` with no
+members. The reward can then be set to zero to recover its escrow. These calls can be batched through Managed OO
+multicall, with the whitelist change first to reduce the proposal race window; no separate cancellation state is
+created.
+
+To restore a paused request, an oracle initializer first restores the reward through `setRequestReward` while the empty
+whitelist still blocks proposals. The request manager then restores the prior whitelist or sets the custom whitelist to
+`address(0)` to return to the default. A `DisabledAddressWhitelist` is permissionless and therefore does not pause a
+request, while `address(0)` restores the default whitelist rather than disabling proposals. If the earlier refund was
+deferred, the owner must claim it before that balance can fund restoration.
+
+Reward changes are valid only before a proposal. A proposer can still win transaction ordering if its proposal lands
+before the pause transaction. Custom proposer whitelists are keyed without the request timestamp and therefore persist
+across re-requests for the same requester, identifier, and request rules until explicitly restored.
+
 ## Trusted Resolver Dependency
 
 `OOReporter` stores final outcomes only after Managed OO settles the active request and calls `priceSettled(...)` with a
@@ -95,6 +155,33 @@ human review before settlement.
 If no trusted resolver settles the active request, `isRequestResolved(requestId)` remains false and
 `getRequestResolution(requestId)` reverts. Downstream integrations should monitor this resolver dependency and keep any
 timeout or administrative recovery path in the market-side module that translates raw UMA outcomes and finalizes markets.
+
+## Oracle Reward Allowance
+
+The reporter pays request rewards from its own reward-currency balance. When its Managed OO allowance is below a
+request's reward, `_requestPrice` tops the allowance up to `type(uint256).max` instead of approving per request. This
+unbounded approval is intentional: it saves an approval on every subsequent request and re-request, and Managed OO only
+pulls each request's committed reward.
+
+The standing allowance keeps the oracle authorized over the reporter's entire reward balance, which is accepted under
+the reporter's trust model: the Managed OO address is fixed at initialization (the reporter has no oracle setter), and
+it is UMA-governed infrastructure in the same trust domain as this UMA-owned reporter. To bound the impact of an oracle
+compromise, operators should fund the reporter with a working reward float rather than a treasury balance.
+
+## Automatic Polymarket Reporting
+
+After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(requestId)` on the module that registered the
+request. The reporter commits its resolved state before making this external call, so the module can read the outcome
+during `report`.
+
+The callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
+`ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and
+the reporter emits `ReportCallbackFailed(requestId, reporterModule)`. The module's permissionless `report(requestId)`
+entry point can then be retried separately. P4 settlements, stale callbacks, unknown requests, and already-resolved
+requests do not trigger reporting.
+
+The reporter never calls market-side `finalize()`. Any reporting liveness, threshold, payout translation, and
+finalization logic remains enforced by the Polymarket V2 contracts.
 
 ## Rules Updates
 
@@ -131,7 +218,9 @@ Consumers can import the reporter from:
 
 ```solidity
 import {OOReporter} from "managed-oracle/pm-v2-oo-reporter/OOReporter.sol";
+import {PolymarketOOReporter} from "managed-oracle/pm-v2-oo-reporter/PolymarketOOReporter.sol";
 import {IOOReporter} from "managed-oracle/pm-v2-oo-reporter/interfaces/IOOReporter.sol";
+import {IOOReporterModule} from "managed-oracle/pm-v2-oo-reporter/interfaces/IOOReporterModule.sol";
 ```
 
 Importing only `IOOReporter` does not require OpenZeppelin remappings.
@@ -330,5 +419,8 @@ requires the implementation and proxy to be verified separately for proxy-aware 
 From the managed-oracle repository root:
 
 ```bash
-cd pm-v2-oo-reporter && forge test --match-path test/OOReporter.t.sol
+cd pm-v2-oo-reporter && forge test
 ```
+
+The package enables the Solidity optimizer with 200 runs so both reporter implementations remain comfortably below
+the EIP-170 deployed bytecode limit.

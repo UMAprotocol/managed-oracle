@@ -277,6 +277,26 @@ contract ManagedOptimisticOracleV2 is ManagedOptimisticOracleV2Interface, Optimi
     }
 
     /**
+     * @notice Updates the reward for a concrete price request.
+     * @dev Only callable by a request manager while the request is in State.Requested. Increases are funded by the
+     * caller, while decreases are always refunded to the original requester.
+     * @param requester sender of the initial price request.
+     * @param identifier price identifier to identify the existing request.
+     * @param timestamp timestamp to identify the concrete request round.
+     * @param ancillaryData ancillary data of the price being requested.
+     * @param newReward new reward amount, which can be zero.
+     */
+    function requestManagerSetReward(
+        address requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes memory ancillaryData,
+        uint256 newReward
+    ) external override onlyRequestManager {
+        _setReward(requester, identifier, timestamp, ancillaryData, newReward);
+    }
+
+    /**
      * @notice Set the proposal bond associated with a price request.
      * @dev Can be called before the request exists (pre-configuration) or after. Settings are applied when
      * proposePriceFor() is called. This would also override any subsequent calls to setBond() by the requester.

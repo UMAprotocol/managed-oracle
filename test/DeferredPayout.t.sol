@@ -163,6 +163,20 @@ contract DeferredPayoutTest is Test {
         oo.disputePrice(requester, IDENTIFIER, timestamp, ANCILLARY_DATA);
     }
 
+    function testRewardDecreaseWithBlacklistedRequesterIsDeferred() public {
+        uint256 timestamp = _makeRequest(blacklistToken);
+        blacklistToken.setBlacklisted(requester, true);
+
+        vm.expectEmit(true, true, true, true);
+        emit OptimisticOracleV2Interface.PayoutDeferred(address(blacklistToken), requester, REWARD);
+        vm.prank(requester);
+        oo.setReward(IDENTIFIER, timestamp, ANCILLARY_DATA, 0);
+
+        assertEq(oo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY_DATA).reward, 0);
+        assertEq(oo.deferredPayouts(blacklistToken, requester), REWARD);
+        assertEq(blacklistToken.balanceOf(address(oo)), REWARD);
+    }
+
     // -------------------- Blacklist Token Tests (Returns false) --------------------
 
     function testExpiredSettlementWithBlacklistedProposer() public {

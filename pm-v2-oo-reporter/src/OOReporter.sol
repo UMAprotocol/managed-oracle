@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {MulticallUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/MulticallUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,8 +18,16 @@ import {IOptimisticRequester} from "./interfaces/IOptimisticRequester.sol";
 ///      then this reporter stores the final raw UMA price for market-side translation. Enabled requesters
 ///      share one owner-managed request namespace and are expected to coordinate on request identity.
 /// @custom:security-contact bugs@umaproject.org
-contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable, IOOReporter, IOptimisticRequester {
+contract OOReporter is
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    MulticallUpgradeable,
+    IOOReporter,
+    IOptimisticRequester
+{
     using SafeERC20 for IERC20;
+
+    error OwnershipRenunciationDisabled();
 
     /*--------------------------------------------------------------
                              CONSTANTS
@@ -57,7 +65,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     }
 
     // keccak256(abi.encode(uint256(keccak256("uma.storage.OOReporter")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant OOReporterStorageLocation =
+    bytes32 private constant OO_REPORTER_STORAGE_LOCATION =
         0xe597f8c3629f5ca2bbd4f416c338811ff317bd2d6db5ce34f2567207506cc400;
 
     /*--------------------------------------------------------------
@@ -71,7 +79,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
     function _getStorage() private pure returns (OOReporterStorage storage $) {
         assembly {
-            $.slot := OOReporterStorageLocation
+            $.slot := OO_REPORTER_STORAGE_LOCATION
         }
     }
 
@@ -108,6 +116,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         }
 
         __Ownable_init(initialOwner);
+        __Ownable2Step_init();
         __Multicall_init();
 
         OOReporterStorage storage $ = _getStorage();
@@ -125,6 +134,11 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         $.automaticRerequestsEnabled = true;
         emit DefaultRerequestBudgetSet(initialDefaultRerequestBudget);
         emit AutomaticRerequestsEnabledSet(true);
+    }
+
+    /// @notice Ownership renunciation is disabled to preserve administrative and upgrade authority.
+    function renounceOwnership() public pure override {
+        revert OwnershipRenunciationDisabled();
     }
 
     /// @notice Returns the configured Managed Optimistic Oracle V2 address.
@@ -248,6 +262,29 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     }
 
     /// @inheritdoc IOOReporter
+    function setRequestReward(bytes32 requestId, uint256 newReward) external onlyOracleInitializer {
+        RequestData storage request = _requireRegistered(requestId);
+        if (!request.initialized) revert RequestNotInitialized();
+        if (request.resolved) revert RequestAlreadyResolved();
+
+        IERC20 currency = rewardCurrency();
+        IOptimisticOracleV2 oracle = optimisticOracle();
+        uint256 oldReward = oracle.getRequestReward(
+            address(this), request.priceIdentifier, request.requestTimestamp, request.requestRules
+        );
+        if (newReward > oldReward) {
+            _prepareReward(currency, oracle, newReward - oldReward);
+        }
+
+        request.reward = newReward;
+        oracle.setReward(request.priceIdentifier, request.requestTimestamp, request.requestRules, newReward);
+
+        emit RequestRewardUpdated(
+            requestId, request.requestTimestamp, msg.sender, address(currency), oldReward, newReward
+        );
+    }
+
+    /// @inheritdoc IOOReporter
     function initializeRequest(bytes32 requestId, uint256 reward, uint256 proposalBond, uint64 liveness)
         external
         onlyOracleInitializer
@@ -322,7 +359,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
     /// @notice Managed OO dispute callback. Attempts one auto re-request, otherwise opens the manual gate.
     /// @inheritdoc IOptimisticRequester
-    function priceDisputed(bytes32 identifier, uint256 timestamp, bytes memory requestRules, uint256)
+    function priceDisputed(bytes32 identifier, uint256 timestamp, bytes memory requestRules, uint256 refund)
         external
         override
         onlyOptimisticOracle
@@ -330,6 +367,8 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         (bytes32 requestId, RequestData storage request, bool shouldIgnore) =
             _loadCallbackRequest(identifier, timestamp, requestRules);
         if (shouldIgnore || request.resolved) return;
+
+        request.reward = refund;
 
         if (!request.automaticDisputeRerequestUsed && _shouldAttemptAutomaticRerequest(request)) {
             try this.executeAutomaticRerequest(requestId, RerequestType.AutomaticDispute) {
@@ -377,6 +416,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             request.rerequestAllowed = false;
 
             emit RequestResolved(requestId, timestamp, price);
+            _onRequestResolved(requestId, request.requester);
         }
     }
 
@@ -519,13 +559,11 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         IERC20 currency = rewardCurrency();
         IOptimisticOracleV2 oracle = optimisticOracle();
         if (reward > 0) {
-            uint256 balance = currency.balanceOf(address(this));
-            if (balance < reward) revert InsufficientRewardBalance(address(currency), balance, reward);
-            if (currency.allowance(address(this), address(oracle)) < reward) {
-                currency.forceApprove(address(oracle), type(uint256).max);
-            }
+            _prepareReward(currency, oracle, reward);
         }
 
+        // Managed OO validates identifier support only when creating this request. If governance removes it later,
+        // resolver-gated settlement and Polymarket's administrator/arbitrator `resolveResult` remain the backstops.
         oracle.requestPrice(priceIdentifier, requestTimestamp, requestRules, currency, reward);
         oracle.setEventBased(priceIdentifier, requestTimestamp, requestRules);
         oracle.setCallbacks(priceIdentifier, requestTimestamp, requestRules, false, true, true);
@@ -536,10 +574,22 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
         oracle.setCustomLiveness(priceIdentifier, requestTimestamp, requestRules, liveness);
     }
 
-    /// @dev Keeps the reporter off Managed OO's default liveness path and within the registered bounds.
+    /// @dev Verifies reporter funding and grants the oracle a reusable allowance for a reward pull.
+    function _prepareReward(IERC20 currency, IOptimisticOracleV2 oracle, uint256 amount) private {
+        uint256 balance = currency.balanceOf(address(this));
+        if (balance < amount) revert InsufficientRewardBalance(address(currency), balance, amount);
+        if (currency.allowance(address(this), address(oracle)) < amount) {
+            // Unbounded approval is intentional: it saves an approval on every subsequent request, and the
+            // Managed OO is fixed at initialization within the same UMA-governed trust domain as this reporter.
+            // Exposure is capped by this contract's reward balance, which should hold only a working float.
+            currency.forceApprove(address(oracle), type(uint256).max);
+        }
+    }
+
+    /// @dev Keeps the reporter off Managed OO's default liveness path and above the registered minimum.
     function _requireValidRequestLiveness(RequestData storage request, uint64 liveness) private view {
         if (liveness == 0) revert RequestLivenessCannotBeZero();
-        if (liveness < request.minimumLiveness || liveness > request.maximumLiveness) {
+        if (liveness < request.minimumLiveness) {
             revert RequestLivenessOutOfRange(liveness, request.minimumLiveness, request.maximumLiveness);
         }
     }
@@ -596,6 +646,9 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     function _reporterRequestKey(bytes32 identifier, bytes memory requestRules) internal pure returns (bytes32) {
         return keccak256(abi.encode(identifier, requestRules));
     }
+
+    /// @dev Hook for integration-specific actions after a final outcome is stored.
+    function _onRequestResolved(bytes32, address) internal virtual {}
 
     /// @dev Restricts implementation upgrades to the current owner.
     function _authorizeUpgrade(address) internal override onlyOwner {}
