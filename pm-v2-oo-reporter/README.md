@@ -236,20 +236,24 @@ and dependency settings. Choose the entrypoint explicitly:
 | --- | --- |
 | `script/DeployOOReporter.s.sol` | Fresh pull-only `OOReporter` implementation and initialized ERC1967 proxy. |
 | `script/DeployPolymarketOOReporter.s.sol` | Fresh callback-enabled `PolymarketOOReporter` implementation and initialized ERC1967 proxy. |
-| `script/UpgradeOOReporter.s.sol` | Upgrade an existing `OOReporter` UUPS proxy to `PolymarketOOReporter`. |
+| `script/UpgradeOOReporter.s.sol` | Atomically upgrade an existing reporter and migrate it to a replacement Managed OO. |
 
-The fresh deployment scripts share the same initialization flow. The upgrade script preserves the proxy address and
-state, deploys only a new implementation, and calls `upgradeToAndCall(newImplementation, "")`. It deliberately does
-not call `initialize` or a reinitializer.
+The fresh deployment scripts share the same initialization flow. The upgrade script preserves the reporter proxy and
+all reporter state except the intentionally changed Managed OO address. It uses a constructor-bound temporary bridge
+that performs the migration and installs the exact final `PolymarketOOReporter` implementation in the same transaction.
+The bridge does not call an initializer or reinitializer and is no longer reachable when the transaction completes.
 
 ### Managed OO Compatibility Prerequisite
 
-Upgrade Managed Optimistic Oracle V2 before either deploying a fresh post-audit reporter or upgrading an existing
-reporter proxy. The current reporter's `setRequestReward` path depends on the new Managed OO `getRequestReward` getter.
-A reporter can still deploy against the older implementation, but reward updates will revert.
+Deploy and fully configure the replacement Managed Optimistic Oracle V2 before either deploying a fresh post-audit
+reporter or migrating an existing reporter proxy. The current reporter's `setRequestReward` path depends on the new
+Managed OO `getRequestReward` getter. A reporter can still point at the older implementation, but reward updates will
+revert.
 
-Use the repository's [Managed OO upgrade flow](../script/README.md#managedoptimisticoraclev2-upgrade) with empty
-upgrade calldata. Then confirm the configured Managed OO proxy exposes the getter; an unused request key returns zero:
+For the Polymarket Tenderly VNet, use the repository's
+[fresh Managed OO flow](../script/README.md#polymarket-polygon-vnet-fresh-deployment), including the Safe V2
+initialization and resolver-role transaction. Then confirm the replacement proxy exposes the getter; an unused request
+key returns zero:
 
 ```bash
 # Uses the Polygon default when unset. Set OPTIMISTIC_ORACLE explicitly first on any other network.
@@ -315,43 +319,83 @@ Use `script/DeployOOReporter.s.sol` instead only when downstream integrations wi
 
 ### Upgrade An Existing Reporter Proxy
 
-The reporter upgrade accepts:
+The migration must run only after the replacement Managed OO is fully configured. The script validates its
+implementation, Finder, whitelists, default and minimum liveness, reward-currency bond range, config and upgrade admins,
+resolver-admin handoff, expected resolver memberships, and reporter whitelist membership before deploying anything.
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `MNEMONIC` | Yes | Mnemonic for the implementation deployer, using derivation index 0. |
-| `PROXY_ADDRESS` | Yes | Existing reporter ERC1967 proxy. |
-| `EXPECTED_CHAIN_ID` | Yes | Independently chosen chain ID guard; do not derive it from an untrusted RPC URL. |
-| `EXPECTED_CURRENT_IMPLEMENTATION` | Yes | Exact current implementation expected in the proxy's EIP-1967 slot. |
+Reporter guards:
 
-Resolve the current implementation independently from deployment records or a block explorer before running the
-script. The script rejects a wrong chain, a proxy whose implementation differs, an address without code, a zero owner,
-or a new implementation with the wrong UUPS UUID.
+| Variable | Description |
+| --- | --- |
+| `DEPLOYER_ADDRESS` | Public signer address. It must be the current reporter owner. |
+| `PROXY_ADDRESS` | Existing reporter ERC1967 proxy. |
+| `EXPECTED_PROXY_CODEHASH` | Exact reporter proxy runtime code hash. |
+| `REPORTER_DEPLOYMENT_BLOCK` | Exact proxy deployment block containing its `Initialized(1)` event. |
+| `EXPECTED_CHAIN_ID` | Independently chosen chain ID guard. |
+| `EXPECTED_CURRENT_IMPLEMENTATION` | Exact implementation currently stored in the reporter proxy. |
+| `EXPECTED_CURRENT_IMPLEMENTATION_CODEHASH` | Exact current implementation runtime code hash. |
+| `EXPECTED_CURRENT_OPTIMISTIC_ORACLE` | Exact Managed OO currently stored in the reporter. |
+| `EXPECTED_CURRENT_OPTIMISTIC_ORACLE_CODEHASH` | Exact current Managed OO proxy runtime code hash. |
+| `EXPECTED_REWARD_CURRENCY` | Reporter reward currency. |
+| `EXPECTED_REQUESTER` | Existing downstream requester that must remain enabled. |
+| `EXPECTED_ORACLE_INITIALIZER` | Existing oracle initializer that must remain enabled. |
+
+Replacement Managed OO guards:
+
+| Variable | Description |
+| --- | --- |
+| `NEW_OPTIMISTIC_ORACLE` | Fully initialized replacement Managed OO proxy. |
+| `EXPECTED_NEW_MOO_PROXY_CODEHASH` | Exact replacement proxy runtime code hash. |
+| `EXPECTED_NEW_MOO_IMPLEMENTATION` | Exact implementation in the replacement proxy's ERC1967 slot. |
+| `EXPECTED_NEW_MOO_IMPLEMENTATION_CODEHASH` | Exact replacement implementation runtime code hash. |
+| `EXPECTED_NEW_FINDER` | Finder configured on the replacement. |
+| `EXPECTED_NEW_DEFAULT_PROPOSER_WHITELIST` | Expected proposer whitelist. |
+| `EXPECTED_NEW_REQUESTER_WHITELIST` | Expected requester whitelist. |
+| `EXPECTED_NEW_DEFAULT_LIVENESS` | Expected default liveness in seconds. |
+| `EXPECTED_NEW_MINIMUM_DISPUTE_WINDOW` | Expected minimum dispute window in seconds. |
+| `EXPECTED_NEW_MINIMUM_BOND` / `EXPECTED_NEW_MAXIMUM_BOND` | Expected reward-currency bond range. |
+| `EXPECTED_NEW_CONFIG_ADMIN` | Account holding `CONFIG_ADMIN_ROLE`. |
+| `EXPECTED_NEW_UPGRADE_ADMIN` | Account holding `DEFAULT_ADMIN_ROLE`. |
+| `EXPECTED_NEW_RESOLVER_ADMIN` | Account holding `RESOLVER_ADMIN_ROLE`. |
+| `EXPECTED_NEW_RESOLVERS` | Comma-separated accounts whose `RESOLVER_ROLE` membership is required. |
+
+The script derives the complete request-ID list from `RequestRegistered` logs instead of accepting a hand-curated
+list. It aborts if an initialized request is unresolved, if an uninitialized request's liveness range is incompatible
+with the new minimum, if any account other than the expected initializer is currently enabled, or if the old Managed
+OO owes the reporter a deferred payout. Keep registrations and initializations operationally frozen between the final
+preflight and broadcast.
+
+Resolve every expected address from trusted deployment records. Obtain each code-hash guard with
+`cast code "$ADDRESS" --rpc-url "$RPC_URL" | cast keccak`; Tenderly's VNet RPC does not support `eth_getCodeHash`.
+The script also requires `REPORTER_DEPLOYMENT_BLOCK` to contain the proxy's `Initialized(1)` event, preventing an
+accidentally late event-scan lower bound. These guards are required because the VNet shares Polygon's chain ID.
+
+Run a no-broadcast preflight first, review every address, then rerun the same command with an interactive external
+signer. The script never reads a private key or mnemonic:
 
 ```bash
 cd pm-v2-oo-reporter
 
-export MNEMONIC="implementation deployer mnemonic"
-export PROXY_ADDRESS="existing reporter proxy"
-export EXPECTED_CHAIN_ID=137
-export EXPECTED_CURRENT_IMPLEMENTATION="verified current implementation"
+forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
+  --rpc-url "$RPC_URL" -vvv
 
-forge script script/UpgradeOOReporter.s.sol \
+forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
   --rpc-url "$RPC_URL" \
+  --sender "$DEPLOYER_ADDRESS" \
+  --interactive \
   --broadcast \
-  --slow
+  --slow \
+  -vvv
 ```
 
-If the mnemonic derives the current reporter owner, the script broadcasts both the implementation deployment and the
-proxy upgrade. Otherwise it broadcasts only the implementation deployment, simulates the owner-authorized upgrade, and
-prints the exact Safe transaction target, zero value, and `upgradeToAndCall` calldata. Verify the implementation before
-the Safe submits that transaction. The script labels this path as simulated; the proxy remains unchanged onchain until
-the owner executes the printed transaction.
+The owner transaction first installs the immutable-bound bridge as a UUPS implementation. Its migration call checks
+the discovered request set again, updates only the reporter's Managed OO field, rejects outstanding deferred payouts,
+revokes any reward-currency allowance granted to the old oracle, and immediately invokes the canonical UUPS path to
+install the final implementation. Any failure reverts the entire owner transaction, including the temporary upgrade.
 
-The upgrade preserves the owner, Managed OO, reward currency, default re-request budget, automatic re-request setting,
-allowlists, request lookup keys, and request data. The script checks scalar configuration before and after its direct
-upgrade or local simulation, while the upgrade regression test covers allowlists, lookup keys, and resolved and pending
-requests.
+Postconditions verify the exact final implementation, new Managed OO, zero old allowance and deferred payout, unchanged
+Initializable slot, owner, pending owner, reward currency, re-request configuration, requester and initializer access,
+and the byte-for-byte ABI encoding of every registered request.
 
 Requests that settle after the upgrade use the automatic callback. Requests resolved before the upgrade receive no
 retroactive callback and must use the module's permissionless `report(requestId)` path. A legacy requester that does not
