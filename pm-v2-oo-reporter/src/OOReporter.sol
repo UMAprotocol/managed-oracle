@@ -255,28 +255,15 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
 
         IERC20 currency = rewardCurrency();
         IOptimisticOracleV2 oracle = optimisticOracle();
-        bytes memory callData = abi.encodeCall(
-            IOptimisticOracleV2.getRequest,
-            (address(this), request.priceIdentifier, request.requestTimestamp, request.requestRules)
+        uint256 oldReward = oracle.getRequestReward(
+            address(this), request.priceIdentifier, request.requestTimestamp, request.requestRules
         );
-        uint256 oldReward;
-        // Decode only Request.reward (word 14, requiring 15 words / 0x1e0 bytes) to stay below EIP-170.
-        assembly {
-            let result := mload(0x40)
-            mstore(0x40, add(result, 0x220))
-            if iszero(staticcall(gas(), oracle, add(callData, 0x20), mload(callData), result, 0x220)) {
-                returndatacopy(result, 0, returndatasize())
-                revert(result, returndatasize())
-            }
-            if lt(returndatasize(), 0x1e0) { revert(0, 0) }
-            oldReward := mload(add(result, 0x1c0))
-        }
         if (newReward > oldReward) {
             _prepareReward(currency, oracle, newReward - oldReward);
         }
 
-        oracle.setReward(request.priceIdentifier, request.requestTimestamp, request.requestRules, newReward);
         request.reward = newReward;
+        oracle.setReward(request.priceIdentifier, request.requestTimestamp, request.requestRules, newReward);
 
         emit RequestRewardUpdated(
             requestId, request.requestTimestamp, msg.sender, address(currency), oldReward, newReward

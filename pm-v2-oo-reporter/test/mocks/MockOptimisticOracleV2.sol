@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IOptimisticOracleV2} from "src/interfaces/IOptimisticOracleV2.sol";
 import {IOptimisticRequester} from "src/interfaces/IOptimisticRequester.sol";
+import {IOOReporter} from "src/interfaces/IOOReporter.sol";
 
 contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
     struct MockRequest {
@@ -32,6 +33,8 @@ contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
     mapping(IERC20 currency => mapping(address deferredRecipient => uint256 amount)) public deferredPayouts;
     uint256 public minimumDisputeWindow = 5 minutes;
     bool public deferNextDisputeRefund;
+    bytes32 private expectedRewardRequestId;
+    uint256 private expectedReporterReward;
 
     function getMockRequest(bytes32 key) external view returns (MockRequest memory) {
         return requests[key];
@@ -67,6 +70,14 @@ contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
             finalFee: 0,
             proposalTime: 0
         });
+    }
+
+    function getRequestReward(address requester, bytes32 identifier, uint256 timestamp, bytes memory requestRules)
+        external
+        view
+        returns (uint256 reward)
+    {
+        return requests[requestKey(requester, identifier, timestamp, requestRules)].reward;
     }
 
     function requestKey(address requester, bytes32 identifier, uint256 timestamp, bytes memory requestRules)
@@ -229,9 +240,22 @@ contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
         minimumDisputeWindow = newMinimumDisputeWindow;
     }
 
+    function expectReporterRewardDuringSetReward(bytes32 requestId, uint256 reward) external {
+        expectedRewardRequestId = requestId;
+        expectedReporterReward = reward;
+    }
+
     function _setReward(MockRequest storage request, address requester, uint256 newReward) private {
         require(request.requested, "not requested");
         require(!request.proposed, "already proposed");
+
+        if (expectedRewardRequestId != bytes32(0)) {
+            require(
+                IOOReporter(requester).getRequest(expectedRewardRequestId).reward == expectedReporterReward,
+                "reporter reward not updated"
+            );
+            expectedRewardRequestId = bytes32(0);
+        }
 
         uint256 oldReward = request.reward;
         request.reward = newReward;

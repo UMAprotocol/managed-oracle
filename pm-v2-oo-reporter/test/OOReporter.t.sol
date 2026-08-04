@@ -395,6 +395,7 @@ contract OOReporterTest {
 
         vm.prank(address(reporter));
         usdc.approve(address(optimisticOracle), 0);
+        optimisticOracle.expectReporterRewardDuringSetReward(REQUEST_ID, REREQUEST_REWARD);
 
         vm.expectEmit(address(reporter));
         emit RequestRewardUpdated(
