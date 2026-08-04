@@ -402,6 +402,7 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
             request.rerequestAllowed = false;
 
             emit RequestResolved(requestId, timestamp, price);
+            _onRequestResolved(requestId, request.requester);
         }
     }
 
@@ -629,6 +630,9 @@ contract OOReporter is OwnableUpgradeable, UUPSUpgradeable, MulticallUpgradeable
     function _reporterRequestKey(bytes32 identifier, bytes memory requestRules) internal pure returns (bytes32) {
         return keccak256(abi.encode(identifier, requestRules));
     }
+
+    /// @dev Hook for integration-specific actions after a final outcome is stored.
+    function _onRequestResolved(bytes32, address) internal virtual {}
 
     /// @dev Restricts implementation upgrades to the current owner.
     function _authorizeUpgrade(address) internal override onlyOwner {}

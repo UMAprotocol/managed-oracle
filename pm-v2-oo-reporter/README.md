@@ -2,7 +2,9 @@
 
 UMA-owned Managed Optimistic Oracle requester and raw outcome source for prediction market request IDs.
 
-This package is intended to pair with a market-side requester module. The market-side module registers request IDs here, then later pulls raw UMA outcomes for market-owned payout translation and finalization.
+This package is intended to pair with a market-side requester module. The market-side module registers request IDs here,
+then either pulls raw UMA outcomes from `OOReporter` or receives an automatic `report(requestId)` callback from
+`PolymarketOOReporter`. Payout translation and finalization remain market-side responsibilities.
 
 ## Boundary
 
@@ -32,6 +34,10 @@ Each `OOReporter` deployment exposes one owner-managed request namespace. Enable
 coordinate on request identity within that namespace; the contract does not isolate identical UMA request identities
 per requester.
 
+`PolymarketOOReporter` extends the base reporter with an automatic callback to the module that registered the request.
+Deploy the base `OOReporter` for pull-only integrations and the Polymarket variant when every enabled requester
+implements `IOOReporterModule.report(bytes32)`.
+
 The reporter reserves each `(priceIdentifier, requestRules)` tuple globally across enabled requesters in the
 deployment. This prevents two request IDs from pointing at the same UMA request identity. Independent integrations that
 need the exact same UMA request identity should use separate reporter deployments; integrations with similar rules can
@@ -48,6 +54,8 @@ domain-separate request rules so their UMA request identities differ.
   re-request budget controls;
 - forwarding request rules updates to the Managed OO for active requests;
 - raw UMA settlement storage.
+
+`PolymarketOOReporter` additionally attempts to notify the registering module after storing a final outcome.
 
 The prediction market integration owns:
 
@@ -160,6 +168,21 @@ the reporter's trust model: the Managed OO address is fixed at initialization (t
 it is UMA-governed infrastructure in the same trust domain as this UMA-owned reporter. To bound the impact of an oracle
 compromise, operators should fund the reporter with a working reward float rather than a treasury balance.
 
+## Automatic Polymarket Reporting
+
+After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(requestId)` on the module that registered the
+request. The reporter commits its resolved state before making this external call, so the module can read the outcome
+during `report`.
+
+The callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
+`ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and
+the reporter emits `ReportCallbackFailed(requestId, reporterModule)`. The module's permissionless `report(requestId)`
+entry point can then be retried separately. P4 settlements, stale callbacks, unknown requests, and already-resolved
+requests do not trigger reporting.
+
+The reporter never calls market-side `finalize()`. Any reporting liveness, threshold, payout translation, and
+finalization logic remains enforced by the Polymarket V2 contracts.
+
 ## Rules Updates
 
 Only the requester that registered a `requestId` can update rules for that request. The reporter does not store update
@@ -195,7 +218,9 @@ Consumers can import the reporter from:
 
 ```solidity
 import {OOReporter} from "managed-oracle/pm-v2-oo-reporter/OOReporter.sol";
+import {PolymarketOOReporter} from "managed-oracle/pm-v2-oo-reporter/PolymarketOOReporter.sol";
 import {IOOReporter} from "managed-oracle/pm-v2-oo-reporter/interfaces/IOOReporter.sol";
+import {IOOReporterModule} from "managed-oracle/pm-v2-oo-reporter/interfaces/IOOReporterModule.sol";
 ```
 
 Importing only `IOOReporter` does not require OpenZeppelin remappings.
@@ -207,5 +232,8 @@ Consumers that compile `OOReporter.sol` must provide compatible remappings for `
 From the managed-oracle repository root:
 
 ```bash
-cd pm-v2-oo-reporter && forge test --match-path test/OOReporter.t.sol
+cd pm-v2-oo-reporter && forge test
 ```
+
+The package enables the Solidity optimizer with 200 runs so both reporter implementations remain comfortably below
+the EIP-170 deployed bytecode limit.
