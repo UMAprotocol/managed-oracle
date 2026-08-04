@@ -62,6 +62,36 @@ abstract contract OptimisticOracleV2Interface {
         uint256 oldReward,
         uint256 newReward
     );
+    /// @notice Emitted when the proposal bond associated with a price request is updated.
+    /// @param requester sender of the initial price request.
+    /// @param identifier price identifier identifying the existing request.
+    /// @param timestamp timestamp identifying the existing request.
+    /// @param ancillaryData ancillary data of the price being requested.
+    /// @param oldBond previous custom bond amount.
+    /// @param newBond new custom bond amount.
+    event BondUpdated(
+        address indexed requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes ancillaryData,
+        uint256 oldBond,
+        uint256 newBond
+    );
+    /// @notice Emitted when the custom liveness associated with a price request is updated.
+    /// @param requester sender of the initial price request.
+    /// @param identifier price identifier identifying the existing request.
+    /// @param timestamp timestamp identifying the existing request.
+    /// @param ancillaryData ancillary data of the price being requested.
+    /// @param oldCustomLiveness previous custom liveness value.
+    /// @param newCustomLiveness new custom liveness value.
+    event CustomLivenessUpdated(
+        address indexed requester,
+        bytes32 identifier,
+        uint256 timestamp,
+        bytes ancillaryData,
+        uint256 oldCustomLiveness,
+        uint256 newCustomLiveness
+    );
     event ProposePrice(
         address indexed requester,
         address indexed proposer,

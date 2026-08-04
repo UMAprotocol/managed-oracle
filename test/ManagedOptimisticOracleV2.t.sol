@@ -578,13 +578,38 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.requestManagerSetBond(requester, IDENTIFIER, ANCILLARY, IERC20(address(otherCurrency)), 1);
     }
 
+    function testRequesterSetBondEventsAndLifecycle() external {
+        uint256 t = moo.getCurrentTime();
+        _makeRequest(requester, t, 0);
+
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.BondUpdated(requester, IDENTIFIER, t, ANCILLARY, 10 ether, 3 ether);
+        vm.prank(requester);
+        assertEq(moo.setBond(IDENTIFIER, t, ANCILLARY, 3 ether), 13 ether);
+
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.BondUpdated(requester, IDENTIFIER, t, ANCILLARY, 3 ether, 4 ether);
+        vm.prank(requester);
+        assertEq(moo.setBond(IDENTIFIER, t, ANCILLARY, 4 ether), 14 ether);
+
+        _proposeFor(sender, proposer, requester, t, 100);
+
+        vm.prank(requester);
+        vm.expectRevert(OptimisticOracleV2Interface.RequestStateNotRequested.selector);
+        moo.setBond(IDENTIFIER, t, ANCILLARY, 5 ether);
+    }
+
     function testCustomBondAppliedOnPropose() external {
         uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
+        vm.prank(requester);
+        moo.setBond(IDENTIFIER, t, ANCILLARY, 3 ether);
+
         // Set custom bond of 5 ether
         vm.prank(requestManager);
         moo.requestManagerSetBond(requester, IDENTIFIER, ANCILLARY, IERC20(address(currency)), 5 ether);
+        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).requestSettings.bond, 3 ether);
 
         // Propose and verify total bond = custom bond + final fee (10 ether)
         uint256 totalBond = _proposeFor(sender, proposer, requester, t, 100);
@@ -804,12 +829,16 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.expectRevert(OptimisticOracleV2Interface.LivenessTooLarge.selector);
         moo.requestManagerSetCustomLiveness(requester, IDENTIFIER, ANCILLARY, 5200 weeks);
 
+        vm.prank(requester);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 1 hours);
+
         // Valid set and event
         vm.expectEmit(true, true, true, true);
         bytes32 managedId = moo.getManagedRequestId(requester, IDENTIFIER, ANCILLARY);
         emit ManagedOptimisticOracleV2Interface.CustomLivenessSet(managedId, requester, IDENTIFIER, ANCILLARY, 3 hours);
         vm.prank(requestManager);
         moo.requestManagerSetCustomLiveness(requester, IDENTIFIER, ANCILLARY, 3 hours);
+        assertEq(moo.getRequest(requester, IDENTIFIER, t, ANCILLARY).requestSettings.customLiveness, 1 hours);
 
         // Propose and check expiration time = now + 3 hours
         vm.warp(t + 10);
@@ -818,7 +847,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(req.expirationTime, moo.getCurrentTime() + 3 hours);
     }
 
-    function testRequesterSetCustomLivenessValidation() external {
+    function testRequesterSetCustomLivenessValidationEventsAndLifecycle() external {
         uint256 t = moo.getCurrentTime();
         _makeRequest(requester, t, 0);
 
@@ -833,14 +862,29 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 5200 weeks);
 
         // Valid set at minimum dispute window
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.CustomLivenessUpdated(
+            requester, IDENTIFIER, t, ANCILLARY, 0, MINIMUM_DISPUTE_WINDOW
+        );
         vm.prank(requester);
         moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, MINIMUM_DISPUTE_WINDOW);
 
-        // Propose and check expiration time = now + MINIMUM_DISPUTE_WINDOW
+        vm.expectEmit(true, false, false, true);
+        emit OptimisticOracleV2Interface.CustomLivenessUpdated(
+            requester, IDENTIFIER, t, ANCILLARY, MINIMUM_DISPUTE_WINDOW, 1 hours
+        );
+        vm.prank(requester);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 1 hours);
+
+        // Propose and check expiration time = now + custom liveness
         vm.warp(t + 10);
         _proposeFor(sender, proposer, requester, t, 123);
         OptimisticOracleV2Interface.Request memory req = moo.getRequest(requester, IDENTIFIER, t, ANCILLARY);
-        assertEq(req.expirationTime, moo.getCurrentTime() + MINIMUM_DISPUTE_WINDOW);
+        assertEq(req.expirationTime, moo.getCurrentTime() + 1 hours);
+
+        vm.prank(requester);
+        vm.expectRevert(OptimisticOracleV2Interface.RequestStateNotRequested.selector);
+        moo.setCustomLiveness(IDENTIFIER, t, ANCILLARY, 2 hours);
     }
 
     // -------------------- Utility --------------------
