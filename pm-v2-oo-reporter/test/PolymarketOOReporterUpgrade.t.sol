@@ -14,6 +14,17 @@ interface IUUPSUpgrade {
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
 }
 
+contract UpgradeOwner {
+    function execute(address target, bytes calldata data) external {
+        (bool success, bytes memory returnData) = target.call(data);
+        if (!success) {
+            assembly {
+                revert(add(returnData, 0x20), mload(returnData))
+            }
+        }
+    }
+}
+
 contract UpgradeReporterModule {
     IOOReporter public reporter;
     uint256 public reportCount;
@@ -148,6 +159,25 @@ contract PolymarketOOReporterUpgradeTest is Test {
 
         assertEq(vm.load(address(legacyReporter), IMPLEMENTATION_SLOT), implementationBefore, "implementation changed");
         assertEq(legacyReporter.owner(), owner, "owner changed");
+    }
+
+    function test_upgradeSupportsPredeployedImplementationAndContractOwner() external {
+        UpgradeOwner upgradeOwner = new UpgradeOwner();
+        vm.prank(owner);
+        legacyReporter.transferOwnership(address(upgradeOwner));
+
+        PolymarketOOReporter implementation = new PolymarketOOReporter();
+        bytes memory upgradeCall = abi.encodeCall(IUUPSUpgrade.upgradeToAndCall, (address(implementation), bytes("")));
+        upgradeOwner.execute(address(legacyReporter), upgradeCall);
+
+        assertEq(
+            address(uint160(uint256(vm.load(address(legacyReporter), IMPLEMENTATION_SLOT)))),
+            address(implementation),
+            "implementation mismatch"
+        );
+        assertEq(legacyReporter.owner(), address(upgradeOwner), "contract owner changed");
+        assertEq(address(legacyReporter.optimisticOracle()), address(optimisticOracle), "oracle changed");
+        assertEq(address(legacyReporter.rewardCurrency()), address(usdc), "currency changed");
     }
 
     function _registerAndInitialize(bytes32 requestId, bytes memory requestRules) private {

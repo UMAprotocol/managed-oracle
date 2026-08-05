@@ -1,3 +1,2 @@
-# Local Foundry development artifacts
-/broadcast/*/31337/
-/broadcast/**/dry-run/
+# Foundry broadcast artifacts can contain production transaction metadata.
+/broadcast/

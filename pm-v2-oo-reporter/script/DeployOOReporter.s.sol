@@ -11,7 +11,7 @@ import {IOOReporter} from "../src/interfaces/IOOReporter.sol";
 /// @title Deployment script for OOReporter
 /// @notice Deploys and initializes an OOReporter implementation and ERC1967 proxy.
 /// @dev Environment variables:
-///      - MNEMONIC: Required. Mnemonic for the deployer wallet (derivation index 0).
+///      - DEPLOYER_ADDRESS: Required. Public address used with Foundry's external signer options.
 ///      - INITIAL_OWNER: Optional. Defaults to the deployer.
 ///      - OPTIMISTIC_ORACLE: Optional on Polygon. Defaults to the deployed Managed Optimistic Oracle V2.
 ///      - REWARD_CURRENCY: Optional on Polygon. Defaults to bridged USDC.e.
@@ -23,8 +23,7 @@ contract DeployOOReporter is Script {
     address internal constant POLYGON_USDC_E = 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174;
 
     function run() external returns (OOReporter reporter) {
-        uint256 deployerPrivateKey = _getDeployerPrivateKey();
-        address deployer = vm.addr(deployerPrivateKey);
+        address deployer = vm.envAddress("DEPLOYER_ADDRESS");
 
         address initialOwner = vm.envOr("INITIAL_OWNER", deployer);
         address optimisticOracle = vm.envOr("OPTIMISTIC_ORACLE", address(0));
@@ -61,7 +60,7 @@ contract DeployOOReporter is Script {
             )
         );
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast(deployer);
 
         address implementation = _deployImplementation();
         reporter = OOReporter(address(new ERC1967Proxy(implementation, initData)));
@@ -77,10 +76,6 @@ contract DeployOOReporter is Script {
         console.log("Reward currency:", address(reporter.rewardCurrency()));
         console.log("Initial default re-request budget:", reporter.defaultRerequestBudget());
         console.log("Automatic re-requests enabled:", reporter.automaticRerequestsEnabled());
-    }
-
-    function _getDeployerPrivateKey() internal view returns (uint256) {
-        return vm.deriveKey(vm.envString("MNEMONIC"), 0);
     }
 
     function _deployImplementation() internal virtual returns (address) {

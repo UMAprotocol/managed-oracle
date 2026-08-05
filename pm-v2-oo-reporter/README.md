@@ -239,25 +239,25 @@ and dependency settings. Choose the entrypoint explicitly:
 | `script/UpgradeOOReporter.s.sol` | Upgrade an existing reporter proxy to `PolymarketOOReporter` without changing its Managed OO. |
 
 The fresh deployment scripts share the same initialization flow. The upgrade script preserves the reporter proxy and
-all reporter state, deploys only the final `PolymarketOOReporter` implementation, and calls
+all reporter state, deploys or reuses only the final `PolymarketOOReporter` implementation, and calls
 `upgradeToAndCall(newImplementation, "")`. It does not call an initializer or reinitializer, and it does not replace or
 reconfigure the Managed OO.
 
 ### Managed OO Compatibility
 
-Fresh post-audit reporter deployments should use a Managed OO implementation that exposes every method in
-`IOptimisticOracleV2`. The guarded existing-proxy upgrade deliberately permits retaining the older Managed OO so the
-automatic callback can be installed independently. While that older implementation remains installed, freeze these
-reporter entry points operationally:
+Post-audit reporter deployments should use a Managed OO implementation that exposes every method in
+`IOptimisticOracleV2`. The reporter upgrade does not change the configured Managed OO. If the attached on-chain
+implementation predates the following methods, keep these reporter entry points operationally frozen until the separate
+Managed OO upgrade is complete:
 
 - `setRequestReward`, because its reporter path calls Managed OO `getRequestReward` and `setReward`;
 - `updateRequestRules`, because it forwards to Managed OO `updateRequestRules`.
 
-Those calls revert against the older Managed OO and must remain unused until its implementation is upgraded. Reporter
-registration, initialization, bond and liveness setup, dispute and settlement callbacks, re-requests, and the new
-automatic Polymarket callback continue to use the existing Managed OO surface. The upgrade script guards the exact old
-Managed OO proxy and implementation addresses and code hashes, so an unexpected Managed OO upgrade aborts the reporter
-upgrade preflight.
+Those calls revert when the required Managed OO selectors are absent. Reporter registration, initialization, bond and
+liveness setup, dispute and settlement callbacks, re-requests, and the automatic Polymarket callback use the pre-existing
+surface. Set the script's expected Managed OO implementation and code hash to the exact version attached at execution
+time; any unexpected Managed OO change aborts the reporter preflight. No operational freeze is needed once the attached
+implementation exposes `getRequestReward`, `setReward`, and `updateRequestRules`.
 
 After upgrading Managed OO, verify the installed implementation and code hash against the intended release that exposes
 `getRequestReward`, `setReward`, and `updateRequestRules`. Then confirm that the new getter is callable; an unused request
@@ -286,7 +286,7 @@ Both fresh deployment scripts accept:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `MNEMONIC` | Yes | Mnemonic for the deployer wallet (uses derivation index 0). |
+| `DEPLOYER_ADDRESS` | Yes | Public address used with Foundry's external signer options. |
 | `INITIAL_OWNER` | Recommended | Reporter owner; defaults to the deployer. Set the intended Safe or administration account explicitly for production. |
 | `OPTIMISTIC_ORACLE` | No on Polygon | Managed Optimistic Oracle V2 address; defaults to the Polygon deployment. Required on other networks. |
 | `REWARD_CURRENCY` | No on Polygon | ERC20 reward currency; defaults to bridged USDC.e on Polygon. Required on other networks. |
@@ -308,13 +308,15 @@ explicitly.
 ```bash
 cd pm-v2-oo-reporter
 
-export MNEMONIC="your mnemonic phrase"
+export DEPLOYER_ADDRESS="implementation and proxy deployer"
 export INITIAL_OWNER="reporter owner or Safe"
 export INITIAL_ORACLE_INITIALIZER="UMA initializer address"
 export INITIAL_REQUESTER="Polymarket OOReporterModule address"
 
 forge script script/DeployPolymarketOOReporter.s.sol \
   --rpc-url "$RPC_URL" \
+  --sender "$DEPLOYER_ADDRESS" \
+  --interactive \
   --broadcast \
   --slow \
   --verify \
@@ -333,47 +335,64 @@ its requester whitelist, and the downstream module wiring before deploying anyth
 
 | Variable | Description |
 | --- | --- |
-| `DEPLOYER_ADDRESS` | Public signer address. It must be the current reporter owner. |
+| `DEPLOYER_ADDRESS` | Public external-signer address. Required when deploying the final implementation and for direct EOA execution. |
+| `EXPECTED_OWNER` | Exact current reporter owner. It may differ from the implementation deployer and may be a Safe. |
 | `PROXY_ADDRESS` | Existing reporter ERC1967 proxy. |
 | `EXPECTED_PROXY_CODEHASH` | Exact reporter proxy runtime code hash. |
 | `REPORTER_DEPLOYMENT_BLOCK` | Exact proxy deployment block containing its `Initialized(1)` event. |
+| `MAX_LOG_BLOCK_RANGE` | Optional maximum block span per log query; defaults to `50000`. Reduce it for stricter RPC providers. |
 | `EXPECTED_CHAIN_ID` | Independently chosen chain ID guard. |
 | `EXPECTED_CURRENT_IMPLEMENTATION` | Exact implementation currently stored in the reporter proxy. |
 | `EXPECTED_CURRENT_IMPLEMENTATION_CODEHASH` | Exact current implementation runtime code hash. |
 | `EXPECTED_FINAL_IMPLEMENTATION_CREATION_CODEHASH` | Exact creation-bytecode hash expected for the newly deployed `PolymarketOOReporter`. |
+| `FINAL_IMPLEMENTATION` | Optional already-deployed final implementation. Set it to resume after deployment or to prepare/verify a Safe upgrade. |
+| `EXPECTED_FINAL_IMPLEMENTATION_CODEHASH` | Exact runtime code hash of `FINAL_IMPLEMENTATION`; required whenever `FINAL_IMPLEMENTATION` is set. |
 | `EXPECTED_CURRENT_OPTIMISTIC_ORACLE` | Exact Managed OO currently stored in the reporter. |
 | `EXPECTED_CURRENT_OPTIMISTIC_ORACLE_CODEHASH` | Exact current Managed OO proxy runtime code hash. |
 | `EXPECTED_CURRENT_MOO_IMPLEMENTATION` | Exact implementation currently stored in the Managed OO proxy. |
 | `EXPECTED_CURRENT_MOO_IMPLEMENTATION_CODEHASH` | Exact current Managed OO implementation runtime code hash. |
-| `EXPECTED_MOO_REQUESTER_WHITELIST` | Current Managed OO requester whitelist, which must remain enabled and contain the reporter proxy. |
+| `EXPECTED_MOO_REQUESTER_WHITELIST` | Current Managed OO requester whitelist, which must consider the reporter proxy allowed. Disabled whitelists allow every address. |
 | `EXPECTED_MOO_REQUESTER_WHITELIST_CODEHASH` | Exact requester-whitelist runtime code hash. |
 | `EXPECTED_REWARD_CURRENCY` | Reporter reward currency. |
 | `EXPECTED_REQUESTER` | Existing downstream module. It must be the only enabled requester and return the reporter proxy from `ooReporter()`. |
-| `EXPECTED_REQUESTER_CODEHASH` | Exact downstream module runtime code hash. |
+| `EXPECTED_REQUESTER_CODEHASH` | Exact downstream module proxy runtime code hash. |
+| `EXPECTED_REQUESTER_IMPLEMENTATION` | Exact implementation in the downstream module's ERC-1967 slot. |
+| `EXPECTED_REQUESTER_IMPLEMENTATION_CODEHASH` | Exact downstream module implementation runtime code hash. |
 | `EXPECTED_ORACLE_INITIALIZER` | Existing oracle initializer that must remain enabled. |
+| `EXECUTE_UPGRADE` | Optional, defaults to `false`. Set to `true` only when `DEPLOYER_ADDRESS` is also `EXPECTED_OWNER`. |
+| `VERIFY_ONLY` | Optional, defaults to `false`. Set to `true` for the rerunnable live post-upgrade verification. |
+| `EXPECTED_STATE_FINGERPRINT` | Required in verify mode. Copy the fingerprint printed by the final pre-upgrade run. |
 
 The script derives the complete request-ID list from `RequestRegistered` logs instead of accepting a hand-curated list.
 For every event it validates the requester, identifier, rules, liveness range, and tuple lookup against current proxy
-storage, then snapshots the full stored request for the post-upgrade comparison. It also reconstructs requester and
+storage, then snapshots the full stored request for the post-upgrade comparison. Log queries are split into configurable
+block ranges for RPC compatibility. The script also reconstructs requester and
 oracle-initializer allowlist state from events and requires the expected module and initializer to be the only enabled
-accounts. Active requests are safe because the Managed OO address does not change. Keep registrations and administrative
-configuration operationally frozen between the final preflight and broadcast so the reviewed snapshot remains current.
+accounts. Active requests are safe because the Managed OO address does not change. Quiesce every reporter mutation from
+the final fingerprint until post-upgrade verification completes: registrations, initializations, reward/rules/budget
+changes, re-requests, disputes, settlements and their callbacks, plus administrative configuration. Any such activity
+legitimately changes the full request-state fingerprint and requires a new final pre-upgrade snapshot.
 
 Resolve every expected address from trusted deployment records. Obtain each existing-contract code-hash guard with
 `cast code "$ADDRESS" --rpc-url "$RPC_URL" | cast keccak`; Tenderly's VNet RPC does not support `eth_getCodeHash`.
 Derive `EXPECTED_FINAL_IMPLEMENTATION_CREATION_CODEHASH` from the package's reviewed build artifact. Creation bytecode is
 used because UUPS embeds the implementation address as an immutable, making the deployed runtime hash address-dependent.
-The script checks this hash before deploying and validates `proxiableUUID()` on the deployed implementation before
-calling the proxy.
-The script requires `REPORTER_DEPLOYMENT_BLOCK` to contain the proxy's `Initialized(1)` event, preventing an accidentally
-late event-scan lower bound. It also checks the EIP-1967 implementation slots of both proxies. These guards are required
-because the VNet shares Polygon's chain ID.
+The script checks this hash before deploying and validates `proxiableUUID()` on every new or reused implementation.
+When reusing an implementation, it also requires its exact runtime code hash. `REPORTER_DEPLOYMENT_BLOCK` must contain
+the proxy's `Initialized(1)` event, preventing an accidentally late event-scan lower bound. The EIP-1967 implementation
+slots and code hashes of the reporter, Managed OO, and downstream module are all pinned. These guards are required
+because a VNet can share Polygon's chain ID.
 
-Run a no-broadcast preflight first, review every address, then rerun the same command with an interactive external
-signer. The script never reads a private key or mnemonic:
+Run a no-broadcast preflight first. By default, the script deploys or reuses the implementation, prints the exact
+`upgradeToAndCall(finalImplementation, "")` target/value/calldata and a state fingerprint, but does not execute the
+owner call. No signing material is read from an environment variable.
+
+For a direct EOA-owned upgrade, set `EXPECTED_OWNER` and `DEPLOYER_ADDRESS` to the same address and opt in explicitly:
 
 ```bash
 cd pm-v2-oo-reporter
+
+export EXECUTE_UPGRADE=true
 
 forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
   --rpc-url "$RPC_URL" -vvv
@@ -387,13 +406,48 @@ forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
   -vvv
 ```
 
-The external signer submits two transactions: deployment of the final `PolymarketOOReporter` implementation, followed by
-the owner-authorized `upgradeToAndCall(finalImplementation, "")` call on the existing proxy. There is no temporary
-implementation and no initialization calldata.
+The external signer submits the implementation deployment and owner-authorized proxy upgrade. If deployment succeeds
+but the upgrade does not, read the implementation address from the broadcast artifact, set `FINAL_IMPLEMENTATION` and
+`EXPECTED_FINAL_IMPLEMENTATION_CODEHASH`, and rerun; the script validates and reuses it instead of deploying a duplicate.
 
-Postconditions verify the exact final implementation, unchanged Managed OO implementation, Initializable slot, owner,
-reward currency, re-request configuration, requester and initializer access, byte-for-byte ABI encoding and tuple lookup
-of every registered request, zero `pendingOwner`, Managed OO whitelist membership, and the module's reporter pointer.
+For a Safe-owned reporter, leave `EXECUTE_UPGRADE=false`. Broadcast once with the implementation deployer to create the
+implementation, then set `FINAL_IMPLEMENTATION` and its independently reviewed runtime code hash and rerun without
+`--broadcast`. Submit the printed target, zero value, and calldata through the Safe. The implementation deployer never
+needs reporter ownership.
+
+```bash
+export EXECUTE_UPGRADE=false
+
+# Deploy only the implementation with the external signer.
+forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
+  --rpc-url "$RPC_URL" \
+  --sender "$DEPLOYER_ADDRESS" \
+  --interactive \
+  --broadcast \
+  --slow \
+  -vvv
+
+# After setting FINAL_IMPLEMENTATION and EXPECTED_FINAL_IMPLEMENTATION_CODEHASH,
+# rerun read-only to produce the reviewed Safe payload and final state fingerprint.
+forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
+  --rpc-url "$RPC_URL" -vvv
+```
+
+After either EOA or Safe execution, set `VERIFY_ONLY=true`, set `FINAL_IMPLEMENTATION`, its code hash, and
+`EXPECTED_STATE_FINGERPRINT` from the final pre-upgrade run, then run the script without `--broadcast`. This live,
+rerunnable verification checks the exact final implementation; unchanged Managed OO implementation, Initializable slot,
+owner, reward currency, re-request configuration, requester and initializer access; byte-for-byte ABI encoding and tuple
+lookup of every registered request; zero `pendingOwner`; Managed OO whitelist acceptance; and the module proxy,
+implementation, and reporter pointer. The immediate checks in Forge's broadcast simulation are not a substitute for this
+post-broadcast run.
+
+```bash
+export VERIFY_ONLY=true
+export EXPECTED_STATE_FINGERPRINT="fingerprint from the final pre-upgrade run"
+
+forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
+  --rpc-url "$RPC_URL" -vvv
+```
 
 Requests that settle after the upgrade use the automatic callback. Requests resolved before the upgrade receive no
 retroactive callback and must use the module's permissionless `report(requestId)` path. A legacy requester that does not
@@ -440,9 +494,9 @@ If the whitelist is enabled and `isOnWhitelist` returns `false`, identify the ow
 requester whitelist:
 
 ```bash
-cast call "$MOO_REQUESTER_WHITELIST" \
+MOO_REQUESTER_WHITELIST_OWNER=$(cast call "$MOO_REQUESTER_WHITELIST" \
   "owner()(address)" \
-  --rpc-url "$RPC_URL"
+  --rpc-url "$RPC_URL")
 ```
 
 That owner must execute:
@@ -452,7 +506,8 @@ cast send "$MOO_REQUESTER_WHITELIST" \
   "addToWhitelist(address)" \
   "$PROXY_ADDRESS" \
   --rpc-url "$RPC_URL" \
-  --mnemonic "$MNEMONIC"
+  --from "$MOO_REQUESTER_WHITELIST_OWNER" \
+  --interactive
 ```
 
 If the whitelist owner is a multisig or governance contract, submit the same `addToWhitelist(address)` call through
@@ -475,12 +530,15 @@ If it was not set during deployment, or another downstream integration must be a
 execute:
 
 ```bash
+REPORTER_OWNER=$(cast call "$PROXY_ADDRESS" "owner()(address)" --rpc-url "$RPC_URL")
+
 cast send "$PROXY_ADDRESS" \
   "setRequesterEnabled(address,bool)" \
   "$DOWNSTREAM_REQUESTER" \
   true \
   --rpc-url "$RPC_URL" \
-  --mnemonic "$MNEMONIC"
+  --from "$REPORTER_OWNER" \
+  --interactive
 ```
 
 When `INITIAL_OWNER` differs from the deployer or is a multisig, this call must be sent by that configured owner.
@@ -504,15 +562,21 @@ cast call "$PROXY_ADDRESS" \
 If it was not set during deployment, or another initializer must be added later, the reporter owner must execute:
 
 ```bash
+REPORTER_OWNER=$(cast call "$PROXY_ADDRESS" "owner()(address)" --rpc-url "$RPC_URL")
+
 cast send "$PROXY_ADDRESS" \
   "setOracleInitializerEnabled(address,bool)" \
   "$ORACLE_INITIALIZER" \
   true \
   --rpc-url "$RPC_URL" \
-  --mnemonic "$MNEMONIC"
+  --from "$REPORTER_OWNER" \
+  --interactive
 ```
 
-Use the configured owner or its Safe workflow when the deployer is not the owner.
+Use the configured owner or its Safe workflow when the deployer is not the owner. The interactive examples keep signing
+material out of environment variables and shell history; a Foundry keystore or hardware-wallet option can be used
+instead. For a Safe or governance owner, encode the same function call and submit it through that owner rather than
+using `cast send` directly.
 
 ### Manual Verification
 
