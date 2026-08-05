@@ -106,9 +106,8 @@ contract PolymarketV2EndToEndForkTest is Test {
         assertEq(reporterRequest.oracleInitializer, manifest.roles.requiredOracleInitializersAndProposers[0]);
         assertEq(reporterRequest.liveness, ORACLE_LIVENESS);
 
-        IManagedOptimisticOracleLike.Request memory oracleRequest = managedOracle.getRequest(
-            address(reporter), YES_OR_NO_QUERY, reporterRequest.requestTimestamp, requestRules
-        );
+        IManagedOptimisticOracleLike.Request memory oracleRequest =
+            managedOracle.getRequest(address(reporter), YES_OR_NO_QUERY, reporterRequest.requestTimestamp, requestRules);
         assertTrue(oracleRequest.requestSettings.eventBased);
         assertTrue(oracleRequest.requestSettings.callbackOnPriceSettled);
         assertEq(oracleRequest.requestSettings.customLiveness, ORACLE_LIVENESS);
@@ -126,9 +125,8 @@ contract PolymarketV2EndToEndForkTest is Test {
         vm.stopPrank();
         assertEq(postedBond, totalBond);
 
-        oracleRequest = managedOracle.getRequest(
-            address(reporter), YES_OR_NO_QUERY, reporterRequest.requestTimestamp, requestRules
-        );
+        oracleRequest =
+            managedOracle.getRequest(address(reporter), YES_OR_NO_QUERY, reporterRequest.requestTimestamp, requestRules);
         assertEq(oracleRequest.proposer, proposer);
         assertEq(oracleRequest.proposedPrice, YES_PRICE);
         assertGt(oracleRequest.expirationTime, block.timestamp);
@@ -195,17 +193,22 @@ contract PolymarketV2EndToEndForkTest is Test {
         IOOReporterModuleLike.RequestRegistration[] memory registrations =
             new IOOReporterModuleLike.RequestRegistration[](1);
         registrations[0] = IOOReporterModuleLike.RequestRegistration({
-            requestId: requestId, requestRules: requestRules, minimumLiveness: ORACLE_LIVENESS, maximumLiveness: 2 hours
+            requestId: requestId,
+            requestRules: requestRules,
+            minimumLiveness: ORACLE_LIVENESS,
+            maximumLiveness: 2 hours
         });
 
         IPolymarketAggregator.ModuleConfig[] memory reporters = new IPolymarketAggregator.ModuleConfig[](1);
         reporters[0] = IPolymarketAggregator.ModuleConfig({
-            module: manifest.reporterModule.proxy, initData: abi.encode(registrations)
+            module: manifest.reporterModule.proxy,
+            initData: abi.encode(registrations)
         });
 
         IPolymarketAggregator.ModuleConfig[] memory disputers = new IPolymarketAggregator.ModuleConfig[](1);
         disputers[0] = IPolymarketAggregator.ModuleConfig({
-            module: manifest.roles.disputerAndArbitratorModule, initData: bytes("")
+            module: manifest.roles.disputerAndArbitratorModule,
+            initData: bytes("")
         });
 
         params = IPolymarketAggregator.InitParams({
@@ -330,9 +333,8 @@ contract PolymarketV2EndToEndForkTest is Test {
         IPolymarketOOReporterLike.RequestData memory reporterRequest
     ) private view {
         {
-            Vm.Log memory registered = _event(
-                logs, manifest.reporter.proxy, REQUEST_REGISTERED_EVENT, requestId, "reporter RequestRegistered"
-            );
+            Vm.Log memory registered =
+                _event(logs, manifest.reporter.proxy, REQUEST_REGISTERED_EVENT, requestId, "reporter RequestRegistered");
             assertEq(_topicAddress(registered.topics[2]), manifest.reporterModule.proxy);
             assertEq(registered.topics[3], YES_OR_NO_QUERY);
             (bytes memory rules, uint64 minimumLiveness, uint64 maximumLiveness) =
@@ -456,9 +458,8 @@ contract PolymarketV2EndToEndForkTest is Test {
         }
 
         {
-            Vm.Log memory proposed = _event(
-                logs, manifest.aggregator.proxy, OUTCOME_PROPOSED_EVENT, requestId, "aggregator OutcomeProposed"
-            );
+            Vm.Log memory proposed =
+                _event(logs, manifest.aggregator.proxy, OUTCOME_PROPOSED_EVENT, requestId, "aggregator OutcomeProposed");
             (bytes32 resultHash, uint256[] memory result) = abi.decode(proposed.data, (bytes32, uint256[]));
             assertEq(resultHash, expectedProposalHash);
             assertEq(result, expectedProposal);

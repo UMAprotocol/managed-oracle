@@ -150,9 +150,7 @@ library EnvironmentManifestLib {
             requiredAggregatorOperators: json.readAddressArray(".roles.requiredAggregatorOperators"),
             requiredModuleAdmins: json.readAddressArray(".roles.requiredModuleAdmins"),
             requiredModuleOperators: json.readAddressArray(".roles.requiredModuleOperators"),
-            requiredOracleInitializersAndProposers: json.readAddressArray(
-                ".roles.requiredOracleInitializersAndProposers"
-            ),
+            requiredOracleInitializersAndProposers: json.readAddressArray(".roles.requiredOracleInitializersAndProposers"),
             requiredManagedOracleConfigAdmins: json.readAddressArray(".roles.requiredManagedOracleConfigAdmins"),
             requiredManagedOracleRequestManagers: json.readAddressArray(".roles.requiredManagedOracleRequestManagers"),
             requiredManagedOracleResolverAdmins: json.readAddressArray(".roles.requiredManagedOracleResolverAdmins"),

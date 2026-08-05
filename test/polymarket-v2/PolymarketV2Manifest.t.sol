@@ -4,10 +4,7 @@ pragma solidity ^0.8.27;
 import {Test} from "forge-std/Test.sol";
 
 import {
-    CoreDeployment,
-    EnvironmentManifest,
-    EnvironmentManifestLib,
-    ExternalDeployment
+    CoreDeployment, EnvironmentManifest, EnvironmentManifestLib, ExternalDeployment
 } from "./EnvironmentManifest.sol";
 
 contract PolymarketV2ManifestTest is Test {
