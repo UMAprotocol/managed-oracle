@@ -343,6 +343,33 @@ contract ManagedOptimisticOracleV2Test is Test {
         assertEq(customLiveness, 3 hours);
     }
 
+    function testAccessManagerBatchesRepeatedRequestManagerSelector() external {
+        address accessManagerAdmin = makeAddr("accessManagerAdmin");
+        address operator = makeAddr("accessManagerOperator");
+        AccessManager manager = _deployRequestManagerAccessManager(accessManagerAdmin, operator);
+        bytes32 id = keccak256("OTHER_PRICE_ID");
+
+        bytes memory firstLivenessCall = abi.encodeCall(
+            ManagedOptimisticOracleV2.requestManagerSetCustomLiveness, (requester, IDENTIFIER, ANCILLARY, 3 hours)
+        );
+        bytes memory secondLivenessCall = abi.encodeCall(
+            ManagedOptimisticOracleV2.requestManagerSetCustomLiveness, (requester, id, ANCILLARY, 4 hours)
+        );
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(AccessManager.execute, (address(moo), firstLivenessCall));
+        calls[1] = abi.encodeCall(AccessManager.execute, (address(moo), secondLivenessCall));
+
+        vm.prank(operator);
+        manager.multicall(calls);
+
+        bytes32 firstManagedRequestId = moo.getManagedRequestId(requester, IDENTIFIER, ANCILLARY);
+        bytes32 secondManagedRequestId = moo.getManagedRequestId(requester, id, ANCILLARY);
+        (uint256 firstCustomLiveness,) = moo.customLivenessValues(firstManagedRequestId);
+        (uint256 secondCustomLiveness,) = moo.customLivenessValues(secondManagedRequestId);
+        assertEq(firstCustomLiveness, 3 hours);
+        assertEq(secondCustomLiveness, 4 hours);
+    }
+
     function testAccessManagerRejectsUnconfiguredCalls() external {
         address accessManagerAdmin = makeAddr("accessManagerAdmin");
         address operator = makeAddr("accessManagerOperator");
