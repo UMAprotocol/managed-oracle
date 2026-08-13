@@ -334,8 +334,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         manager.execute(
             address(moo),
             abi.encodeCall(
-                ManagedOptimisticOracleV2.requestManagerSetCustomLiveness,
-                (requester, IDENTIFIER, ANCILLARY, 3 hours)
+                ManagedOptimisticOracleV2.requestManagerSetCustomLiveness, (requester, IDENTIFIER, ANCILLARY, 3 hours)
             )
         );
 
@@ -358,9 +357,7 @@ contract ManagedOptimisticOracleV2Test is Test {
             )
         );
         vm.prank(operator);
-        manager.execute(
-            address(moo), abi.encodeCall(ManagedOptimisticOracleV2.setDefaultLiveness, (3 hours))
-        );
+        manager.execute(address(moo), abi.encodeCall(ManagedOptimisticOracleV2.setDefaultLiveness, (3 hours)));
     }
 
     function testAccessManagerRotatesOperatorsAndBatchesCalls() external {
@@ -375,8 +372,7 @@ contract ManagedOptimisticOracleV2Test is Test {
         vm.stopPrank();
 
         bytes memory livenessCall = abi.encodeCall(
-            ManagedOptimisticOracleV2.requestManagerSetCustomLiveness,
-            (requester, IDENTIFIER, ANCILLARY, 3 hours)
+            ManagedOptimisticOracleV2.requestManagerSetCustomLiveness, (requester, IDENTIFIER, ANCILLARY, 3 hours)
         );
         vm.expectRevert(
             abi.encodeWithSelector(
