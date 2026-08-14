@@ -9,6 +9,8 @@ extra_output = ["storageLayout"]
 optimizer = true
 optimizer_runs = 1
 via_ir = true
+solc_version = "0.8.30"
+evm_version = "prague"
 
 # Fork testing configuration
 [rpc_endpoints]
