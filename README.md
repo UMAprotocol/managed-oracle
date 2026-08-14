@@ -9,36 +9,6 @@ Foundry consists of:
 -   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
 -   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
 
-## Local Foundry Version (Pinned)
-
-This repo pins Foundry to `1.3.6` via `.tool-versions`. The simplest way to use it per-repo is `mise`.
-
-### Install mise (script)
-
-```shell
-$ curl https://mise.run | sh
-```
-
-### Install the pinned Foundry toolchain
-
-```shell
-$ ~/.local/bin/mise install
-```
-
-### Activate mise in your shell
-
-```shell
-$ echo 'eval "$(~/.local/bin/mise activate --shims bash)"' >> ~/.bashrc
-$ source ~/.bashrc
-```
-
-If you prefer not to modify your shell config, run commands through `mise`:
-
-```shell
-$ ~/.local/bin/mise exec -- forge -V
-$ ~/.local/bin/mise exec -- forge fmt
-```
-
 ## Documentation
 
 https://book.getfoundry.sh/
