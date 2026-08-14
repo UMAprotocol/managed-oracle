@@ -98,7 +98,7 @@ jobs:
 
       - name: Run fork tests
         run: |
-          forge test --match-contract ".*Fork.*" --no-match-contract "ManagedOptimisticOracleV2ProductionUpgradeForkTest" --fork-url polygon -vvv
+          forge test --match-contract ".*Fork.*" --no-match-contract "ManagedOptimisticOracleV[23]ProductionUpgradeForkTest" --fork-url polygon -vvv
         env:
           NODE_URL_137: ${{ secrets.NODE_URL_137 }}
 
@@ -125,6 +125,6 @@ jobs:
 
       - name: Run production upgrade fork tests
         run: |
-          forge test --match-contract "ManagedOptimisticOracleV2ProductionUpgradeForkTest" --fork-url polygon -vvv
+          forge test --match-contract "ManagedOptimisticOracleV[23]ProductionUpgradeForkTest" --fork-url polygon -vvv
         env:
           NODE_URL_137: ${{ secrets.NODE_URL_137 }}
