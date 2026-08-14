@@ -92,13 +92,12 @@ jobs:
         run: |
           forge --version
 
-      # Exclude e2e fixtures to preserve the audited ManagedOO bytecode compilation context.
       - name: Run Forge build
         run: |
-          forge build --skip EnvironmentManifest PolymarketV2 --sizes
+          forge build --sizes
 
       - name: Run fork tests
         run: |
-          forge test --skip EnvironmentManifest PolymarketV2 --match-contract ".*Fork.*" --fork-url polygon -vvv
+          forge test --match-contract ".*Fork.*" --fork-url polygon -vvv
         env:
           NODE_URL_137: ${{ secrets.NODE_URL_137 }}
