@@ -9,6 +9,10 @@ For the existing Polygon `ManagedOptimisticOracleV2` proxy, use the guarded Safe
 uses an external signer only for implementation deployment, and produces the Safe calldata plus a separate post-upgrade
 verifier. The production proxy is already V2-initialized, so this upgrade must not call `initializeV2`.
 
+The additive V3 workflow is documented in [`production/README-v3.md`](production/README-v3.md). It deploys the separately
+named `ManagedOptimisticOracleV3` implementation while validating its storage layout against the production V2 build.
+The V2 workflow remains unchanged for existing consumers.
+
 ## Setup
 
 1. **Create `.env` file** in the project root:
