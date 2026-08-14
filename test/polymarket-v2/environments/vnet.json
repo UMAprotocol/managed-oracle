@@ -15,8 +15,8 @@
   },
   "sources": {
     "managedOracle": "19e06f085d95cf18101c274205298b73dfc295f3",
-    "managedOracleDeploymentTooling": "59f5f91271b3aac7c6fa1744fb84f407ad24980b",
-    "ooReporterDeploymentTooling": "7044bf9effe21de353b023e2426131ace9f0e826",
+    "managedOracleDeploymentTooling": "cd85425e4a9efe2097d8ca802b01a3502a2bfb2c",
+    "ooReporterDeploymentTooling": "ee3df39cce9af1a9b05438e7add5f30700764631",
     "polymarket": "11627f7629543e1efdcc2bb6ee0d7576834c4931",
     "polymarketDeploymentConfig": "0896b9ed73cfb7fa3470c6822571ab0dce3d43f1"
   },

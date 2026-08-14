@@ -49,20 +49,18 @@ do
       .value.abiRevision
     ] | @tsv' "$manifest"
   )
+
+  while read -r revision; do
+    require_commit "$managed_oracle_repo" "$revision"
+  done < <(
+    jq -r '.sources | .managedOracle, .managedOracleDeploymentTooling, .ooReporterDeploymentTooling' "$manifest"
+  )
+
+  while read -r revision; do
+    require_commit "$polymarket_repo" "$revision"
+  done < <(
+    jq -r '.sources | .polymarket, .polymarketDeploymentConfig' "$manifest"
+  )
 done
-
-while read -r revision; do
-  require_commit "$managed_oracle_repo" "$revision"
-done < <(
-  jq -r '.sources | .managedOracle, .managedOracleDeploymentTooling, .ooReporterDeploymentTooling' \
-    "$managed_oracle_repo/test/polymarket-v2/environments/vnet.json"
-)
-
-while read -r revision; do
-  require_commit "$polymarket_repo" "$revision"
-done < <(
-  jq -r '.sources | .polymarket, .polymarketDeploymentConfig' \
-    "$managed_oracle_repo/test/polymarket-v2/environments/vnet.json"
-)
 
 echo "FRO-111 source, ABI, deployment-record, and blob provenance verified"

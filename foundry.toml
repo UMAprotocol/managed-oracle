@@ -9,7 +9,12 @@ extra_output = ["storageLayout"]
 optimizer = true
 optimizer_runs = 1
 via_ir = true
-fs_permissions = [{ access = "read", path = "./test/polymarket-v2" }]
+solc_version = "0.8.30"
+evm_version = "prague"
+fs_permissions = [
+    { access = "read", path = "./old-builds" },
+    { access = "read", path = "./test/polymarket-v2" },
+]
 
 # Fork testing configuration
 [rpc_endpoints]
