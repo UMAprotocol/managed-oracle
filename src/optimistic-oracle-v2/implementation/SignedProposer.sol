@@ -7,7 +7,7 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {OptimisticOracleV2Interface} from "../interfaces/OptimisticOracleV2Interface.sol";
-import {ManagedOptimisticOracleV2Interface} from "../interfaces/ManagedOptimisticOracleV2Interface.sol";
+import {SignedProposerOracleInterface} from "../interfaces/SignedProposerOracleInterface.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 import {AddressWhitelist} from "../../common/implementation/AddressWhitelist.sol";
 import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelistInterface.sol";
@@ -247,7 +247,7 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
         view
         returns (AddressWhitelistInterface whitelist)
     {
-        ManagedOptimisticOracleV2Interface oracle = ManagedOptimisticOracleV2Interface(proposal.oracle);
+        SignedProposerOracleInterface oracle = SignedProposerOracleInterface(proposal.oracle);
         whitelist = oracle.getCustomProposerWhitelist(proposal.requester, proposal.identifier, proposal.ancillaryData);
         if (address(whitelist) == address(0)) whitelist = oracle.defaultProposerWhitelist();
     }
