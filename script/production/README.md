@@ -8,6 +8,7 @@ The repository pins the reviewed target build to Solidity 0.8.30, Prague, optimi
 `viaIR = true`. The storage-layout comparison uses the reconstructed source commit and compiler settings for
 the current `0x7d660195eD02AC61A42408780233F06dDd6A2E42` implementation from
 `old-builds/build-info-prod-current`; the scripts separately pin the raw live runtime code hash.
+The reproducible workflow requires Foundry v1.7.1.
 
 ## 1. Test the upgrade on a pinned Polygon fork
 
