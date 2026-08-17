@@ -13,7 +13,11 @@ contract MockStore is StoreInterface {
 
     function payOracleFees() external payable {}
 
-    function payOracleFeesErc20(address, /*erc20Address*/ FixedPointInterface.Unsigned calldata /*amount*/ ) external {}
+    function payOracleFeesErc20(
+        address,
+        /*erc20Address*/
+        FixedPointInterface.Unsigned calldata /*amount*/
+    ) external {}
 
     function computeRegularFee(uint256, uint256, FixedPointInterface.Unsigned calldata)
         external
