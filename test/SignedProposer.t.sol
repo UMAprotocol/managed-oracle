@@ -507,12 +507,11 @@ contract SignedProposerTest is Test {
     function test_tryMulticall_allFailure_returnsPerCallResultsAndEvents() public {
         SignedProposer.Proposal memory proposal = _buildProposal(block.timestamp, 1 ether, 0);
         ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(0, 0, block.timestamp + 1 hours);
-        bytes[] memory calls = new bytes[](2);
-        calls[0] = _encodeProposalCall(proposal, proposer, permit, "", 1);
-        calls[1] = _encodeProposalCall(proposal, proposer, permit, "", 2);
+        bytes[] memory calls = new bytes[](9);
         bytes memory revertData = abi.encodeWithSelector(SignedProposer.PaymentExceedsMaxPayment.selector);
 
         for (uint256 i; i < calls.length; ++i) {
+            calls[i] = _encodeProposalCall(proposal, proposer, permit, "", i + 1);
             vm.expectEmit(true, true, false, true, address(signedProposer));
             emit ProposalCallFailed(
                 i, keccak256(calls[i]), SignedProposer.PaymentExceedsMaxPayment.selector, keccak256(revertData)
@@ -522,8 +521,7 @@ contract SignedProposerTest is Test {
         vm.prank(relayer);
         bool[] memory successes = signedProposer.tryMulticall(calls);
 
-        assertFalse(successes[0]);
-        assertFalse(successes[1]);
+        for (uint256 i; i < successes.length; ++i) assertFalse(successes[i]);
     }
 
     function test_tryMulticall_lateProposalCollision_doesNotBlockLaterProposal() public {
@@ -659,84 +657,6 @@ contract SignedProposerTest is Test {
             callbackRequester.nestedRevertData(),
             abi.encodeWithSelector(TryMulticall.TryMulticallReentrantCall.selector)
         );
-    }
-
-    function test_revert_tryMulticall_tooManyCalls() public {
-        bytes[] memory calls = new bytes[](signedProposer.MAX_TRY_MULTICALL_CALLS() + 1);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                TryMulticall.TryMulticallTooManyCalls.selector,
-                calls.length,
-                signedProposer.MAX_TRY_MULTICALL_CALLS()
-            )
-        );
-        vm.prank(relayer);
-        signedProposer.tryMulticall(calls);
-    }
-
-    function test_revert_tryMulticall_aggregateCalldataTooLarge() public {
-        bytes[] memory calls = new bytes[](1);
-        calls[0] =
-            abi.encodePacked(SignedProposer.propose.selector, new bytes(signedProposer.MAX_TRY_MULTICALL_CALLDATA()));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                TryMulticall.TryMulticallCalldataTooLarge.selector,
-                calls[0].length,
-                signedProposer.MAX_TRY_MULTICALL_CALLDATA()
-            )
-        );
-        vm.prank(relayer);
-        signedProposer.tryMulticall(calls);
-    }
-
-    function test_revert_tryMulticall_requiresEnoughGasForFailureAccounting() public {
-        SignedProposer.Proposal memory proposal = _buildProposal(block.timestamp, 1 ether);
-        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(0, 0, block.timestamp + 1 hours);
-        bytes[] memory calls = new bytes[](1);
-        calls[0] = _encodeProposalCall(proposal, proposer, permit, "", 0);
-
-        vm.prank(relayer);
-        (bool success, bytes memory revertData) =
-            address(signedProposer).call{gas: 1_000_000}(abi.encodeCall(TryMulticall.tryMulticall, (calls)));
-
-        assertFalse(success);
-        assertEq(_revertSelector(revertData), TryMulticall.TryMulticallInsufficientGas.selector);
-    }
-
-    function test_tryMulticall_gasExhaustingChildCannotBlockLaterProposal() public {
-        uint256 timestamp = block.timestamp;
-        _makeRequest(timestamp, 0);
-        _setBond();
-        _fundAndApproveProposer(TOTAL_BOND);
-
-        RevertingSignedProposerOracle gasGriefingOracle =
-            new RevertingSignedProposerOracle(IERC20(address(currency)), true, 0);
-        SignedProposer.Proposal memory griefingProposal = SignedProposer.Proposal({
-            oracle: address(gasGriefingOracle),
-            requester: requester,
-            identifier: IDENTIFIER,
-            timestamp: timestamp,
-            ancillaryData: ANCILLARY,
-            proposedPrice: 1 ether,
-            maxPayment: 0
-        });
-        SignedProposer.Proposal memory validProposal = _buildProposal(timestamp, 2 ether);
-        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
-        bytes[] memory calls = new bytes[](2);
-        calls[0] = _encodeProposalCall(griefingProposal, proposer, permit, "", 0);
-        calls[1] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
-
-        vm.expectEmit(true, true, false, true, address(signedProposer));
-        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0), keccak256(bytes("")));
-
-        vm.prank(relayer);
-        bool[] memory successes = signedProposer.tryMulticall(calls);
-
-        assertFalse(successes[0]);
-        assertTrue(successes[1]);
-        assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposedPrice, 2 ether);
     }
 
     function test_tryMulticall_hashesCompleteLargeRevertData() public {

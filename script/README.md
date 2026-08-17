@@ -320,11 +320,11 @@ The script only deploys the contract. The admin configures delegated proposers a
 
 ### Partial-success proposal batches
 
-Delegated proposers can submit up to 8 ABI-encoded `SignedProposer.propose` calls through
-`tryMulticall(bytes[])`. The calls must contain no more than 96 KiB of combined inner calldata.
-Each valid child executes by self-delegatecall with the original relayer as `msg.sender` and a
-1,500,000 gas cap, so one reverting or gas-exhausting proposal does not roll back or prevent later
-siblings from being attempted.
+Delegated proposers can submit ABI-encoded `SignedProposer.propose` calls through
+`tryMulticall(bytes[])`. There is no contract-level batch-size or per-child gas limit; transaction
+calldata and available block gas provide the practical bounds. Each valid child executes by
+self-delegatecall with the original relayer as `msg.sender`. Ordinary child reverts do not roll
+back successful siblings, but exhausting the transaction's gas will revert the entire batch.
 
 The function returns a `bool[]` aligned with the submitted calls. A failed child also emits:
 
