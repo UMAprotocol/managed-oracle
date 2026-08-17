@@ -220,6 +220,15 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         SignedProposer.Proposal memory proposal,
         address spender
     ) internal view returns (bytes memory) {
+        return _getPermitWitnessTransferSignatureFor(proposerKey, permit, proposal, spender);
+    }
+
+    function _getPermitWitnessTransferSignatureFor(
+        uint256 ownerKey,
+        ISignatureTransfer.PermitTransferFrom memory permit,
+        SignedProposer.Proposal memory proposal,
+        address spender
+    ) internal view returns (bytes memory) {
         bytes32 tokenPermissionsHash = keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, permit.permitted));
         bytes32 witnessTypeHash = keccak256(
             abi.encodePacked(PERMIT_TRANSFER_FROM_WITNESS_TYPEHASH_STUB, signedProposer.WITNESS_TYPE_STRING())
@@ -235,7 +244,7 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
             )
         );
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", IEIP712(permit2Address).DOMAIN_SEPARATOR(), structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(proposerKey, digest);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, digest);
         return abi.encodePacked(r, s, v);
     }
 
@@ -308,5 +317,106 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         vm.expectRevert(SignatureVerification.InvalidSigner.selector);
         vm.prank(relayer);
         signedProposer.propose(submittedProposal, proposer, permit, signature, 0);
+    }
+
+    function test_tryMulticall_realPermit2DifferentProposersAndNonces() public {
+        vm.warp(block.timestamp + 2);
+        uint256 firstTimestamp = block.timestamp - 1;
+        uint256 secondTimestamp = block.timestamp;
+        _makeRequest(firstTimestamp, 0);
+        _makeRequest(secondTimestamp, 0);
+        _setBond();
+
+        uint256 secondProposerKey = 0xB0B;
+        address secondProposer = vm.addr(secondProposerKey);
+        defaultProposerWhitelist.addToWhitelist(secondProposer);
+
+        SignedProposer.Proposal memory firstProposal = _buildProposal(firstTimestamp, 1 ether);
+        SignedProposer.Proposal memory secondProposal = _buildProposal(secondTimestamp, 2 ether);
+        ISignatureTransfer.PermitTransferFrom memory firstPermit =
+            _buildPermit(TOTAL_BOND, 11, block.timestamp + 1 hours);
+        ISignatureTransfer.PermitTransferFrom memory secondPermit =
+            _buildPermit(TOTAL_BOND, 777, block.timestamp + 1 hours);
+
+        currency.mint(proposer, TOTAL_BOND);
+        vm.prank(proposer);
+        currency.approve(permit2Address, TOTAL_BOND);
+        currency.mint(secondProposer, TOTAL_BOND);
+        vm.prank(secondProposer);
+        currency.approve(permit2Address, TOTAL_BOND);
+
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(
+            SignedProposer.propose,
+            (
+                firstProposal,
+                proposer,
+                firstPermit,
+                _getPermitWitnessTransferSignatureFor(proposerKey, firstPermit, firstProposal, address(signedProposer)),
+                0
+            )
+        );
+        calls[1] = abi.encodeCall(
+            SignedProposer.propose,
+            (
+                secondProposal,
+                secondProposer,
+                secondPermit,
+                _getPermitWitnessTransferSignatureFor(
+                    secondProposerKey, secondPermit, secondProposal, address(signedProposer)
+                ),
+                0
+            )
+        );
+
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.tryMulticall(calls);
+
+        assertTrue(successes[0]);
+        assertTrue(successes[1]);
+        assertEq(moo.getRequest(requester, IDENTIFIER, firstTimestamp, ANCILLARY).proposer, proposer);
+        assertEq(moo.getRequest(requester, IDENTIFIER, secondTimestamp, ANCILLARY).proposer, secondProposer);
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 1 << 11);
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(secondProposer, 3), 1 << 9);
+    }
+
+    function test_tryMulticall_failedProposalRollsBackPermit2NonceAndTokenMovement() public {
+        uint256 timestamp = block.timestamp;
+        _makeRequest(timestamp, 0);
+        _setBond();
+
+        SignedProposer.Proposal memory proposal = _buildProposal(timestamp, 1 ether);
+        ISignatureTransfer.PermitTransferFrom memory initialPermit =
+            _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
+        ISignatureTransfer.PermitTransferFrom memory failedPermit =
+            _buildPermit(TOTAL_BOND, 19, block.timestamp + 1 hours);
+        _fundAndApproveProposer(TOTAL_BOND * 2);
+        bytes memory initialSignature =
+            _getPermitWitnessTransferSignature(initialPermit, proposal, address(signedProposer));
+
+        vm.prank(relayer);
+        signedProposer.propose(proposal, proposer, initialPermit, initialSignature, 0);
+
+        bytes[] memory calls = new bytes[](1);
+        calls[0] = abi.encodeCall(
+            SignedProposer.propose,
+            (
+                proposal,
+                proposer,
+                failedPermit,
+                _getPermitWitnessTransferSignature(failedPermit, proposal, address(signedProposer)),
+                0
+            )
+        );
+        uint256 proposerBalanceBefore = currency.balanceOf(proposer);
+        uint256 signedProposerBalanceBefore = currency.balanceOf(address(signedProposer));
+
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.tryMulticall(calls);
+
+        assertFalse(successes[0]);
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 1);
+        assertEq(currency.balanceOf(proposer), proposerBalanceBefore);
+        assertEq(currency.balanceOf(address(signedProposer)), signedProposerBalanceBefore);
     }
 }
