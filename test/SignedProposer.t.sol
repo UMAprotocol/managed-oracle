@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {Test} from "forge-std/Test.sol";
 
 import {SignedProposer} from "src/optimistic-oracle-v2/implementation/SignedProposer.sol";
+import {TryMulticall} from "src/common/implementation/TryMulticall.sol";
 import {ManagedOptimisticOracleV2} from "src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol";
 import {OptimisticOracleV2Interface} from "src/optimistic-oracle-v2/interfaces/OptimisticOracleV2Interface.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
@@ -576,7 +577,7 @@ contract SignedProposerTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                SignedProposer.TryMulticallInvalidSelector.selector, 1, SignedProposer.withdrawPayments.selector
+                TryMulticall.TryMulticallInvalidSelector.selector, 1, SignedProposer.withdrawPayments.selector
             )
         );
         vm.prank(relayer);
@@ -590,7 +591,7 @@ contract SignedProposerTest is Test {
         bytes[] memory calls = new bytes[](1);
         calls[0] = hex"123456";
 
-        vm.expectRevert(abi.encodeWithSelector(SignedProposer.TryMulticallInvalidSelector.selector, 0, bytes4(0)));
+        vm.expectRevert(abi.encodeWithSelector(TryMulticall.TryMulticallInvalidSelector.selector, 0, bytes4(0)));
         vm.prank(relayer);
         signedProposer.tryMulticall(calls);
     }
@@ -656,7 +657,7 @@ contract SignedProposerTest is Test {
         assertFalse(callbackRequester.nestedBatchSucceeded());
         assertEq(
             callbackRequester.nestedRevertData(),
-            abi.encodeWithSelector(SignedProposer.TryMulticallReentrantCall.selector)
+            abi.encodeWithSelector(TryMulticall.TryMulticallReentrantCall.selector)
         );
     }
 
@@ -665,7 +666,9 @@ contract SignedProposerTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                SignedProposer.TryMulticallTooManyCalls.selector, calls.length, signedProposer.MAX_TRY_MULTICALL_CALLS()
+                TryMulticall.TryMulticallTooManyCalls.selector,
+                calls.length,
+                signedProposer.MAX_TRY_MULTICALL_CALLS()
             )
         );
         vm.prank(relayer);
@@ -679,7 +682,7 @@ contract SignedProposerTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                SignedProposer.TryMulticallCalldataTooLarge.selector,
+                TryMulticall.TryMulticallCalldataTooLarge.selector,
                 calls[0].length,
                 signedProposer.MAX_TRY_MULTICALL_CALLDATA()
             )
@@ -696,10 +699,10 @@ contract SignedProposerTest is Test {
 
         vm.prank(relayer);
         (bool success, bytes memory revertData) =
-            address(signedProposer).call{gas: 1_000_000}(abi.encodeCall(SignedProposer.tryMulticall, (calls)));
+            address(signedProposer).call{gas: 1_000_000}(abi.encodeCall(TryMulticall.tryMulticall, (calls)));
 
         assertFalse(success);
-        assertEq(_revertSelector(revertData), SignedProposer.TryMulticallInsufficientGas.selector);
+        assertEq(_revertSelector(revertData), TryMulticall.TryMulticallInsufficientGas.selector);
     }
 
     function test_tryMulticall_gasExhaustingChildCannotBlockLaterProposal() public {
