@@ -318,6 +318,34 @@ forge script script/DeploySignedProposer.s.sol --rpc-url "YOUR_RPC_URL" --broadc
 
 The script only deploys the contract. The admin configures delegated proposers and any required whitelist ownership separately.
 
+### Partial-success proposal batches
+
+Delegated proposers can submit up to 8 ABI-encoded `SignedProposer.propose` calls through
+`tryMulticall(bytes[])`. The calls must contain no more than 96 KiB of combined inner calldata.
+Each valid child executes by self-delegatecall with the original relayer as `msg.sender` and a
+1,500,000 gas cap, so one reverting or gas-exhausting proposal does not roll back or prevent later
+siblings from being attempted.
+
+The function returns a `bool[]` aligned with the submitted calls. A failed child also emits:
+
+```solidity
+event ProposalCallFailed(
+    uint256 indexed index,
+    bytes32 indexed callHash,
+    bytes4 errorSelector,
+    bytes32 revertDataHash
+);
+```
+
+`callHash` is `keccak256(calls[index])`, `errorSelector` is the first four revert-data bytes (or
+zero when unavailable), and `revertDataHash` hashes the complete revert data. Full proposal
+calldata, signatures, and revert data are never logged. Successful children continue to emit the
+existing `ProposalExecuted` and oracle `ProposePrice` events. Consumers should use those events as
+the authoritative success evidence and `ProposalCallFailed` to classify individual failures.
+
+OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. `tryMulticall`
+does not change worker behavior; worker integration must be performed separately.
+
 ### Verification
 
 ```bash

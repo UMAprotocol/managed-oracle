@@ -31,7 +31,7 @@ import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelis
  * the signer-approved Permit2 amount for that proposal.
  *
  * The contract is permissioned:
- * - `DELEGATED_PROPOSER_ROLE` — may call `propose`.
+ * - `DELEGATED_PROPOSER_ROLE` — may call `propose` and `tryMulticall`.
  * - `WHITELIST_ADMIN_ROLE` — may directly add/remove entries on whitelists owned by this contract.
  */
 contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
@@ -65,9 +65,27 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
     string public constant WITNESS_TYPE_STRING =
         "Proposal witness)Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)TokenPermissions(address token,uint256 amount)";
 
+    /// @notice Maximum number of proposals accepted by one partial-success batch.
+    uint256 public constant MAX_TRY_MULTICALL_CALLS = 8;
+
+    /// @notice Maximum combined size of the encoded proposal calls in one partial-success batch.
+    uint256 public constant MAX_TRY_MULTICALL_CALLDATA = 96 * 1024;
+
+    /// @notice Maximum gas forwarded to each proposal in a partial-success batch.
+    uint256 public constant TRY_MULTICALL_CHILD_GAS_LIMIT = 1_500_000;
+
+    /// @dev Per-child reserve covers execution, exact revert-data hashing, and loop accounting.
+    uint256 private constant TRY_MULTICALL_GAS_RESERVE_PER_CALL = 3_400_000;
+
+    /// @dev Gas retained after the final child for result encoding and returning to the caller.
+    uint256 private constant TRY_MULTICALL_FINAL_GAS_RESERVE = 100_000;
+
     // ─── Immutables ───────────────────────────────────────────────────────────────
 
     ISignatureTransfer public immutable permit2;
+
+    /// @dev Independent from ReentrancyGuard so delegated `propose` calls retain their own guard.
+    bool private _tryMulticallEntered;
 
     // ─── Events ───────────────────────────────────────────────────────────────────
 
@@ -84,11 +102,25 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
 
     event PaymentWithdrawn(address indexed token, address indexed to, uint256 amount);
 
+    /**
+     * @notice Emitted when a proposal in a partial-success batch reverts.
+     * @dev The full child calldata and revert data are deliberately omitted. Their hashes provide
+     * exact correlation without placing signatures or unbounded data in logs.
+     */
+    event ProposalCallFailed(
+        uint256 indexed index, bytes32 indexed callHash, bytes4 errorSelector, bytes32 revertDataHash
+    );
+
     error PaymentExceedsMaxPayment();
     error PermitTransferAmountMismatch(uint256 expectedAmount, uint256 receivedAmount);
     error PermitTokenMismatch(address requestCurrency, address permitToken);
     error CannotRemoveSelfFromWhitelist();
     error NewOwnerNotWhitelisted(address newOwner);
+    error TryMulticallReentrantCall();
+    error TryMulticallTooManyCalls(uint256 provided, uint256 maximum);
+    error TryMulticallCalldataTooLarge(uint256 provided, uint256 maximum);
+    error TryMulticallInvalidSelector(uint256 index, bytes4 selector);
+    error TryMulticallInsufficientGas(uint256 available, uint256 required);
 
     // ─── Constructor ──────────────────────────────────────────────────────────────
 
@@ -138,6 +170,92 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
         }
         _permit2Transfer(proposal, permit, proposer, signature);
         totalBond = _executeProposal(proposal, proposer, currency, permit.permitted.amount, payment);
+    }
+
+    // ─── Partial-success batching ────────────────────────────────────────────────
+
+    /**
+     * @notice Executes a bounded batch of proposals without reverting successful siblings when
+     * another proposal fails.
+     * @dev Every child must encode `SignedProposer.propose`. The complete batch is selector- and
+     * size-validated before execution. Children are executed by self-delegatecall so `msg.sender`
+     * remains the delegated proposer, while each child preserves `propose`'s existing
+     * `nonReentrant` protection and all Permit2, funding, whitelist, refund, and event behavior.
+     *
+     * Each child receives a fixed gas allowance. The outer call requires a conservative up-front
+     * reserve sufficient to execute every child and hash the complete revert data from every
+     * failure. Failed children emit `ProposalCallFailed`; successful children continue to emit the
+     * existing `ProposalExecuted` and oracle `ProposePrice` events. Inherited OpenZeppelin
+     * `multicall` remains available with its original atomic behavior.
+     *
+     * @param calls ABI-encoded calls to `SignedProposer.propose`.
+     * @return successes Per-call success values in the same order as `calls`.
+     */
+    function tryMulticall(bytes[] calldata calls)
+        external
+        onlyRole(DELEGATED_PROPOSER_ROLE)
+        returns (bool[] memory successes)
+    {
+        if (_tryMulticallEntered) revert TryMulticallReentrantCall();
+
+        uint256 callsLength = calls.length;
+        if (callsLength > MAX_TRY_MULTICALL_CALLS) {
+            revert TryMulticallTooManyCalls(callsLength, MAX_TRY_MULTICALL_CALLS);
+        }
+
+        uint256 totalCalldata;
+        for (uint256 i; i < callsLength; ++i) {
+            bytes calldata callData = calls[i];
+            totalCalldata += callData.length;
+            if (totalCalldata > MAX_TRY_MULTICALL_CALLDATA) {
+                revert TryMulticallCalldataTooLarge(totalCalldata, MAX_TRY_MULTICALL_CALLDATA);
+            }
+
+            bytes4 selector = callData.length >= 4 ? bytes4(callData[:4]) : bytes4(0);
+            if (selector != this.propose.selector) revert TryMulticallInvalidSelector(i, selector);
+        }
+
+        successes = new bool[](callsLength);
+        uint256 requiredGas = callsLength * TRY_MULTICALL_GAS_RESERVE_PER_CALL + TRY_MULTICALL_FINAL_GAS_RESERVE;
+        uint256 availableGas = gasleft();
+        if (availableGas < requiredGas) revert TryMulticallInsufficientGas(availableGas, requiredGas);
+
+        _tryMulticallEntered = true;
+        for (uint256 i; i < callsLength; ++i) {
+            bytes calldata callData = calls[i];
+            // DELEGATECALL reads its input from memory. The aggregate calldata bound also bounds
+            // the cumulative cost of these per-child copies.
+            bytes memory callDataMemory = callData;
+            bool success;
+            uint256 revertDataSize;
+            assembly ("memory-safe") {
+                success := delegatecall(
+                    TRY_MULTICALL_CHILD_GAS_LIMIT,
+                    address(),
+                    add(callDataMemory, 0x20),
+                    mload(callDataMemory),
+                    0,
+                    0
+                )
+                revertDataSize := returndatasize()
+            }
+            successes[i] = success;
+
+            if (!success) {
+                bytes4 errorSelector;
+                bytes32 revertDataHash;
+                assembly {
+                    // Reuse scratch space without advancing the free-memory pointer. No Solidity
+                    // allocation or automatic returndata copy occurs before this bounded step.
+                    let ptr := mload(0x40)
+                    returndatacopy(ptr, 0, revertDataSize)
+                    revertDataHash := keccak256(ptr, revertDataSize)
+                    if iszero(lt(revertDataSize, 4)) { errorSelector := mload(ptr) }
+                }
+                emit ProposalCallFailed(i, keccak256(callData), errorSelector, revertDataHash);
+            }
+        }
+        _tryMulticallEntered = false;
     }
 
     // ─── Internals ────────────────────────────────────────────────────────────────
