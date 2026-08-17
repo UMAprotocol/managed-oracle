@@ -49,10 +49,13 @@ contract SignedProposerTryMulticallForkTest is Test {
 
         address admin = makeAddr("admin");
         relayer = makeAddr("relayer");
-        firstProposerKey = 0xA11CE;
-        secondProposerKey = 0xB0B;
+        firstProposerKey = _findEoaKey(0xA11CE);
+        secondProposerKey = _findEoaKey(0xB0B);
         firstProposer = vm.addr(firstProposerKey);
         secondProposer = vm.addr(secondProposerKey);
+        assertEq(firstProposer.code.length, 0, "first proposer must be an EOA");
+        assertEq(secondProposer.code.length, 0, "second proposer must be an EOA");
+        assertNotEq(firstProposer, secondProposer, "proposers must differ");
 
         currency = new ERC20Mock();
         signedProposer = new SignedProposer(ISignatureTransfer(POLYGON_PERMIT2), admin);
@@ -124,6 +127,11 @@ contract SignedProposerTryMulticallForkTest is Test {
             nonce: nonce,
             deadline: block.timestamp + 1 hours
         });
+    }
+
+    function _findEoaKey(uint256 candidate) internal returns (uint256) {
+        while (vm.addr(candidate).code.length != 0) ++candidate;
+        return candidate;
     }
 
     function _call(
