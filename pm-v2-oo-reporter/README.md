@@ -38,10 +38,10 @@ per requester.
 Deploy the base `OOReporter` for pull-only integrations and the Polymarket variant when every enabled requester
 implements `IOOReporterModule.report(bytes32)`.
 
-The reporter reserves each `(priceIdentifier, requestRules)` tuple globally across enabled requesters in the
-deployment. This prevents two request IDs from pointing at the same UMA request identity. Independent integrations that
-need the exact same UMA request identity should use separate reporter deployments; integrations with similar rules can
-domain-separate request rules so their UMA request identities differ.
+The reporter creates one Managed OO lifecycle for each `(priceIdentifier, requestRules)` tuple. The same requester can
+register up to ten request IDs with the same tuple and liveness range. Those IDs share the original Managed OO request,
+resolution, and automatic re-request state. Registrations from another requester or with a different liveness range are
+rejected.
 
 ## Responsibilities
 
@@ -68,13 +68,16 @@ The prediction market integration owns:
 An enabled requester first calls `registerRequest(...)` with its external `requestId`, UMA price identifier, raw request
 rules, and liveness range. Registration requires an internally consistent range that overlaps the Managed OO bounds at
 that time. The minimum remains an onchain floor, while the maximum is stored, returned, and emitted as an offchain
-initialization target rather than an onchain ceiling. The reporter reserves the `(priceIdentifier, requestRules)` tuple
-globally within the deployment so two request IDs cannot point at the same UMA request identity.
+initialization target rather than an onchain ceiling. Duplicate registrations from the same requester with the same
+tuple and liveness range are associated with the original registration instead of creating another Managed OO request.
 
 An enabled UMA oracle initializer later calls `initializeRequest(requestId, reward, proposalBond, liveness)`. The selected
 liveness must be non-zero and at or above the registered minimum, but it may exceed the registered target maximum. The
 Managed OO independently enforces its current `minimumDisputeWindow` and technical maximum. Each initialized request
 receives the current `defaultRerequestBudget` as its manual re-request budget.
+
+Calling `initializeRequest` for an associated duplicate request ID is an idempotent no-op after the shared Managed OO
+request has been initialized. All request-ID reads resolve to the shared lifecycle and final outcome.
 
 Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
 `setAutomaticRerequestsEnabled(...)`. The current setting is evaluated when a dispute or P4 settlement callback arrives,
@@ -170,9 +173,9 @@ compromise, operators should fund the reporter with a working reward float rathe
 
 ## Automatic Polymarket Reporting
 
-After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(requestId)` on the module that registered the
-request. The reporter commits its resolved state before making this external call, so the module can read the outcome
-during `report`.
+After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(requestId)` for every associated request ID on
+the module that registered it. The reporter commits its shared resolved state before making these external calls, so the
+module can read the outcome using any associated request ID during `report`.
 
 The callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
 `ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and

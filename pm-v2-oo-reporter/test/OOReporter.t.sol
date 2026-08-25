@@ -188,13 +188,54 @@ contract OOReporterTest {
         );
     }
 
-    function test_registerRequestRejectsDuplicateReporterTuple() external {
+    function test_registerRequestAssociatesDuplicateReporterTuple() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(requester);
+        reporter.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
+
+        assertEq(reporter.getRequestId(BINARY_IDENTIFIER, requestRules), REQUEST_ID, "canonical request id changed");
+        RequestData memory request = reporter.getRequest(SECOND_REQUEST_ID);
+        assertTrue(request.registered, "duplicate request should be registered");
+        assertEq(request.priceIdentifier, BINARY_IDENTIFIER, "identifier mismatch");
+        assertEq(request.requestRules, requestRules, "rules mismatch");
+    }
+
+    function test_registerRequestRejectsDuplicateReporterTupleFromDifferentRequester() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(owner);
+        reporter.setRequesterEnabled(secondRequester, true);
+        vm.prank(secondRequester);
+        vm.expectRevert(abi.encodeWithSelector(IOOReporter.ReporterRequestKeyAlreadyRegistered.selector, REQUEST_ID));
+        reporter.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
+    }
+
+    function test_registerRequestRejectsDuplicateReporterTupleWithDifferentLiveness() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
 
         vm.prank(requester);
         vm.expectRevert(abi.encodeWithSelector(IOOReporter.ReporterRequestKeyAlreadyRegistered.selector, REQUEST_ID));
-        reporter.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
+        reporter.registerRequest(
+            SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS + 1
+        );
+    }
+
+    function test_registerRequestCapsDuplicateReporterTuple() external {
+        bytes memory requestRules = _requestRules("primary");
+        for (uint256 i = 1; i <= 10; ++i) {
+            vm.prank(requester);
+            reporter.registerRequest(bytes32(i), BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
+        }
+
+        vm.prank(requester);
+        vm.expectRevert(OOReporter.ReporterRequestIdLimitReached.selector);
+        reporter.registerRequest(
+            bytes32(uint256(11)), BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS
+        );
     }
 
     function test_registerRequestAcceptsOORequestRulesLimit() external {
@@ -362,6 +403,25 @@ contract OOReporterTest {
         vm.prank(oracleInitializer);
         vm.expectRevert(IOOReporter.RequestAlreadyInitialized.selector);
         reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+    }
+
+    function test_initializeDuplicateRequestIdReusesCanonicalManagedOORequest() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        _registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.startPrank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+        vm.stopPrank();
+
+        RequestData memory canonical = reporter.getRequest(REQUEST_ID);
+        RequestData memory duplicate = reporter.getRequest(SECOND_REQUEST_ID);
+        assertEq(keccak256(abi.encode(duplicate)), keccak256(abi.encode(canonical)), "lifecycle should be shared");
+
+        bytes32 requestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, canonical.requestTimestamp, requestRules);
+        assertTrue(optimisticOracle.getMockRequest(requestKey).requested, "canonical OO request should exist");
     }
 
     function test_initializeRequestRejectsZeroLiveness() external {

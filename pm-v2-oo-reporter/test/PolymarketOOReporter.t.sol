@@ -50,6 +50,7 @@ contract MockPolymarketOOReporterModule {
     bool public shouldRevert;
     uint256 public reportCount;
     bytes32 public lastRequestId;
+    mapping(bytes32 requestId => bool reported) public reported;
     address public lastReporter;
     bool public observedResolved;
     int256 public observedOutcome;
@@ -77,6 +78,7 @@ contract MockPolymarketOOReporterModule {
 
         reportCount += 1;
         lastRequestId = requestId;
+        reported[requestId] = true;
         lastReporter = msg.sender;
         observedResolved = reporter.isRequestResolved(requestId);
         observedOutcome = reporter.getRequestResolution(requestId);
@@ -92,6 +94,7 @@ contract PolymarketOOReporterTest {
     event ReportCallbackFailed(bytes32 indexed requestId, address indexed reporterModule);
 
     bytes32 private constant REQUEST_ID = keccak256("polymarket-request-id");
+    bytes32 private constant SECOND_REQUEST_ID = keccak256("second-polymarket-request-id");
     bytes32 private constant BINARY_IDENTIFIER = "YES_OR_NO_QUERY";
     uint64 private constant LIVENESS = 2 hours;
     uint64 private constant MAXIMUM_LIVENESS = 2 days;
@@ -142,6 +145,26 @@ contract PolymarketOOReporterTest {
         _assertEq(module.lastReporter(), address(reporter), "report caller mismatch");
         _assertTrue(module.observedResolved(), "report should observe resolved state");
         _assertEq(module.observedOutcome(), 1 ether, "reported outcome mismatch");
+    }
+
+    function test_settlementAutomaticallyReportsAllDuplicateRequestIds() external {
+        bytes memory requestRules = bytes("Will ETH reach 10k?");
+        module.registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+        module.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
+
+        _assertEq(module.reportCount(), 2, "report count mismatch");
+        _assertTrue(module.reported(REQUEST_ID), "canonical request was not reported");
+        _assertTrue(module.reported(SECOND_REQUEST_ID), "duplicate request was not reported");
+        _assertTrue(reporter.isRequestResolved(SECOND_REQUEST_ID), "duplicate request should resolve");
+        _assertEq(reporter.getRequestResolution(SECOND_REQUEST_ID), 1 ether, "duplicate outcome mismatch");
     }
 
     function test_reportFailureDoesNotRevertSettlementAndCanBeRetried() external {

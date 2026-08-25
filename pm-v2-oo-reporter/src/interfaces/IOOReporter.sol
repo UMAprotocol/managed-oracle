@@ -96,7 +96,7 @@ interface IOOReporter {
     error RequestAlreadyInitialized();
     /// @notice Thrown when registering a request ID that has already been registered.
     error RequestAlreadyRegistered();
-    /// @notice Thrown when registering a duplicate OO request tuple for a different request ID.
+    /// @notice Thrown when a duplicate OO request tuple has a different requester or liveness range.
     error ReporterRequestKeyAlreadyRegistered(bytes32 existingRequestId);
     /// @notice Thrown when an operation targets a request that already has a final outcome.
     error RequestAlreadyResolved();
@@ -267,12 +267,9 @@ interface IOOReporter {
     function automaticRerequestsEnabled() external view returns (bool);
 
     /// @notice Registers a requester-defined request ID and its UMA request identity before OO initialization.
-    /// @dev The reporter reserves each price identifier and request rules pair globally across approved requesters.
-    /// Enabled requesters share one owner-managed request namespace; the contract does not isolate identical UMA
-    /// request identities per requester. Independent integrations that need the exact same UMA request identity should
-    /// use separate reporter deployments; integrations with similar rules can domain-separate request rules so their
-    /// UMA request identities differ. minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness
-    /// remains a registration-time bound and offchain target that does not cap initialization or re-requests.
+    /// @dev Matching price identifier, request rules, requester, and liveness values share one Managed OO lifecycle.
+    /// minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness remains a registration-time bound
+    /// and offchain target that does not cap initialization or re-requests.
     /// @param requestId Requester-defined request ID to bind to the UMA request identity.
     /// @param priceIdentifier UMA price identifier to request.
     /// @param requestRules Raw UMA request rules supplied by the requester.
