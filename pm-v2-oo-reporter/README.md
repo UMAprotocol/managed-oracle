@@ -184,11 +184,12 @@ including because it runs out of gas, the stored resolution and Managed OO settl
 emits `ResolutionCallbacksFailed(requestId, requestTimestamp)`. Any earlier callbacks from that reverted fan-out are also
 rolled back, so operators must call each module's permissionless `report(requestId)` individually off-chain.
 
-The callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
+Each callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
 `ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and
 the reporter emits `ReportCallbackFailed(requestId, reporterModule)`. The module's permissionless `report(requestId)`
-entry point can then be retried separately. P4 settlements, stale callbacks, unknown requests, and already-resolved
-requests do not trigger reporting.
+entry point can then be retried separately. P4 settlements and stale, unknown, or repeated settlement callbacks do not
+trigger reporting. A newly registered ID for an already-resolved shared request follows the initialization behavior
+described above.
 
 The reporter never calls market-side `finalize()`. Any reporting liveness, threshold, payout translation, and
 finalization logic remains enforced by the Polymarket V2 contracts.
