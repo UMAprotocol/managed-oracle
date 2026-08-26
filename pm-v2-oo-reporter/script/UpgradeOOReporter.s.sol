@@ -425,7 +425,8 @@ contract UpgradeOOReporter is Script {
                 || request.priceIdentifier != priceIdentifier
                 || keccak256(request.requestRules) != keccak256(requestRules)
                 || request.minimumLiveness != minimumLiveness || request.maximumLiveness != maximumLiveness
-                || reporter.getRequestId(priceIdentifier, requestRules) != requestId
+                || request.initialized
+                && reporter.getRequestId(priceIdentifier, request.requestTimestamp, requestRules) != requestId
         ) revert RegisteredRequestStateMismatch(requestId);
     }
 
@@ -574,8 +575,9 @@ contract UpgradeOOReporter is Script {
         for (uint256 i = 0; i < requestIds.length; i++) {
             RequestData memory request = reporter.getRequest(requestIds[i]);
             if (
-                keccak256(abi.encode(request)) != expectedState.requestHashes[i]
-                    || reporter.getRequestId(request.priceIdentifier, request.requestRules) != requestIds[i]
+                keccak256(abi.encode(request)) != expectedState.requestHashes[i] || request.initialized
+                    && reporter.getRequestId(request.priceIdentifier, request.requestTimestamp, request.requestRules)
+                        != requestIds[i]
             ) revert RequestStateChanged(requestIds[i]);
         }
 

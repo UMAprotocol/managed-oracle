@@ -165,8 +165,6 @@ contract OOReporterTest {
 
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
 
-        assertEq(reporter.getRequestId(BINARY_IDENTIFIER, requestRules), REQUEST_ID, "tuple request id mismatch");
-
         RequestData memory request = reporter.getRequest(REQUEST_ID);
         assertTrue(request.registered, "request should be registered");
         assertFalse(request.initialized, "request should not be initialized");
@@ -188,13 +186,55 @@ contract OOReporterTest {
         );
     }
 
-    function test_registerRequestRejectsDuplicateReporterTuple() external {
+    function test_duplicateReporterTuplesResolveIndependently() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        _registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules);
 
-        vm.prank(requester);
-        vm.expectRevert(abi.encodeWithSelector(IOOReporter.ReporterRequestKeyAlreadyRegistered.selector, REQUEST_ID));
-        reporter.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+        RequestData memory firstRequest = reporter.getRequest(REQUEST_ID);
+
+        vm.warp(block.timestamp + 1);
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+        RequestData memory secondRequest = reporter.getRequest(SECOND_REQUEST_ID);
+
+        assertEq(
+            reporter.getRequestId(BINARY_IDENTIFIER, firstRequest.requestTimestamp, requestRules),
+            REQUEST_ID,
+            "first request lookup mismatch"
+        );
+        assertEq(
+            reporter.getRequestId(BINARY_IDENTIFIER, secondRequest.requestTimestamp, requestRules),
+            SECOND_REQUEST_ID,
+            "second request lookup mismatch"
+        );
+
+        optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, secondRequest.requestTimestamp, requestRules, 0);
+        assertFalse(reporter.isRequestResolved(REQUEST_ID), "first request should remain unresolved");
+        assertTrue(reporter.isRequestResolved(SECOND_REQUEST_ID), "second request should resolve");
+
+        optimisticOracle.settle(
+            address(reporter), BINARY_IDENTIFIER, firstRequest.requestTimestamp, requestRules, 1 ether
+        );
+        assertEq(reporter.getRequestResolution(REQUEST_ID), 1 ether, "first request outcome mismatch");
+        assertEq(reporter.getRequestResolution(SECOND_REQUEST_ID), 0, "second request outcome mismatch");
+    }
+
+    function test_duplicateReporterTuplesCannotInitializeAtSameTimestamp() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        _registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+
+        vm.prank(oracleInitializer);
+        vm.expectRevert(abi.encodeWithSelector(IOOReporter.OracleRequestAlreadyRegistered.selector, REQUEST_ID));
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+
+        assertFalse(reporter.getRequest(SECOND_REQUEST_ID).initialized, "second request should remain uninitialized");
     }
 
     function test_registerRequestAcceptsOORequestRulesLimit() external {
@@ -313,6 +353,11 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, REWARD, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
+        assertEq(
+            reporter.getRequestId(NUMERICAL_IDENTIFIER, request.requestTimestamp, requestRules),
+            REQUEST_ID,
+            "oracle request lookup mismatch"
+        );
         assertTrue(request.initialized, "request should be initialized");
         assertEq(request.oracleInitializer, oracleInitializer, "initializer mismatch");
         assertEq(request.requestTimestamp, block.timestamp, "timestamp mismatch");
@@ -655,7 +700,7 @@ contract OOReporterTest {
         reporter.getRequestResolution(REQUEST_ID);
 
         vm.expectRevert(IOOReporter.RequestNotRegistered.selector);
-        reporter.getRequestId(BINARY_IDENTIFIER, _requestRules("missing"));
+        reporter.getRequestId(BINARY_IDENTIFIER, block.timestamp, _requestRules("missing"));
 
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, _requestRules("primary"));
 

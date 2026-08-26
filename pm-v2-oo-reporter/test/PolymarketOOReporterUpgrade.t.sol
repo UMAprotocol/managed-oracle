@@ -60,6 +60,7 @@ contract PolymarketOOReporterUpgradeTest is Test {
     bytes32 private constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     bytes32 private constant RESOLVED_REQUEST_ID = keccak256("resolved-before-upgrade");
     bytes32 private constant PENDING_REQUEST_ID = keccak256("pending-during-upgrade");
+    bytes32 private constant POST_UPGRADE_REQUEST_ID = keccak256("initialized-after-upgrade");
     bytes32 private constant BINARY_IDENTIFIER = "YES_OR_NO_QUERY";
     uint64 private constant LIVENESS = 2 hours;
     uint64 private constant MAXIMUM_LIVENESS = 2 days;
@@ -133,17 +134,21 @@ contract PolymarketOOReporterUpgradeTest is Test {
             keccak256(abi.encode(pendingBefore)),
             "pending request changed"
         );
+        bytes memory postUpgradeRules = bytes("initialized after upgrade");
+        _registerAndInitialize(POST_UPGRADE_REQUEST_ID, postUpgradeRules);
+        LegacyRequestData memory postUpgradeRequest = legacyReporter.getRequest(POST_UPGRADE_REQUEST_ID);
         assertEq(
-            upgraded.getRequestId(BINARY_IDENTIFIER, resolvedRules), RESOLVED_REQUEST_ID, "resolved lookup changed"
+            upgraded.getRequestId(BINARY_IDENTIFIER, postUpgradeRequest.requestTimestamp, postUpgradeRules),
+            POST_UPGRADE_REQUEST_ID,
+            "post-upgrade lookup mismatch"
         );
-        assertEq(upgraded.getRequestId(BINARY_IDENTIFIER, pendingRules), PENDING_REQUEST_ID, "pending lookup changed");
 
         optimisticOracle.settle(
-            address(upgraded), BINARY_IDENTIFIER, pendingBefore.requestTimestamp, pendingRules, 1 ether
+            address(upgraded), BINARY_IDENTIFIER, postUpgradeRequest.requestTimestamp, postUpgradeRules, 1 ether
         );
 
         assertEq(module.reportCount(), 1, "callback not invoked");
-        assertEq(module.lastRequestId(), PENDING_REQUEST_ID, "callback request id mismatch");
+        assertEq(module.lastRequestId(), POST_UPGRADE_REQUEST_ID, "callback request id mismatch");
         assertEq(module.lastReporter(), address(upgraded), "callback reporter mismatch");
         assertTrue(module.observedResolved(), "callback observed unresolved request");
         assertEq(module.observedOutcome(), 1 ether, "callback outcome mismatch");

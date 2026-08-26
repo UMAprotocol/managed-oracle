@@ -15,8 +15,7 @@ import {IOptimisticRequester} from "./interfaces/IOptimisticRequester.sol";
 /// @title OOReporter
 /// @notice UMA-owned Managed OO requester and raw outcome source for prediction market request IDs.
 /// @dev Approved requesters register request IDs here. UMA initializes and manages the OO lifecycle,
-///      then this reporter stores the final raw UMA price for market-side translation. Enabled requesters
-///      share one owner-managed request namespace and are expected to coordinate on request identity.
+///      then this reporter stores the final raw UMA price for market-side translation.
 /// @custom:security-contact bugs@umaproject.org
 contract OOReporter is
     Ownable2StepUpgradeable,
@@ -56,8 +55,8 @@ contract OOReporter is
         mapping(address oracleInitializer => bool enabled) isOracleInitializer;
         /// @notice Mapping of requester-defined request ID to reporter request state.
         mapping(bytes32 requestId => RequestData request) requests;
-        /// @notice Mapping of `(priceIdentifier, requestRules)` key to requester-defined request ID.
-        mapping(bytes32 reporterRequestKey => bytes32 requestId) requestIdsByReporterKey;
+        /// @notice Mapping of `(priceIdentifier, requestTimestamp, requestRules)` key to requester-defined request ID.
+        mapping(bytes32 oracleRequestKey => bytes32 requestId) requestIdsByOracleRequestKey;
         /// @notice Default re-request budget seeded onto each request at initialization.
         uint256 defaultRerequestBudget;
         /// @notice Whether first-dispute and P4 automatic re-requests are enabled.
@@ -163,11 +162,11 @@ contract OOReporter is
         return _getStorage().isOracleInitializer[candidate];
     }
 
-    /// @notice Returns the request ID registered for a reporter request key.
-    /// @param reporterRequestKey Key derived from the UMA price identifier and request rules.
+    /// @notice Returns the request ID registered for a Managed OO request key.
+    /// @param oracleRequestKey Key derived from the UMA price identifier, request timestamp, and request rules.
     /// @return requestId Registered request ID, or zero if none is registered.
-    function requestIdsByReporterKey(bytes32 reporterRequestKey) public view returns (bytes32 requestId) {
-        return _getStorage().requestIdsByReporterKey[reporterRequestKey];
+    function requestIdsByOracleRequestKey(bytes32 oracleRequestKey) public view returns (bytes32 requestId) {
+        return _getStorage().requestIdsByOracleRequestKey[oracleRequestKey];
     }
 
     /// @inheritdoc IOOReporter
@@ -235,18 +234,12 @@ contract OOReporter is
         RequestData storage request = $.requests[requestId];
         if (request.registered) revert RequestAlreadyRegistered();
 
-        bytes32 reporterRequestKey = _reporterRequestKey(priceIdentifier, requestRules);
-        bytes32 existingRequestId = requestIdsByReporterKey(reporterRequestKey);
-        if (existingRequestId != bytes32(0)) revert ReporterRequestKeyAlreadyRegistered(existingRequestId);
-
         request.registered = true;
         request.requester = msg.sender;
         request.priceIdentifier = priceIdentifier;
         request.requestRules = requestRules;
         request.minimumLiveness = minimumLiveness;
         request.maximumLiveness = maximumLiveness;
-        $.requestIdsByReporterKey[reporterRequestKey] = requestId;
-
         emit RequestRegistered(requestId, msg.sender, priceIdentifier, requestRules, minimumLiveness, maximumLiveness);
     }
 
@@ -304,7 +297,9 @@ contract OOReporter is
         request.liveness = liveness;
         request.manualRerequestsRemaining = manualRerequestsRemaining;
 
-        _requestPrice(request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness);
+        _requestPrice(
+            requestId, request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness
+        );
 
         emit RequestInitialized(
             requestId,
@@ -332,7 +327,8 @@ contract OOReporter is
         if (request.manualRerequestsRemaining == 0) revert RequestRerequestBudgetExhausted();
         _requireValidRequestLiveness(request, liveness);
 
-        uint256 previousRequestTimestamp = _executeRerequest(request, reward, proposalBond, liveness, msg.sender);
+        uint256 previousRequestTimestamp =
+            _executeRerequest(requestId, request, reward, proposalBond, liveness, msg.sender);
 
         request.manualRerequestsRemaining -= 1;
 
@@ -438,12 +434,12 @@ contract OOReporter is
     }
 
     /// @inheritdoc IOOReporter
-    function getRequestId(bytes32 priceIdentifier, bytes calldata requestRules)
+    function getRequestId(bytes32 priceIdentifier, uint256 requestTimestamp, bytes calldata requestRules)
         public
         view
         returns (bytes32 requestId)
     {
-        requestId = requestIdsByReporterKey(_reporterRequestKey(priceIdentifier, requestRules));
+        requestId = requestIdsByOracleRequestKey(_oracleRequestKey(priceIdentifier, requestTimestamp, requestRules));
         if (requestId == bytes32(0)) revert RequestNotRegistered();
     }
 
@@ -488,6 +484,7 @@ contract OOReporter is
 
     /// @dev Creates a replacement request with a strictly greater request timestamp than the previous request.
     function _executeRerequest(
+        bytes32 requestId,
         RequestData storage request,
         uint256 reward,
         uint256 proposalBond,
@@ -507,15 +504,18 @@ contract OOReporter is
         request.oracleInitializer = oracleInitializer;
         request.rerequestAllowed = false;
 
-        _requestPrice(request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness);
+        _requestPrice(
+            requestId, request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness
+        );
     }
 
     /// @dev Creates a replacement request without spending manual budget.
     function _executeAutomaticRerequest(bytes32 requestId, RequestData storage request, RerequestType rerequestType)
         private
     {
-        uint256 previousRequestTimestamp =
-            _executeRerequest(request, request.reward, request.proposalBond, request.liveness, address(this));
+        uint256 previousRequestTimestamp = _executeRerequest(
+            requestId, request, request.reward, request.proposalBond, request.liveness, address(this)
+        );
         _emitRequestRerequested(requestId, request, previousRequestTimestamp, address(this), rerequestType);
     }
 
@@ -549,6 +549,7 @@ contract OOReporter is
 
     /// @dev Creates a Managed OO request and applies event-based, callback, bond, and liveness settings.
     function _requestPrice(
+        bytes32 requestId,
         bytes32 priceIdentifier,
         uint256 requestTimestamp,
         bytes memory requestRules,
@@ -556,6 +557,11 @@ contract OOReporter is
         uint256 proposalBond,
         uint64 liveness
     ) private {
+        bytes32 oracleRequestKey = _oracleRequestKey(priceIdentifier, requestTimestamp, requestRules);
+        bytes32 existingRequestId = requestIdsByOracleRequestKey(oracleRequestKey);
+        if (existingRequestId != bytes32(0)) revert OracleRequestAlreadyRegistered(existingRequestId);
+        _getStorage().requestIdsByOracleRequestKey[oracleRequestKey] = requestId;
+
         IERC20 currency = rewardCurrency();
         IOptimisticOracleV2 oracle = optimisticOracle();
         if (reward > 0) {
@@ -618,7 +624,7 @@ contract OOReporter is
         view
         returns (bytes32 requestId, RequestData storage request, bool shouldIgnore)
     {
-        requestId = requestIdsByReporterKey(_reporterRequestKey(identifier, requestRules));
+        requestId = requestIdsByOracleRequestKey(_oracleRequestKey(identifier, timestamp, requestRules));
         request = _getStorage().requests[requestId];
         shouldIgnore = !request.initialized || timestamp != request.requestTimestamp;
     }
@@ -642,9 +648,13 @@ contract OOReporter is
         if (!request.registered) revert RequestNotRegistered();
     }
 
-    /// @dev Derives the callback lookup key from UMA request identity fields that are stable across re-requests.
-    function _reporterRequestKey(bytes32 identifier, bytes memory requestRules) internal pure returns (bytes32) {
-        return keccak256(abi.encode(identifier, requestRules));
+    /// @dev Derives the callback lookup key from the Managed OO request identity fields controlled by this reporter.
+    function _oracleRequestKey(bytes32 identifier, uint256 timestamp, bytes memory requestRules)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(identifier, timestamp, requestRules));
     }
 
     /// @dev Hook for integration-specific actions after a final outcome is stored.

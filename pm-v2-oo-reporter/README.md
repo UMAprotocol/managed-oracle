@@ -31,17 +31,15 @@ function getRequestResolution(bytes32 requestId) external view returns (int256);
 ## Deployment Model
 
 Each `OOReporter` deployment exposes one owner-managed request namespace. Enabled requester addresses are expected to
-coordinate on request identity within that namespace; the contract does not isolate identical UMA request identities
-per requester.
+coordinate within that namespace.
 
 `PolymarketOOReporter` extends the base reporter with an automatic callback to the module that registered the request.
 Deploy the base `OOReporter` for pull-only integrations and the Polymarket variant when every enabled requester
 implements `IOOReporterModule.report(bytes32)`.
 
-The reporter reserves each `(priceIdentifier, requestRules)` tuple globally across enabled requesters in the
-deployment. This prevents two request IDs from pointing at the same UMA request identity. Independent integrations that
-need the exact same UMA request identity should use separate reporter deployments; integrations with similar rules can
-domain-separate request rules so their UMA request identities differ.
+Multiple request IDs can use the same `(priceIdentifier, requestRules)` pair. Their Managed OO requests remain distinct
+because initialization assigns each one a request timestamp. Managed OO policy and request-rules updates omit that
+timestamp, so otherwise identical requests share those settings and update history.
 
 ## Responsibilities
 
@@ -68,13 +66,13 @@ The prediction market integration owns:
 An enabled requester first calls `registerRequest(...)` with its external `requestId`, UMA price identifier, raw request
 rules, and liveness range. Registration requires an internally consistent range that overlaps the Managed OO bounds at
 that time. The minimum remains an onchain floor, while the maximum is stored, returned, and emitted as an offchain
-initialization target rather than an onchain ceiling. The reporter reserves the `(priceIdentifier, requestRules)` tuple
-globally within the deployment so two request IDs cannot point at the same UMA request identity.
+initialization target rather than an onchain ceiling. Only `requestId` must be unique at registration.
 
 An enabled UMA oracle initializer later calls `initializeRequest(requestId, reward, proposalBond, liveness)`. The selected
 liveness must be non-zero and at or above the registered minimum, but it may exceed the registered target maximum. The
 Managed OO independently enforces its current `minimumDisputeWindow` and technical maximum. Each initialized request
-receives the current `defaultRerequestBudget` as its manual re-request budget.
+receives the current `defaultRerequestBudget` as its manual re-request budget. Requests with identical identifiers and
+rules must be initialized at different timestamps.
 
 Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
 `setAutomaticRerequestsEnabled(...)`. The current setting is evaluated when a dispute or P4 settlement callback arrives,
@@ -364,8 +362,9 @@ its requester whitelist, and the downstream module wiring before deploying anyth
 | `EXPECTED_STATE_FINGERPRINT` | Required in verify mode. Copy the fingerprint printed by the final pre-upgrade run. |
 
 The script derives the complete request-ID list from `RequestRegistered` logs instead of accepting a hand-curated list.
-For every event it validates the requester, identifier, rules, liveness range, and tuple lookup against current proxy
-storage, then snapshots the full stored request for the post-upgrade comparison. Log queries are split into configurable
+For every event it validates the requester, identifier, rules, liveness range, and initialized OO request lookup against
+current proxy storage, then snapshots the full stored request for the post-upgrade comparison. Log queries are split into
+configurable
 block ranges for RPC compatibility. The script also reconstructs requester and
 oracle-initializer allowlist state from events and requires the expected module and initializer to be the only enabled
 accounts. Active requests are safe because the Managed OO address does not change. Quiesce every reporter mutation from

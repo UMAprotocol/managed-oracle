@@ -96,8 +96,8 @@ interface IOOReporter {
     error RequestAlreadyInitialized();
     /// @notice Thrown when registering a request ID that has already been registered.
     error RequestAlreadyRegistered();
-    /// @notice Thrown when registering a duplicate OO request tuple for a different request ID.
-    error ReporterRequestKeyAlreadyRegistered(bytes32 existingRequestId);
+    /// @notice Thrown when initializing an OO request tuple already used by a different request ID.
+    error OracleRequestAlreadyRegistered(bytes32 existingRequestId);
     /// @notice Thrown when an operation targets a request that already has a final outcome.
     error RequestAlreadyResolved();
     /// @notice Thrown when an operation requires an initialized Managed OO request.
@@ -266,13 +266,11 @@ interface IOOReporter {
     /// @return True if automatic re-requests are enabled.
     function automaticRerequestsEnabled() external view returns (bool);
 
-    /// @notice Registers a requester-defined request ID and its UMA request identity before OO initialization.
-    /// @dev The reporter reserves each price identifier and request rules pair globally across approved requesters.
-    /// Enabled requesters share one owner-managed request namespace; the contract does not isolate identical UMA
-    /// request identities per requester. Independent integrations that need the exact same UMA request identity should
-    /// use separate reporter deployments; integrations with similar rules can domain-separate request rules so their
-    /// UMA request identities differ. minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness
-    /// remains a registration-time bound and offchain target that does not cap initialization or re-requests.
+    /// @notice Registers a requester-defined request ID and its UMA request fields before OO initialization.
+    /// @dev Multiple request IDs may use the same price identifier and request rules. The Managed OO request timestamp
+    /// assigned during initialization keeps their oracle lifecycles separate. minimumLiveness is enforced as an onchain
+    /// runtime floor, while maximumLiveness remains a registration-time bound and offchain target that does not cap
+    /// initialization or re-requests.
     /// @param requestId Requester-defined request ID to bind to the UMA request identity.
     /// @param priceIdentifier UMA price identifier to request.
     /// @param requestRules Raw UMA request rules supplied by the requester.
@@ -347,13 +345,17 @@ interface IOOReporter {
     /// @return Stored reporter request state.
     function getRequest(bytes32 requestId) external view returns (RequestData memory);
 
-    /// @notice Returns the request ID registered for a UMA request identity.
+    /// @notice Returns the request ID registered for a concrete Managed OO request identity.
     /// @dev `requestRules` must be the original rules supplied to registerRequest. Rules posted through
     /// updateRequestRules are informational history and are not valid replacement lookup keys.
     /// @param priceIdentifier UMA price identifier.
+    /// @param requestTimestamp Timestamp of the Managed OO request.
     /// @param requestRules Original raw UMA request rules registered for the request.
     /// @return requestId Registered request ID.
-    function getRequestId(bytes32 priceIdentifier, bytes calldata requestRules) external view returns (bytes32);
+    function getRequestId(bytes32 priceIdentifier, uint256 requestTimestamp, bytes calldata requestRules)
+        external
+        view
+        returns (bytes32);
 
     /// @notice Claims a Managed OO deferred reward payout owed to this reporter.
     /// @param repaymentAddress Address to receive the claimed payout.
