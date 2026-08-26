@@ -226,7 +226,7 @@ contract OOReporterTest {
 
     function test_registerRequestCapsDuplicateReporterTuple() external {
         bytes memory requestRules = _requestRules("primary");
-        for (uint256 i = 1; i <= 10; ++i) {
+        for (uint256 i = 1; i <= 2; ++i) {
             vm.prank(requester);
             reporter.registerRequest(bytes32(i), BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
         }
@@ -234,7 +234,7 @@ contract OOReporterTest {
         vm.prank(requester);
         vm.expectRevert(OOReporter.ReporterRequestIdLimitReached.selector);
         reporter.registerRequest(
-            bytes32(uint256(11)), BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS
+            bytes32(uint256(3)), BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS
         );
     }
 

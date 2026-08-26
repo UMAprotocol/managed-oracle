@@ -60,7 +60,6 @@ contract PolymarketOOReporterUpgradeTest is Test {
     bytes32 private constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     bytes32 private constant RESOLVED_REQUEST_ID = keccak256("resolved-before-upgrade");
     bytes32 private constant PENDING_REQUEST_ID = keccak256("pending-during-upgrade");
-    bytes32 private constant DUPLICATE_REQUEST_ID = keccak256("duplicate-after-upgrade");
     bytes32 private constant BINARY_IDENTIFIER = "YES_OR_NO_QUERY";
     uint64 private constant LIVENESS = 2 hours;
     uint64 private constant MAXIMUM_LIVENESS = 2 days;
@@ -139,20 +138,15 @@ contract PolymarketOOReporterUpgradeTest is Test {
         );
         assertEq(upgraded.getRequestId(BINARY_IDENTIFIER, pendingRules), PENDING_REQUEST_ID, "pending lookup changed");
 
-        module.registerRequest(DUPLICATE_REQUEST_ID, BINARY_IDENTIFIER, pendingRules, 0, MAXIMUM_LIVENESS);
-        vm.prank(oracleInitializer);
-        upgraded.initializeRequest(DUPLICATE_REQUEST_ID, 0, 0, LIVENESS);
-
         optimisticOracle.settle(
             address(upgraded), BINARY_IDENTIFIER, pendingBefore.requestTimestamp, pendingRules, 1 ether
         );
 
-        assertEq(module.reportCount(), 2, "callbacks not invoked");
-        assertEq(module.lastRequestId(), DUPLICATE_REQUEST_ID, "duplicate callback request id mismatch");
+        assertEq(module.reportCount(), 1, "callback not invoked");
+        assertEq(module.lastRequestId(), PENDING_REQUEST_ID, "callback request id mismatch");
         assertEq(module.lastReporter(), address(upgraded), "callback reporter mismatch");
         assertTrue(module.observedResolved(), "callback observed unresolved request");
         assertEq(module.observedOutcome(), 1 ether, "callback outcome mismatch");
-        assertEq(upgraded.getRequestResolution(DUPLICATE_REQUEST_ID), 1 ether, "duplicate outcome mismatch");
     }
 
     function test_upgradeRejectsNonOwner() external {

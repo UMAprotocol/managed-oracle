@@ -300,7 +300,9 @@ interface IOOReporter {
 
     /// @notice Creates the Managed OO request for a registered request.
     /// @dev Pays the reward from the reporter's reward-currency balance and, when the Managed OO allowance is below
-    /// the reward, tops it up to an unbounded approval for the trusted oracle instead of approving per request.
+    /// the reward, tops it up to an unbounded approval for the trusted oracle instead of approving per request. A
+    /// duplicate ID reuses the shared request; if registered after resolution, its first initialization triggers the
+    /// resolution hook immediately, while subsequent initializations are no-ops.
     /// @param requestId Registered request ID.
     /// @param reward Reward offered to a successful OO proposer.
     /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective

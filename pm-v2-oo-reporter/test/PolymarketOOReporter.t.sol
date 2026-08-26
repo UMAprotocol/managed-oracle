@@ -154,17 +154,38 @@ contract PolymarketOOReporterTest {
 
         vm.prank(oracleInitializer);
         reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
-        vm.prank(oracleInitializer);
-        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
         optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
 
         _assertEq(module.reportCount(), 2, "report count mismatch");
         _assertTrue(module.reported(REQUEST_ID), "canonical request was not reported");
         _assertTrue(module.reported(SECOND_REQUEST_ID), "duplicate request was not reported");
         _assertTrue(reporter.isRequestResolved(SECOND_REQUEST_ID), "duplicate request should resolve");
         _assertEq(reporter.getRequestResolution(SECOND_REQUEST_ID), 1 ether, "duplicate outcome mismatch");
+    }
+
+    function test_initializeLateDuplicateImmediatelyReportsResolvedOutcomeOnce() external {
+        bytes memory requestRules = _registerAndInitialize();
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
+
+        module.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+
+        vm.expectEmit(address(reporter));
+        emit ReportCallbackSucceeded(SECOND_REQUEST_ID, address(module));
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+
+        _assertEq(module.reportCount(), 2, "late duplicate should be reported once");
+        _assertTrue(module.reported(SECOND_REQUEST_ID), "late duplicate was not reported");
+        _assertEq(module.lastRequestId(), SECOND_REQUEST_ID, "late duplicate request id mismatch");
+        _assertTrue(module.observedResolved(), "late report should observe resolved state");
+        _assertEq(module.observedOutcome(), 1 ether, "late report outcome mismatch");
     }
 
     function test_reportFailureDoesNotRevertSettlementAndCanBeRetried() external {

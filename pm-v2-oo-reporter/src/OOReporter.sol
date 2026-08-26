@@ -41,8 +41,8 @@ contract OOReporter is
     uint256 public constant MAXIMUM_CUSTOM_LIVENESS = 5200 weeks;
     /// @notice UMA sentinel price for "too early" / unresolvable (P4).
     int256 public constant P4_PRICE = type(int256).min;
-    /// @notice Maximum Polymarket request IDs that can share one Managed OO request.
-    uint256 private constant MAX_REQUEST_IDS_PER_REPORTER_KEY = 10;
+    /// @notice One original and one replacement Polymarket request ID can share a Managed OO request.
+    uint256 private constant MAX_REQUEST_IDS_PER_REPORTER_KEY = 2;
 
     /*--------------------------------------------------------------
                               STORAGE
@@ -244,8 +244,6 @@ contract OOReporter is
         bytes32 reporterRequestKey = _reporterRequestKey(priceIdentifier, requestRules);
         bytes32 existingRequestId = requestIdsByReporterKey(reporterRequestKey);
         bytes32[] storage requestIds = $.requestIdsByReporterRequestKey[reporterRequestKey];
-        // Existing deployments predate the array, so seed their canonical ID when the first duplicate is registered.
-        if (existingRequestId != bytes32(0) && requestIds.length == 0) requestIds.push(existingRequestId);
         if (requestIds.length >= MAX_REQUEST_IDS_PER_REPORTER_KEY) revert ReporterRequestIdLimitReached();
         if (existingRequestId != bytes32(0)) {
             RequestData storage existingRequest = $.requests[existingRequestId];
@@ -307,9 +305,16 @@ contract OOReporter is
         onlyOracleInitializer
     {
         bytes32 canonicalRequestId = _canonicalRequestId(requestId);
-        RequestData storage request = _getStorage().requests[canonicalRequestId];
-        // Duplicate IDs share the canonical initialization and must not create another Managed OO request.
-        if (request.initialized && requestId != canonicalRequestId) return;
+        OOReporterStorage storage $ = _getStorage();
+        RequestData storage request = $.requests[canonicalRequestId];
+        if (request.initialized && requestId != canonicalRequestId) {
+            RequestData storage registration = $.requests[requestId];
+            if (registration.initialized) return;
+
+            registration.initialized = true;
+            if (request.resolved) _onRequestResolved(requestId, registration.requester);
+            return;
+        }
         if (request.initialized) revert RequestAlreadyInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
         _requireValidRequestLiveness(request, liveness);
@@ -323,6 +328,7 @@ contract OOReporter is
         request.proposalBond = proposalBond;
         request.liveness = liveness;
         request.manualRerequestsRemaining = manualRerequestsRemaining;
+        if (requestId != canonicalRequestId) $.requests[requestId].initialized = true;
 
         _requestPrice(request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness);
 
@@ -443,8 +449,10 @@ contract OOReporter is
             } else {
                 for (uint256 i = 0; i < requestIds.length; ++i) {
                     bytes32 linkedRequestId = requestIds[i];
+                    RequestData storage registration = _getStorage().requests[linkedRequestId];
+                    registration.initialized = true;
                     emit RequestResolved(linkedRequestId, timestamp, price);
-                    _onRequestResolved(linkedRequestId, _getStorage().requests[linkedRequestId].requester);
+                    _onRequestResolved(linkedRequestId, registration.requester);
                 }
             }
         }

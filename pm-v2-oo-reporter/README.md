@@ -39,9 +39,9 @@ Deploy the base `OOReporter` for pull-only integrations and the Polymarket varia
 implements `IOOReporterModule.report(bytes32)`.
 
 The reporter creates one Managed OO lifecycle for each `(priceIdentifier, requestRules)` tuple. The same requester can
-register up to ten request IDs with the same tuple and liveness range. Those IDs share the original Managed OO request,
-resolution, and automatic re-request state. Registrations from another requester or with a different liveness range are
-rejected.
+register an original and one replacement request ID with the same tuple and liveness range. Those IDs share the original
+Managed OO request, resolution, and automatic re-request state. Registrations from another requester or with a different
+liveness range are rejected.
 
 ## Responsibilities
 
@@ -77,7 +77,9 @@ Managed OO independently enforces its current `minimumDisputeWindow` and technic
 receives the current `defaultRerequestBudget` as its manual re-request budget.
 
 Calling `initializeRequest` for an associated duplicate request ID is an idempotent no-op after the shared Managed OO
-request has been initialized. All request-ID reads resolve to the shared lifecycle and final outcome.
+request has been initialized but remains unresolved. If the duplicate is registered after the shared request resolves,
+its first initialization immediately attempts `report(requestId)` with the stored outcome; later calls are no-ops. All
+request-ID reads resolve to the shared lifecycle and final outcome.
 
 Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
 `setAutomaticRerequestsEnabled(...)`. The current setting is evaluated when a dispute or P4 settlement callback arrives,
