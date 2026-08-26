@@ -39,9 +39,9 @@ Deploy the base `OOReporter` for pull-only integrations and the Polymarket varia
 implements `IOOReporterModule.report(bytes32)`.
 
 The reporter creates one Managed OO lifecycle for each `(priceIdentifier, requestRules)` tuple. The same requester can
-register an original and one replacement request ID with the same tuple and liveness range. Those IDs share the original
-Managed OO request, resolution, and automatic re-request state. Registrations from another requester or with a different
-liveness range are rejected.
+register any number of request IDs with the same tuple and liveness range. Those IDs share the original Managed OO
+request, resolution, and automatic re-request state. Registrations from another requester or with a different liveness
+range are rejected.
 
 ## Responsibilities
 
@@ -178,6 +178,11 @@ compromise, operators should fund the reporter with a working reward float rathe
 After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(requestId)` for every associated request ID on
 the module that registered it. The reporter commits its shared resolved state before making these external calls, so the
 module can read the outcome using any associated request ID during `report`.
+
+The unbounded callback fan-out runs in an external self-call wrapped in `try/catch`. If the complete fan-out reverts,
+including because it runs out of gas, the stored resolution and Managed OO settlement remain successful and the reporter
+emits `ResolutionCallbacksFailed(requestId, requestTimestamp)`. Any earlier callbacks from that reverted fan-out are also
+rolled back, so operators must call each module's permissionless `report(requestId)` individually off-chain.
 
 The callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
 `ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and

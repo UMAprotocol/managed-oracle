@@ -180,6 +180,8 @@ interface IOOReporter {
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
+    /// @notice Emitted when the isolated request-ID callback fan-out reverts after resolution is stored.
+    event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
     /// @notice Emitted when a callback opens the oracle-initializer re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger

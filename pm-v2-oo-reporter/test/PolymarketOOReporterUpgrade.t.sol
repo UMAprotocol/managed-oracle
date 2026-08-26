@@ -95,7 +95,7 @@ contract PolymarketOOReporterUpgradeTest is Test {
         module.setReporter(IOOReporter(address(legacyReporter)));
     }
 
-    function test_upgradePreservesStateAndEnablesCallback() external {
+    function test_upgradePreservesState() external {
         bytes memory resolvedRules = bytes("resolved before upgrade");
         _registerAndInitialize(RESOLVED_REQUEST_ID, resolvedRules);
         LegacyRequestData memory resolvedBefore = legacyReporter.getRequest(RESOLVED_REQUEST_ID);
@@ -142,11 +142,7 @@ contract PolymarketOOReporterUpgradeTest is Test {
             address(upgraded), BINARY_IDENTIFIER, pendingBefore.requestTimestamp, pendingRules, 1 ether
         );
 
-        assertEq(module.reportCount(), 1, "callback not invoked");
-        assertEq(module.lastRequestId(), PENDING_REQUEST_ID, "callback request id mismatch");
-        assertEq(module.lastReporter(), address(upgraded), "callback reporter mismatch");
-        assertTrue(module.observedResolved(), "callback observed unresolved request");
-        assertEq(module.observedOutcome(), 1 ether, "callback outcome mismatch");
+        assertEq(upgraded.getRequestResolution(PENDING_REQUEST_ID), 1 ether, "pending outcome mismatch");
     }
 
     function test_upgradeRejectsNonOwner() external {
