@@ -60,14 +60,14 @@ jobs:
           forge test -vvv --no-match-contract ".*Fork.*|ManagedOptimisticOracleV2UpgradeValidationTest"
         id: test
 
-  pm-v2-oo-reporter:
-    name: PM v2 OOReporter package
+  reporters:
+    name: Reporters package
     runs-on: ubuntu-latest
     env:
       FOUNDRY_PROFILE: default
     defaults:
       run:
-        working-directory: pm-v2-oo-reporter
+        working-directory: reporters
     steps:
       - uses: actions/checkout@v4
         with:

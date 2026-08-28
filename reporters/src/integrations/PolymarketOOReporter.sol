@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-import {OOReporter} from "./OOReporter.sol";
-import {IOOReporterModule} from "./interfaces/IOOReporterModule.sol";
+import {OOReporter} from "../OOReporter.sol";
+import {IOOReporterModule} from "../interfaces/IOOReporterModule.sol";
 
 /// @title PolymarketOOReporter
 /// @notice OOReporter variant that automatically relays final results to the registering Polymarket V2 module.

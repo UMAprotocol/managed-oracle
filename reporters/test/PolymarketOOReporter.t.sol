@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-import {PolymarketOOReporter} from "src/PolymarketOOReporter.sol";
+import {PolymarketOOReporter} from "src/integrations/PolymarketOOReporter.sol";
 import {IOOReporter, RequestData} from "src/interfaces/IOOReporter.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";
 import {MockOptimisticOracleV2} from "test/mocks/MockOptimisticOracleV2.sol";

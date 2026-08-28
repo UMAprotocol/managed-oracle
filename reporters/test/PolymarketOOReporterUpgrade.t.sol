@@ -4,7 +4,7 @@ pragma solidity 0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {PolymarketOOReporter} from "src/PolymarketOOReporter.sol";
+import {PolymarketOOReporter} from "src/integrations/PolymarketOOReporter.sol";
 import {IOOReporter} from "src/interfaces/IOOReporter.sol";
 import {LegacyOOReporter, LegacyRequestData} from "test/mocks/LegacyOOReporter.sol";
 import {MockERC20} from "test/mocks/MockERC20.sol";

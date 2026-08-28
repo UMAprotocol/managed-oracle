@@ -6,7 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
 
 import {OOReporter} from "../src/OOReporter.sol";
-import {PolymarketOOReporter} from "../src/PolymarketOOReporter.sol";
+import {PolymarketOOReporter} from "../src/integrations/PolymarketOOReporter.sol";
 import {RequestData} from "../src/interfaces/IOOReporter.sol";
 
 interface IUUPSUpgradeable {

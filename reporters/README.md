@@ -1,6 +1,6 @@
-# PM v2 OOReporter
+# OO Reporters
 
-UMA-owned Managed Optimistic Oracle requester and raw outcome source for prediction market request IDs.
+UMA-owned Managed Optimistic Oracle requester and integration-specific reporter extensions.
 
 This package is intended to pair with a market-side requester module. The market-side module registers request IDs here,
 then either pulls raw UMA outcomes from `OOReporter` or receives an automatic `report(requestId)` callback from
@@ -211,21 +211,21 @@ forge install UMAprotocol/managed-oracle
 With the standard dependency remapping:
 
 ```toml
-managed-oracle/pm-v2-oo-reporter/=lib/managed-oracle/pm-v2-oo-reporter/src/
+managed-oracle/reporters/=lib/managed-oracle/reporters/src/
 ```
 
 Consumers can import the reporter from:
 
 ```solidity
-import {OOReporter} from "managed-oracle/pm-v2-oo-reporter/OOReporter.sol";
-import {PolymarketOOReporter} from "managed-oracle/pm-v2-oo-reporter/PolymarketOOReporter.sol";
-import {IOOReporter} from "managed-oracle/pm-v2-oo-reporter/interfaces/IOOReporter.sol";
-import {IOOReporterModule} from "managed-oracle/pm-v2-oo-reporter/interfaces/IOOReporterModule.sol";
+import {OOReporter} from "managed-oracle/reporters/OOReporter.sol";
+import {PolymarketOOReporter} from "managed-oracle/reporters/integrations/PolymarketOOReporter.sol";
+import {IOOReporter} from "managed-oracle/reporters/interfaces/IOOReporter.sol";
+import {IOOReporterModule} from "managed-oracle/reporters/interfaces/IOOReporterModule.sol";
 ```
 
 Importing only `IOOReporter` does not require OpenZeppelin remappings.
 
-Consumers that compile `OOReporter.sol` must provide compatible remappings for `@openzeppelin/contracts/` and `@openzeppelin/contracts-upgradeable/`; this package does so in `pm-v2-oo-reporter/foundry.toml` via its package-local `lib/openzeppelin-contracts-upgradeable` submodule.
+Consumers that compile `OOReporter.sol` must provide compatible remappings for `@openzeppelin/contracts/` and `@openzeppelin/contracts-upgradeable/`; this package does so in `reporters/foundry.toml` via its package-local `lib/openzeppelin-contracts-upgradeable` submodule.
 
 ## Deployment And Upgrades
 
@@ -306,7 +306,7 @@ verification flags. Production deployments should initialize the intended owner,
 explicitly.
 
 ```bash
-cd pm-v2-oo-reporter
+cd reporters
 
 export DEPLOYER_ADDRESS="implementation and proxy deployer"
 export INITIAL_OWNER="reporter owner or Safe"
@@ -390,7 +390,7 @@ owner call. No signing material is read from an environment variable.
 For a direct EOA-owned upgrade, set `EXPECTED_OWNER` and `DEPLOYER_ADDRESS` to the same address and opt in explicitly:
 
 ```bash
-cd pm-v2-oo-reporter
+cd reporters
 
 export EXECUTE_UPGRADE=true
 
@@ -588,7 +588,7 @@ from its artifact. The following selects the callback-enabled variant; use `Depl
 CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL")
 DEPLOY_SCRIPT=DeployPolymarketOOReporter
 IMPLEMENTATION_NAME=PolymarketOOReporter
-IMPLEMENTATION_SOURCE=src/PolymarketOOReporter.sol:PolymarketOOReporter
+IMPLEMENTATION_SOURCE=src/integrations/PolymarketOOReporter.sol:PolymarketOOReporter
 BROADCAST_PATH="broadcast/${DEPLOY_SCRIPT}.s.sol/${CHAIN_ID}/run-latest.json"
 
 IMPLEMENTATION_ADDRESS=$(jq -r \
@@ -634,7 +634,7 @@ NEW_IMPLEMENTATION=$(jq -r \
   "$UPGRADE_BROADCAST")
 
 forge verify-contract "$NEW_IMPLEMENTATION" \
-  src/PolymarketOOReporter.sol:PolymarketOOReporter \
+  src/integrations/PolymarketOOReporter.sol:PolymarketOOReporter \
   --chain "$CHAIN_ID" \
   --verifier etherscan \
   --etherscan-api-key "$ETHERSCAN_API_KEY" \
@@ -680,7 +680,7 @@ verification of the new implementation only. See Tenderly's
 From the managed-oracle repository root:
 
 ```bash
-cd pm-v2-oo-reporter && forge test
+cd reporters && forge test
 ```
 
 The package enables the Solidity optimizer with 200 runs so both reporter implementations remain comfortably below
