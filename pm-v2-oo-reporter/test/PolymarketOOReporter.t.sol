@@ -90,6 +90,7 @@ contract PolymarketOOReporterTest {
         PolymarketReporterVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
+    event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
     event ReportCallbackSucceeded(bytes32 indexed requestId, address indexed reporterModule);
     event ReportCallbackFailed(bytes32 indexed requestId, address indexed reporterModule);
 
@@ -209,6 +210,43 @@ contract PolymarketOOReporterTest {
         module.setShouldRevert(false);
         module.report(REQUEST_ID);
         _assertEq(module.reportCount(), 1, "permissionless retry should succeed");
+    }
+
+    function test_largeFanoutFallsBackToIndividualReportsWhenSettlementGasIsConstrained() external {
+        uint256 linkedRequestCount = 12;
+        bytes memory requestRules = bytes("Will ETH reach 10k?");
+        for (uint256 i = 1; i <= linkedRequestCount; ++i) {
+            module.registerRequest(bytes32(i), BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+        }
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(bytes32(uint256(1)), 0, 0, LIVENESS);
+        RequestData memory request = reporter.getRequest(bytes32(uint256(1)));
+
+        vm.expectEmit(address(reporter));
+        emit ResolutionCallbacksFailed(bytes32(uint256(1)), request.requestTimestamp);
+
+        bytes memory settleCall = abi.encodeCall(
+            MockOptimisticOracleV2.settle,
+            (address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether)
+        );
+        // This cap covers settlement bookkeeping but not this mock module's complete fan-out. It tests fallback
+        // behavior, not a production request-ID limit, which depends on the downstream module's callback gas cost.
+        (bool success,) = address(optimisticOracle).call{gas: 500_000}(settleCall);
+
+        _assertTrue(success, "oracle settlement should survive fan-out exhaustion");
+        _assertEq(module.reportCount(), 0, "failed fan-out should roll back all reports");
+        _assertTrue(reporter.isRequestResolved(bytes32(linkedRequestCount)), "linked request should remain resolved");
+        bytes32 requestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+        _assertTrue(optimisticOracle.getMockRequest(requestKey).settled, "oracle settlement should persist");
+
+        for (uint256 i = 1; i <= linkedRequestCount; ++i) {
+            bytes32 requestId = bytes32(i);
+            module.report(requestId);
+            _assertTrue(module.reported(requestId), "individual report should succeed");
+        }
+        _assertEq(module.reportCount(), linkedRequestCount, "individual report count mismatch");
     }
 
     function test_p4SettlementDoesNotReport() external {
