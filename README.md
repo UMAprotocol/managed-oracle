@@ -1,3 +1,13 @@
+# Managed Oracle
+
+This repository contains UMA Managed Optimistic Oracle contracts.
+
+## Packages
+
+- `src/optimistic-oracle-v2/` contains the Managed Optimistic Oracle V2 implementation and interfaces.
+- `pm-v2-oo-reporter/` contains the isolated PM v2 OOReporter Foundry package for prediction market integrations that need a request-oriented Managed OO requester and raw outcome source.
+- `test/polymarket-v2/` contains versioned VNet and Amoy manifests plus the read-only-fork Polymarket v2 end-to-end validation.
+
 ## Foundry
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**

@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 2,
+  "environment": "polymarket-v2-staging-vnet",
+  "purpose": "Deterministic local-fork replay of the post-audit Polymarket v2 oracle stack.",
+  "chainId": 137,
+  "rpcEnvironmentVariable": "FRO111_VNET_RPC_URL",
+  "explorer": {
+    "name": "Tenderly VNet dashboard",
+    "baseUrlEnvironmentVariable": "FRO111_VNET_EXPLORER_URL"
+  },
+  "snapshot": {
+    "blockNumber": 88102756,
+    "rpcBlockNumber": "0x5405764",
+    "blockHash": "0xe54e07757df3e49f3bfa531d525c63c7cef14c0219a6742845796461f4a5b6a2"
+  },
+  "sources": {
+    "managedOracle": "19e06f085d95cf18101c274205298b73dfc295f3",
+    "managedOracleDeploymentTooling": "cd85425e4a9efe2097d8ca802b01a3502a2bfb2c",
+    "ooReporterDeploymentTooling": "ee3df39cce9af1a9b05438e7add5f30700764631",
+    "polymarket": "11627f7629543e1efdcc2bb6ee0d7576834c4931",
+    "polymarketDeploymentConfig": "0896b9ed73cfb7fa3470c6822571ab0dce3d43f1"
+  },
+  "testAbiBundle": {
+    "path": "test/polymarket-v2/PolymarketV2Interfaces.sol",
+    "keccak256": "0x6e410ef356da3aeba25137466b2e6768d560c1128a4a5294337b7c5c9748eed3"
+  },
+  "contracts": {
+    "aggregator": {
+      "repository": "Polymarket/polymarket-v2",
+      "artifact": "src/oracle/OracleAggregator.sol:OracleAggregator",
+      "sourcePath": "src/oracle/OracleAggregator.sol",
+      "sourceBlob": "353fef3e0e999a22d05776a9ad2d6f1247c47392",
+      "deploymentRecordRevision": "2f2d6fb8122ce3c59143307455572795191eaa52",
+      "sourceRevision": "047ec3557535c2afbc5350c7e9a59244541f6c8e",
+      "abiRevision": "047ec3557535c2afbc5350c7e9a59244541f6c8e",
+      "proxyType": "Solady LibClone ERC1967 UUPS",
+      "proxy": "0x0A0a0A0A8B00C51b7D810501b03F230028C04a87",
+      "implementation": "0x1998bfA62C8A705A2283cFE52EBD095c95b0C594",
+      "proxyAdmin": "0x0000000000000000000000000000000000000000",
+      "upgradeAuthority": "0x47EbFAC3353314C788B96CDCbf41daadfE03629C",
+      "proxyDeploymentBlock": 87623475,
+      "implementationDeploymentBlock": 87539275,
+      "implementationActivationBlock": 87623475,
+      "proxyCodehash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+      "implementationCodehash": "0x3e372ad260ad63c29d52cd7e2047f172756816d190602e9a2c277e3d5c336a0a"
+    },
+    "reporterModule": {
+      "repository": "Polymarket/polymarket-v2",
+      "artifact": "src/oracle/modules/OOReporterModule.sol:OOReporterModule",
+      "sourcePath": "src/oracle/modules/OOReporterModule.sol",
+      "sourceBlob": "8865093bda976cc4384a79c06c7c48011ffb0c81",
+      "deploymentRecordRevision": "2f2d6fb8122ce3c59143307455572795191eaa52",
+      "sourceRevision": "047ec3557535c2afbc5350c7e9a59244541f6c8e",
+      "abiRevision": "047ec3557535c2afbc5350c7e9a59244541f6c8e",
+      "proxyType": "Solady LibClone ERC1967 UUPS",
+      "proxy": "0xC955D42bBd36F909Cd457847c6e8d798872695d9",
+      "implementation": "0xD7AaDc0b0f7e9fC66Bf5a5De159062B156dD4303",
+      "proxyAdmin": "0x0000000000000000000000000000000000000000",
+      "upgradeAuthority": "0x47EbFAC3353314C788B96CDCbf41daadfE03629C",
+      "proxyDeploymentBlock": 87539431,
+      "implementationDeploymentBlock": 87539407,
+      "implementationActivationBlock": 87539431,
+      "proxyCodehash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+      "implementationCodehash": "0x149a4db9661eed75ba26b624d62a1c5b5f6ed09afc6dcba28c89e0a2149edea2"
+    },
+    "reporter": {
+      "repository": "UMAprotocol/managed-oracle",
+      "artifact": "pm-v2-oo-reporter/src/PolymarketOOReporter.sol:PolymarketOOReporter",
+      "sourcePath": "pm-v2-oo-reporter/src/PolymarketOOReporter.sol",
+      "sourceBlob": "1520b4167abbc892be2522bbdfbcf4ffd41b66d8",
+      "deploymentRecordRevision": "a374b9e8bb3d7307325259e997c7958788f71f6b",
+      "sourceRevision": "19e06f085d95cf18101c274205298b73dfc295f3",
+      "abiRevision": "19e06f085d95cf18101c274205298b73dfc295f3",
+      "proxyType": "OpenZeppelin ERC1967Proxy UUPS",
+      "proxy": "0x2df52c80E4Fae386fc63EBfb550C64880848852c",
+      "implementation": "0xAbF22029DA4C523f67ac1d9fc42859e7b3dc809c",
+      "proxyAdmin": "0x0000000000000000000000000000000000000000",
+      "upgradeAuthority": "0x9A8f92a830A5cB89a3816e3D267CB7791c16b04D",
+      "proxyDeploymentBlock": 87490526,
+      "implementationDeploymentBlock": 87939762,
+      "implementationActivationBlock": 87939763,
+      "proxyCodehash": "0xe7fa925557fdbecea847ecb60e3d12c8bd9c18e0235ecba786ac6cd9eb6cbd7e",
+      "implementationCodehash": "0xf88a0965a0997b5800b6f75c007bbeb1564f4d483832b677204db96357bf286f"
+    },
+    "managedOracle": {
+      "repository": "UMAprotocol/managed-oracle",
+      "artifact": "src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol:ManagedOptimisticOracleV2",
+      "sourcePath": "src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol",
+      "sourceBlob": "6fc07ab60ec1c66dafbed9fb129a5ae17f9fc216",
+      "deploymentRecordRevision": "fc007f973679f923f344c8300a2d370908172e67",
+      "sourceRevision": "19e06f085d95cf18101c274205298b73dfc295f3",
+      "abiRevision": "19e06f085d95cf18101c274205298b73dfc295f3",
+      "proxyType": "OpenZeppelin ERC1967Proxy UUPS",
+      "proxy": "0x2C0367a9DB231dDeBd88a94b4f6461a6e47C58B1",
+      "implementation": "0x9c790132BE86f0C1e59690d0e8C2B234ac74b3ca",
+      "proxyAdmin": "0x0000000000000000000000000000000000000000",
+      "upgradeAuthority": "0x9A8f92a830A5cB89a3816e3D267CB7791c16b04D",
+      "proxyDeploymentBlock": 74677419,
+      "implementationDeploymentBlock": 87951455,
+      "implementationActivationBlock": 87951803,
+      "proxyCodehash": "0x77ffdff2dced37bc5d5cfea25d4b224824bd47f84ff720cb831e085db6a8f1e9",
+      "implementationCodehash": "0xce6d0c9c9e0aaae43f3141b4ea417a65a6e7875f489b0845c7568dc0822f1b78"
+    },
+    "binaryModule": {
+      "repository": "Polymarket/polymarket-v2",
+      "artifact": "src/modules/BinaryModule.sol:BinaryModule",
+      "sourcePath": "src/modules/BinaryModule.sol",
+      "sourceBlob": "f02675038e1be35c7b5d586b5d448abe54bcfa71",
+      "deploymentRecordRevision": "6428b128c4ef5aff04ecde1cbc3046f56797b508",
+      "sourceRevision": "6428b128c4ef5aff04ecde1cbc3046f56797b508",
+      "abiRevision": "6428b128c4ef5aff04ecde1cbc3046f56797b508",
+      "proxyType": "Solady LibClone ERC1967 UUPS",
+      "proxy": "0x1000008dD9001B968442c1000017eaE6E0dA00Ba",
+      "implementation": "0x492FEc596eC347459E1Ebe30b9245EB3B49B1BBa",
+      "proxyAdmin": "0x0000000000000000000000000000000000000000",
+      "upgradeAuthority": "0x47EbFAC3353314C788B96CDCbf41daadfE03629C",
+      "proxyDeploymentBlock": 85313858,
+      "implementationDeploymentBlock": 85313858,
+      "implementationActivationBlock": 87924763,
+      "proxyCodehash": "0xaaa52c8cc8a0e3fd27ce756cc6b4e70c51423e9b597b11f32d3e49f8b1fc890d",
+      "implementationCodehash": "0x4b5aa64364fc461b806cfb3b1e9d203fa52441e6415a3789313b266d961da7ae"
+    },
+    "rewardCurrency": {
+      "artifact": "external ERC20 reward currency",
+      "deploymentType": "legacy USDC.e proxy (non-ERC1967)",
+      "address": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+      "deploymentBlock": 5013591,
+      "codehash": "0xa97604bff5b11d790aca38bf9f6189369ea260f08365b428fc2ef73390fddcef"
+    },
+    "requesterWhitelist": {
+      "artifact": "UMA AddressWhitelist",
+      "deploymentType": "standalone contract (non-ERC1967)",
+      "address": "0x0f79d0039956D58a7d5d006a6Dd64a35616Aa2c6",
+      "deploymentBlock": 74677192,
+      "codehash": "0x2d4153189ac6f7e0e098061ca41a95234700c66792e3a77bcf12b2fc15ca9e6a"
+    },
+    "defaultProposerWhitelist": {
+      "artifact": "UMA AddressWhitelist",
+      "deploymentType": "standalone contract (non-ERC1967)",
+      "address": "0x9F35885CE8f67a942D7B2f4Fbf937987DA08c463",
+      "deploymentBlock": 74676570,
+      "codehash": "0x2d4153189ac6f7e0e098061ca41a95234700c66792e3a77bcf12b2fc15ca9e6a"
+    }
+  },
+  "roles": {
+    "aggregatorOwner": "0x47EbFAC3353314C788B96CDCbf41daadfE03629C",
+    "moduleOwner": "0x47EbFAC3353314C788B96CDCbf41daadfE03629C",
+    "reporterOwner": "0x9A8f92a830A5cB89a3816e3D267CB7791c16b04D",
+    "reporterPendingOwner": "0x0000000000000000000000000000000000000000",
+    "managedOracleDefaultAdmin": "0x9A8f92a830A5cB89a3816e3D267CB7791c16b04D",
+    "managedOracleDefaultAdminDelay": 259200,
+    "managedOraclePendingDefaultAdmin": "0x0000000000000000000000000000000000000000",
+    "managedOraclePendingDefaultAdminSchedule": 0,
+    "requesterWhitelistOwner": "0x3dcE0a29139A851Da1dFCa56Af8e8a6440b4D952",
+    "defaultProposerWhitelistOwner": "0x6ee4D971142afadEa1828445124D6137080B4146",
+    "requiredAggregatorAdmins": [
+      "0x3dcE0a29139A851Da1dFCa56Af8e8a6440b4D952"
+    ],
+    "requiredAggregatorOperators": [
+      "0x1b4133d01fd6c0ad09da7a5bcaabfcb965cef3f4",
+      "0xac9930b2ae455a671b62de86876a7e8587825294"
+    ],
+    "requiredModuleAdmins": [
+      "0x3dcE0a29139A851Da1dFCa56Af8e8a6440b4D952"
+    ],
+    "requiredModuleOperators": [
+      "0xac9930b2ae455a671b62de86876a7e8587825294"
+    ],
+    "requiredOracleInitializersAndProposers": [
+      "0x9A8f92a830A5cB89a3816e3D267CB7791c16b04D"
+    ],
+    "requiredManagedOracleConfigAdmins": [
+      "0x3dcE0a29139A851Da1dFCa56Af8e8a6440b4D952"
+    ],
+    "requiredManagedOracleRequestManagers": [
+      "0x9A8f92a830A5cB89a3816e3D267CB7791c16b04D"
+    ],
+    "requiredManagedOracleResolverAdmins": [
+      "0x6ee4D971142afadEa1828445124D6137080B4146"
+    ],
+    "requiredManagedOracleResolvers": [
+      "0x33965F7D08F61A62B86C1Ab9Be5d82C42F4c3081",
+      "0x9725e8172A108f2BaD87ef31eA4Ea729e939d869",
+      "0x561Cbe8b8022A9530D47478420EdfEB66b5c4720"
+    ],
+    "disputerAndArbitratorModule": "0x8Ef9D6d668798b1f363b305D916F30739d2b0419"
+  },
+  "capabilities": {
+    "snapshotStateVerified": true,
+    "automaticReporterCallback": true,
+    "reporterTwoStepOwnership": true,
+    "fullLifecycleSimulation": true
+  },
+  "knownBlockers": []
+}

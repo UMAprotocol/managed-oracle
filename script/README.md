@@ -2,6 +2,13 @@
 
 This directory contains Foundry deployment scripts for the managed-oracle contracts.
 
+## Polygon Production ManagedOO Upgrade
+
+For the existing Polygon `ManagedOptimisticOracleV2` proxy, use the guarded Safe workflow in
+[`production/README.md`](production/README.md). That flow pins the audited compiler settings and current implementation,
+uses an external signer only for implementation deployment, and produces the Safe calldata plus a separate post-upgrade
+verifier. The production proxy is already V2-initialized, so this upgrade must not call `initializeV2`.
+
 ## Setup
 
 1. **Create `.env` file** in the project root:
