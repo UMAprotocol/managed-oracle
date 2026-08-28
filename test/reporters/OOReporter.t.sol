@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
-import {OOReporter} from "src/OOReporter.sol";
-import {IOOReporter, RequestData, RerequestTrigger, RerequestType} from "src/interfaces/IOOReporter.sol";
-import {MockERC20} from "test/mocks/MockERC20.sol";
-import {MockOptimisticOracleV2} from "test/mocks/MockOptimisticOracleV2.sol";
+import {OOReporter} from "src/reporters/OOReporter.sol";
+import {IOOReporter, RequestData, RerequestTrigger, RerequestType} from "src/reporters/interfaces/IOOReporter.sol";
+import {MockERC20} from "test/reporters/mocks/MockERC20.sol";
+import {MockOptimisticOracleV2} from "test/reporters/mocks/MockOptimisticOracleV2.sol";
 
 interface Vm {
+    function getBlockTimestamp() external view returns (uint256);
     function prank(address msgSender) external;
     function startPrank(address msgSender) external;
     function stopPrank() external;
@@ -344,7 +345,7 @@ contract OOReporterTest {
         assertEq(request.liveness, oracleMinimumLiveness, "selected liveness mismatch");
 
         bytes32 requestKey =
-            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, vm.getBlockTimestamp(), requestRules);
         assertEq(
             optimisticOracle.getMockRequest(requestKey).customLiveness, oracleMinimumLiveness, "OO liveness mismatch"
         );
@@ -361,7 +362,7 @@ contract OOReporterTest {
         RequestData memory request = reporter.getRequest(REQUEST_ID);
         assertTrue(request.initialized, "request should be initialized");
         assertEq(request.oracleInitializer, oracleInitializer, "initializer mismatch");
-        assertEq(request.requestTimestamp, block.timestamp, "timestamp mismatch");
+        assertEq(request.requestTimestamp, vm.getBlockTimestamp(), "timestamp mismatch");
         assertEq(request.reward, REWARD, "reward mismatch");
         assertEq(request.proposalBond, PROPOSAL_BOND, "bond mismatch");
         assertEq(request.liveness, LIVENESS, "liveness mismatch");
@@ -374,7 +375,7 @@ contract OOReporterTest {
         assertTrue(reporter.automaticRerequestsEnabled(), "automatic re-requests should initialize enabled");
 
         bytes32 requestKey =
-            optimisticOracle.requestKey(address(reporter), NUMERICAL_IDENTIFIER, block.timestamp, requestRules);
+            optimisticOracle.requestKey(address(reporter), NUMERICAL_IDENTIFIER, vm.getBlockTimestamp(), requestRules);
         MockOptimisticOracleV2.MockRequest memory ooRequest = optimisticOracle.getMockRequest(requestKey);
         assertTrue(ooRequest.requested, "OO request should exist");
         assertTrue(ooRequest.eventBased, "request should be event based");
@@ -387,7 +388,7 @@ contract OOReporterTest {
         assertEq(ooRequest.customLiveness, LIVENESS, "OO liveness mismatch");
 
         bytes32 binaryKey =
-            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, vm.getBlockTimestamp(), requestRules);
         assertFalse(optimisticOracle.getMockRequest(binaryKey).requested, "binary request should not be created");
     }
 
@@ -475,7 +476,7 @@ contract OOReporterTest {
         assertEq(request.maximumLiveness, STRICT_MAXIMUM_LIVENESS, "target maximum should remain stored");
 
         bytes32 requestKey =
-            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, vm.getBlockTimestamp(), requestRules);
         assertEq(
             optimisticOracle.getMockRequest(requestKey).customLiveness, currentOracleMinimum, "OO liveness mismatch"
         );
@@ -651,12 +652,12 @@ contract OOReporterTest {
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
 
         vm.expectEmit(address(reporter));
-        emit RequestRulesUpdated(REQUEST_ID, block.timestamp, requester, firstUpdatedRules);
+        emit RequestRulesUpdated(REQUEST_ID, vm.getBlockTimestamp(), requester, firstUpdatedRules);
 
         vm.prank(requester);
         reporter.updateRequestRules(REQUEST_ID, firstUpdatedRules);
 
-        vm.warp(block.timestamp + 10);
+        vm.warp(vm.getBlockTimestamp() + 10);
         vm.prank(requester);
         reporter.updateRequestRules(REQUEST_ID, secondUpdatedRules);
 
@@ -670,7 +671,7 @@ contract OOReporterTest {
         assertEq(forwarded.length, 2, "forwarded update count mismatch");
         assertEq(forwarded[0].updatedRules, firstUpdatedRules, "first forwarded rules mismatch");
         assertEq(forwarded[1].updatedRules, secondUpdatedRules, "second forwarded rules mismatch");
-        assertEq(forwarded[1].timestamp, block.timestamp, "latest forwarded timestamp mismatch");
+        assertEq(forwarded[1].timestamp, vm.getBlockTimestamp(), "latest forwarded timestamp mismatch");
     }
 
     function test_updateRequestRulesRejectsUnknownAndWrongRequester() external {
@@ -787,12 +788,12 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.expectEmit(address(reporter));
         emit RequestRerequested(
             REQUEST_ID,
-            block.timestamp,
+            vm.getBlockTimestamp(),
             address(reporter),
             RerequestType.AutomaticDispute,
             request.requestTimestamp,
@@ -809,7 +810,7 @@ contract OOReporterTest {
         assertFalse(afterAuto.rerequestAllowed, "automatic re-request should not leave gate open");
         assertFalse(afterAuto.resolved, "dispute should not resolve the request");
         assertTrue(afterAuto.automaticDisputeRerequestUsed, "automatic dispute re-request should be marked used");
-        assertEq(afterAuto.requestTimestamp, block.timestamp, "automatic dispute should advance timestamp");
+        assertEq(afterAuto.requestTimestamp, vm.getBlockTimestamp(), "automatic dispute should advance timestamp");
         assertEq(afterAuto.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "dispute should not consume budget");
     }
 
@@ -828,12 +829,12 @@ contract OOReporterTest {
         );
         assertEq(reporter.getRequest(REQUEST_ID).reward, REWARD, "manager change should leave reporter cache stale");
 
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
 
         RequestData memory rerequested = reporter.getRequest(REQUEST_ID);
         bytes32 replacementKey =
-            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, vm.getBlockTimestamp(), requestRules);
         assertEq(rerequested.reward, managedReward, "dispute refund should refresh cached reward");
         assertEq(
             optimisticOracle.getMockRequest(replacementKey).reward,
@@ -865,7 +866,7 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         uint64 currentOracleMinimum = LIVENESS + 1;
         optimisticOracle.setMinimumDisputeWindow(currentOracleMinimum);
 
@@ -882,7 +883,7 @@ contract OOReporterTest {
         );
 
         bytes32 replacementKey =
-            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, vm.getBlockTimestamp(), requestRules);
         MockOptimisticOracleV2.MockRequest memory replacementRequest = optimisticOracle.getMockRequest(replacementKey);
         assertFalse(replacementRequest.requested, "failed automatic re-request should roll back replacement request");
 
@@ -907,11 +908,11 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
 
         RequestData memory afterAuto = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.expectEmit(address(reporter));
         emit RequestRerequestAllowed(REQUEST_ID, afterAuto.requestTimestamp, RerequestTrigger.Dispute);
@@ -963,7 +964,7 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, REWARD, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.setDeferNextDisputeRefund(true);
 
         vm.expectEmit(address(reporter));
@@ -993,7 +994,7 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.expectEmit(address(reporter));
         emit RequestRerequestAllowed(REQUEST_ID, request.requestTimestamp, RerequestTrigger.Dispute);
@@ -1012,7 +1013,7 @@ contract OOReporterTest {
             "disabled first dispute should not advance timestamp"
         );
 
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         vm.prank(oracleInitializer);
         reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
@@ -1020,12 +1021,12 @@ contract OOReporterTest {
 
         vm.prank(owner);
         reporter.setAutomaticRerequestsEnabled(true);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.expectEmit(address(reporter));
         emit RequestRerequested(
             REQUEST_ID,
-            block.timestamp,
+            vm.getBlockTimestamp(),
             address(reporter),
             RerequestType.AutomaticDispute,
             afterManual.requestTimestamp,
@@ -1041,7 +1042,7 @@ contract OOReporterTest {
         RequestData memory afterAuto = reporter.getRequest(REQUEST_ID);
         assertFalse(afterAuto.rerequestAllowed, "enabled later dispute should auto re-request");
         assertTrue(afterAuto.automaticDisputeRerequestUsed, "enabled later dispute should consume automatic slot");
-        assertEq(afterAuto.requestTimestamp, block.timestamp, "enabled later dispute should advance timestamp");
+        assertEq(afterAuto.requestTimestamp, vm.getBlockTimestamp(), "enabled later dispute should advance timestamp");
         assertEq(
             afterAuto.manualRerequestsRemaining,
             DEFAULT_REREQUEST_BUDGET - 1,
@@ -1061,7 +1062,7 @@ contract OOReporterTest {
 
         // Spend one manual re-request so we can prove P4 refills the manual budget to the default.
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
         vm.prank(oracleInitializer);
         reporter.rerequest(REQUEST_ID, 0, MANUAL_PROPOSAL_BOND, MANUAL_LIVENESS);
@@ -1071,14 +1072,14 @@ contract OOReporterTest {
 
         vm.prank(owner);
         reporter.setAutomaticRerequestsEnabled(true);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.expectEmit(address(reporter));
         emit RequestRerequestBudgetSet(REQUEST_ID, DEFAULT_REREQUEST_BUDGET);
         vm.expectEmit(address(reporter));
         emit RequestRerequested(
             REQUEST_ID,
-            block.timestamp,
+            vm.getBlockTimestamp(),
             address(reporter),
             RerequestType.AutomaticInvalidSettlement,
             afterManual.requestTimestamp,
@@ -1100,7 +1101,7 @@ contract OOReporterTest {
         assertEq(
             afterP4.manualRerequestsRemaining, DEFAULT_REREQUEST_BUDGET, "P4 should refill the budget to the default"
         );
-        assertEq(afterP4.requestTimestamp, block.timestamp, "P4 should auto re-request");
+        assertEq(afterP4.requestTimestamp, vm.getBlockTimestamp(), "P4 should auto re-request");
         assertEq(afterP4.proposalBond, MANUAL_PROPOSAL_BOND, "P4 should preserve latest manual bond");
         assertEq(afterP4.liveness, MANUAL_LIVENESS, "P4 should preserve latest manual liveness");
 
@@ -1116,7 +1117,7 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.setMinimumDisputeWindow(uint256(LIVENESS) + 1);
 
         vm.expectEmit(address(reporter));
@@ -1135,7 +1136,7 @@ contract OOReporterTest {
         assertTrue(activeRequest.settled, "P4 settlement should persist when automatic re-request fails");
 
         bytes32 replacementKey =
-            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, vm.getBlockTimestamp(), requestRules);
         MockOptimisticOracleV2.MockRequest memory replacementRequest = optimisticOracle.getMockRequest(replacementKey);
         assertFalse(replacementRequest.requested, "failed automatic P4 re-request should roll back replacement request");
     }
@@ -1151,7 +1152,7 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.expectEmit(address(reporter));
         emit RequestRerequestAllowed(REQUEST_ID, request.requestTimestamp, RerequestTrigger.InvalidSettlement);
@@ -1206,7 +1207,7 @@ contract OOReporterTest {
 
         vm.prank(owner);
         reporter.setAutomaticRerequestsEnabled(false);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         vm.expectEmit(address(reporter));
         emit RequestRerequestAllowed(REQUEST_ID, request.requestTimestamp, RerequestTrigger.InvalidSettlement);
@@ -1234,11 +1235,11 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
 
         RequestData memory afterAuto = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, afterAuto.requestTimestamp, requestRules);
 
         usdc.mint(address(reporter), REREQUEST_REWARD);
@@ -1246,7 +1247,7 @@ contract OOReporterTest {
         vm.expectEmit(address(reporter));
         emit RequestRerequested(
             REQUEST_ID,
-            block.timestamp,
+            vm.getBlockTimestamp(),
             oracleInitializer,
             RerequestType.Manual,
             afterAuto.requestTimestamp,
@@ -1261,7 +1262,7 @@ contract OOReporterTest {
         reporter.rerequest(REQUEST_ID, REREQUEST_REWARD, MANUAL_PROPOSAL_BOND, MANUAL_LIVENESS);
 
         RequestData memory rerequested = reporter.getRequest(REQUEST_ID);
-        assertEq(rerequested.requestTimestamp, block.timestamp, "re-request timestamp mismatch");
+        assertEq(rerequested.requestTimestamp, vm.getBlockTimestamp(), "re-request timestamp mismatch");
         assertEq(rerequested.reward, REREQUEST_REWARD, "re-request reward mismatch");
         assertEq(rerequested.proposalBond, MANUAL_PROPOSAL_BOND, "re-request bond mismatch");
         assertEq(rerequested.liveness, MANUAL_LIVENESS, "re-request liveness mismatch");
@@ -1269,7 +1270,7 @@ contract OOReporterTest {
         assertFalse(rerequested.rerequestAllowed, "gate should close after re-request");
 
         bytes32 requestKey =
-            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, block.timestamp, requestRules);
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, vm.getBlockTimestamp(), requestRules);
         MockOptimisticOracleV2.MockRequest memory ooRequest = optimisticOracle.getMockRequest(requestKey);
         assertTrue(ooRequest.requested, "replacement request should exist");
         assertEq(ooRequest.bond, MANUAL_PROPOSAL_BOND, "replacement request bond mismatch");
@@ -1291,7 +1292,7 @@ contract OOReporterTest {
         reporter.setAutomaticRerequestsEnabled(false);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
 
         vm.prank(owner);
@@ -1316,7 +1317,7 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, STRICT_MINIMUM_LIVENESS);
 
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
 
         vm.prank(oracleInitializer);
@@ -1351,7 +1352,7 @@ contract OOReporterTest {
         // Budget exhausted: gate is open again, but the re-request must revert.
         RequestData memory exhausted = reporter.getRequest(REQUEST_ID);
         assertEq(exhausted.manualRerequestsRemaining, 0, "budget should be exhausted");
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, exhausted.requestTimestamp, requestRules);
 
         vm.prank(oracleInitializer);
@@ -1459,10 +1460,10 @@ contract OOReporterTest {
     function test_priceSettledRejectsUnauthorizedCallerAndIgnoresUnknownTuples() external {
         vm.prank(unauthorized);
         vm.expectRevert(IOOReporter.CallerNotOptimisticOracle.selector);
-        reporter.priceSettled(BINARY_IDENTIFIER, block.timestamp, _requestRules("primary"), 1 ether);
+        reporter.priceSettled(BINARY_IDENTIFIER, vm.getBlockTimestamp(), _requestRules("primary"), 1 ether);
 
         vm.prank(address(optimisticOracle));
-        reporter.priceSettled(BINARY_IDENTIFIER, block.timestamp, _requestRules("unknown"), 1 ether);
+        reporter.priceSettled(BINARY_IDENTIFIER, vm.getBlockTimestamp(), _requestRules("unknown"), 1 ether);
     }
 
     function test_staleCallbacksDoNotMutateAfterRerequest() external {
@@ -1473,13 +1474,13 @@ contract OOReporterTest {
         reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
 
         RequestData memory firstRequest = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
 
         // The first dispute automatically creates a replacement request and advances the active timestamp.
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, firstRequest.requestTimestamp, requestRules);
 
         RequestData memory activeRequest = reporter.getRequest(REQUEST_ID);
-        assertEq(activeRequest.requestTimestamp, block.timestamp, "active timestamp should advance");
+        assertEq(activeRequest.requestTimestamp, vm.getBlockTimestamp(), "active timestamp should advance");
         assertFalse(activeRequest.resolved, "active request should remain unresolved");
 
         // A late settlement for the stale (replaced) request must not mutate the active request.
@@ -1513,7 +1514,7 @@ contract OOReporterTest {
 
     function _disputeAndRerequest(bytes memory requestRules) internal {
         RequestData memory request = reporter.getRequest(REQUEST_ID);
-        vm.warp(block.timestamp + 1);
+        vm.warp(vm.getBlockTimestamp() + 1);
         optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
         vm.prank(oracleInitializer);
         reporter.rerequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);

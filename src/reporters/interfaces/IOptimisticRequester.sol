@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
 // Source: https://github.com/UMAprotocol/managed-oracle/blob/5fffebba9e3fecee6d6850dc4cc53f37647a6659/src/optimistic-oracle-v2/implementation/OptimisticOracleV2.sol#L31-L67
 // Kept local to avoid importing the full OptimisticOracleV2 implementation and dependency graph for callback ABI only.

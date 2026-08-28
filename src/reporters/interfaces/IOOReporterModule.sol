@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
 /// @title IOOReporterModule
 /// @notice Minimal Polymarket V2 reporter module surface used for automatic result reporting.

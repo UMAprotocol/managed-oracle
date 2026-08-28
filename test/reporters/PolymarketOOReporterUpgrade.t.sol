@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {OOReporter} from "src/OOReporter.sol";
-import {PolymarketOOReporter} from "src/PolymarketOOReporter.sol";
-import {IOOReporter, RequestData} from "src/interfaces/IOOReporter.sol";
-import {MockERC20} from "test/mocks/MockERC20.sol";
-import {MockOptimisticOracleV2} from "test/mocks/MockOptimisticOracleV2.sol";
+import {OOReporter} from "src/reporters/OOReporter.sol";
+import {PolymarketOOReporter} from "src/reporters/integrations/PolymarketOOReporter.sol";
+import {IOOReporter, RequestData} from "src/reporters/interfaces/IOOReporter.sol";
+import {MockERC20} from "test/reporters/mocks/MockERC20.sol";
+import {MockOptimisticOracleV2} from "test/reporters/mocks/MockOptimisticOracleV2.sol";
 
 interface IUUPSUpgrade {
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
