@@ -305,6 +305,32 @@ The `ManagedOptimisticOracleV2` contract:
 - Enforces maximum bonds and minimum liveness set by admins
 - Requires whitelisted requesters and proposers
 
+## SignedProposer Deployment
+
+The `DeploySignedProposer.s.sol` script deploys `SignedProposer` using the canonical Permit2 deployment by default.
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MNEMONIC` | Yes | The mnemonic phrase for the deployer wallet (uses 0 index address) |
+| `PERMIT2_ADDRESS` | No | Permit2 address; defaults to `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| `SIGNED_PROPOSER_ADMIN` | No | Address receiving the default admin role; defaults to the deployer |
+
+### Usage
+
+```bash
+forge script script/DeploySignedProposer.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
+```
+
+The script only deploys the contract. The admin configures delegated proposers and any required whitelist ownership separately.
+
+### Verification
+
+```bash
+forge verify-contract <SIGNED_PROPOSER_ADDRESS> src/optimistic-oracle-v2/implementation/SignedProposer.sol:SignedProposer --chain-id <CHAIN_ID> --constructor-args $(cast abi-encode "constructor(address,address)" <PERMIT2_ADDRESS> <SIGNED_PROPOSER_ADMIN>) --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+```
+
 ## ManagedOptimisticOracleV2 Upgrade
 
 The `UpgradeManagedOptimisticOracleV2.s.sol` script upgrades the `ManagedOptimisticOracleV2` contract implementation using OpenZeppelin Upgrades library.

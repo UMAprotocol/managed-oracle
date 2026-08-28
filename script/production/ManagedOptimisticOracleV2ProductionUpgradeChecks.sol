@@ -51,9 +51,9 @@ abstract contract ManagedOptimisticOracleV2ProductionUpgradeChecks {
         0x35685e89c1d2c5ac7c45c9b1eea62d3a46799a87ea454aa3fdf360772c971cd2;
     bytes32 internal constant WHITELIST_CODEHASH = 0x2d4153189ac6f7e0e098061ca41a95234700c66792e3a77bcf12b2fc15ca9e6a;
     bytes32 internal constant TARGET_CREATION_CODEHASH =
-        0x489e6d90d01a0870c2c57b647d95b607ccec288f95ee5f74250133f6110de03e;
+        0xb376f529ccc58c4b64c7a3ccda3183362eb310b2fc3cb264481da847331b2bcd;
     bytes32 internal constant TARGET_NORMALIZED_RUNTIME_CODEHASH =
-        0x2dfe2e9822ebba03425580f59e86a305c540230546d977216c32096d28fec094;
+        0xe3759fddcb0d42fbc69a948adc235956a4fad52b343719932453e2a7b68d2867;
 
     uint256 internal constant CURRENT_IMPLEMENTATION_SIZE = 24_323;
     uint256 internal constant TARGET_IMPLEMENTATION_SIZE = 24_524;

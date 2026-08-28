@@ -20,16 +20,35 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.3.6
+          version: 1.3.6
 
       - name: Show Forge version
         run: |
           forge --version
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - name: Install upgrade validation dependencies
+        run: |
+          yarn install --frozen-lockfile
+
+      - name: Verify production reference build
+        run: |
+          printf '%s  %s\n' '91a49705c7f94b5fdd849aacd07e3efc0a77b8d7cdb7f94db9face918ad8529d' 'old-builds/build-info-prod-current/df0e71094fbc248e.json' | sha256sum --check
+
       - name: Run Forge fmt
         run: |
           forge fmt --check
         id: fmt
+
+      - name: Validate production storage layout upgrade
+        run: |
+          forge clean
+          forge test --match-contract ManagedOptimisticOracleV2UpgradeValidationTest -vvv
 
       - name: Run Forge build
         run: |
@@ -38,7 +57,7 @@ jobs:
 
       - name: Run Forge tests
         run: |
-          forge test -vvv --no-match-contract ".*Fork.*"
+          forge test -vvv --no-match-contract ".*Fork.*|ManagedOptimisticOracleV2UpgradeValidationTest"
         id: test
 
   pm-v2-oo-reporter:
@@ -86,7 +105,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.3.6
+          version: 1.3.6
 
       - name: Show Forge version
         run: |
