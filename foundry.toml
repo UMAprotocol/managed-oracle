@@ -12,6 +12,7 @@ via_ir = true
 solc_version = "0.8.30"
 evm_version = "prague"
 fs_permissions = [
+    { access = "read", path = "./out" },
     { access = "read", path = "./old-builds" },
     { access = "read", path = "./test/polymarket-v2" },
 ]

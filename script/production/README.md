@@ -12,6 +12,7 @@ the current `0x7d660195eD02AC61A42408780233F06dDd6A2E42` implementation from
 ## 1. Test the upgrade on a pinned Polygon fork
 
 ```bash
+git submodule update --init --recursive
 forge clean
 NODE_URL_137="$POLYGON_RPC_URL" forge test \
   --match-contract ManagedOptimisticOracleV2ProductionUpgradeForkTest -vv
@@ -42,6 +43,15 @@ DeployManagedOptimisticOracleV2ProductionImplementation \
 The script refuses to deploy unless the production proxy is still on the expected implementation,
 OpenZeppelin validates the storage layout, and the target creation bytecode matches the reviewed build.
 Record the printed target implementation and its transaction receipt.
+
+The bytecode pins include Solidity metadata. They were repinned after the Permit2 submodule was added
+because Foundry auto-detected additional remappings from its recursively initialized dependencies. A
+before/after artifact comparison found identical lengths and exactly one changed 32-byte range: the IPFS
+digest in the CBOR metadata (creation offset `24696`, runtime offset `24481`). Zeroing only that digest
+produced the same diagnostic hashes before and after
+(`0xa9ceb856c96ae0429119e8615b4f5eca91395e82025ca08107897754cc92d528` creation and
+`0xcbb5bbcc323f56cef6597472f3ab96393e38663027696fbb8925b47496d2a1a7` runtime). The production checks
+still use the full exact hashes, including metadata.
 
 ## 3. Simulate and prepare the Safe transaction
 
