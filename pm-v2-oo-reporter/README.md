@@ -179,10 +179,12 @@ After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(reque
 the module that registered it. The reporter commits its shared resolved state before making these external calls, so the
 module can read the outcome using any associated request ID during `report`.
 
-The unbounded callback fan-out runs in an external self-call wrapped in `try/catch`. If the complete fan-out reverts,
-including because it runs out of gas, the stored resolution and Managed OO settlement remain successful and the reporter
-emits `ResolutionCallbacksFailed(requestId, requestTimestamp)`. Any earlier callbacks from that reverted fan-out are also
-rolled back, so operators must call each module's permissionless `report(requestId)` individually off-chain.
+The reporter emits `RequestResolved` for the canonical request ID before starting the unbounded callback fan-out, which
+runs in an external self-call wrapped in `try/catch`. If the complete fan-out reverts, including because it runs out of
+gas, the stored resolution, canonical resolution event, and Managed OO settlement remain successful and the reporter
+emits `ResolutionCallbacksFailed(requestId, requestTimestamp)`. Any alias resolution events and earlier callbacks from
+that reverted fan-out are rolled back, so operators must call each module's permissionless `report(requestId)`
+individually off-chain.
 
 Each callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
 `ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and

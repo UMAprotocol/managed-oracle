@@ -768,6 +768,8 @@ contract OOReporterTest {
         RequestData memory request = callbackReporter.getRequest(REQUEST_ID);
 
         vm.expectEmit(address(callbackReporter));
+        emit RequestResolved(REQUEST_ID, request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(callbackReporter));
         emit ResolutionCallbacksFailed(REQUEST_ID, request.requestTimestamp);
         optimisticOracle.settle(
             address(callbackReporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether

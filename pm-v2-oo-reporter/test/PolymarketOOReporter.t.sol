@@ -224,6 +224,8 @@ contract PolymarketOOReporterTest {
         RequestData memory request = reporter.getRequest(bytes32(uint256(1)));
 
         vm.expectEmit(address(reporter));
+        emit RequestResolved(bytes32(uint256(1)), request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(reporter));
         emit ResolutionCallbacksFailed(bytes32(uint256(1)), request.requestTimestamp);
 
         bytes memory settleCall = abi.encodeCall(

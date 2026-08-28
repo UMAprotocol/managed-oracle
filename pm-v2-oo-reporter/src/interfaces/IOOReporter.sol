@@ -179,8 +179,9 @@ interface IOOReporter {
         uint256 newReward
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
+    /// @dev The canonical request event is emitted before the isolated callback batch; alias events are best-effort.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
-    /// @notice Emitted when the isolated request-ID callback fan-out reverts after resolution is stored.
+    /// @notice Emitted when the isolated request-ID callback fan-out reverts after canonical resolution is emitted.
     event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
     /// @notice Emitted when a callback opens the oracle-initializer re-request path.
     event RequestRerequestAllowed(

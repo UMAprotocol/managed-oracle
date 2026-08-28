@@ -437,6 +437,7 @@ contract OOReporter is
             request.rerequestAllowed = false;
 
             bytes32 reporterRequestKey = _reporterRequestKey(identifier, requestRules);
+            emit RequestResolved(requestId, timestamp, price);
             try this.executeResolutionCallbacks(reporterRequestKey, timestamp, price) {}
             catch {
                 emit ResolutionCallbacksFailed(requestId, timestamp);
@@ -485,11 +486,12 @@ contract OOReporter is
 
         OOReporterStorage storage $ = _getStorage();
         bytes32[] storage requestIds = $.requestIdsByReporterRequestKey[reporterRequestKey];
+        bytes32 canonicalRequestId = requestIdsByReporterKey(reporterRequestKey);
         for (uint256 i = 0; i < requestIds.length; ++i) {
             bytes32 linkedRequestId = requestIds[i];
             RequestData storage registration = $.requests[linkedRequestId];
             registration.initialized = true;
-            emit RequestResolved(linkedRequestId, timestamp, price);
+            if (linkedRequestId != canonicalRequestId) emit RequestResolved(linkedRequestId, timestamp, price);
             _onRequestResolved(linkedRequestId, registration.requester);
         }
     }
