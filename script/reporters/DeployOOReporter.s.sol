@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {OOReporter} from "../src/OOReporter.sol";
-import {IOOReporter} from "../src/interfaces/IOOReporter.sol";
+import {OOReporter} from "src/reporters/OOReporter.sol";
+import {IOOReporter} from "src/reporters/interfaces/IOOReporter.sol";
 
 /// @title Deployment script for OOReporter
 /// @notice Deploys and initializes an OOReporter implementation and ERC1967 proxy.

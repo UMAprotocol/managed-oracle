@@ -1,8 +1,8 @@
-# PM v2 OOReporter
+# OO Reporters
 
-UMA-owned Managed Optimistic Oracle requester and raw outcome source for prediction market request IDs.
+UMA-owned Managed Optimistic Oracle requester and integration-specific reporter extensions.
 
-This package is intended to pair with a market-side requester module. The market-side module registers request IDs here,
+These contracts are intended to pair with a market-side requester module. The market-side module registers request IDs here,
 then either pulls raw UMA outcomes from `OOReporter` or receives an automatic `report(requestId)` callback from
 `PolymarketOOReporter`. Payout translation and finalization remain market-side responsibilities.
 
@@ -208,35 +208,35 @@ Install this repository as a normal Foundry dependency:
 forge install UMAprotocol/managed-oracle
 ```
 
-With the standard dependency remapping:
+With a dependency remapping for this repository:
 
 ```toml
-managed-oracle/pm-v2-oo-reporter/=lib/managed-oracle/pm-v2-oo-reporter/src/
+managed-oracle/=lib/managed-oracle/
 ```
 
 Consumers can import the reporter from:
 
 ```solidity
-import {OOReporter} from "managed-oracle/pm-v2-oo-reporter/OOReporter.sol";
-import {PolymarketOOReporter} from "managed-oracle/pm-v2-oo-reporter/PolymarketOOReporter.sol";
-import {IOOReporter} from "managed-oracle/pm-v2-oo-reporter/interfaces/IOOReporter.sol";
-import {IOOReporterModule} from "managed-oracle/pm-v2-oo-reporter/interfaces/IOOReporterModule.sol";
+import {OOReporter} from "managed-oracle/src/reporters/OOReporter.sol";
+import {PolymarketOOReporter} from "managed-oracle/src/reporters/integrations/PolymarketOOReporter.sol";
+import {IOOReporter} from "managed-oracle/src/reporters/interfaces/IOOReporter.sol";
+import {IOOReporterModule} from "managed-oracle/src/reporters/interfaces/IOOReporterModule.sol";
 ```
 
 Importing only `IOOReporter` does not require OpenZeppelin remappings.
 
-Consumers that compile `OOReporter.sol` must provide compatible remappings for `@openzeppelin/contracts/` and `@openzeppelin/contracts-upgradeable/`; this package does so in `pm-v2-oo-reporter/foundry.toml` via its package-local `lib/openzeppelin-contracts-upgradeable` submodule.
+Consumers that compile `OOReporter.sol` must provide compatible remappings for `@openzeppelin/contracts/` and `@openzeppelin/contracts-upgradeable/`; the repository root provides both dependencies and remappings.
 
 ## Deployment And Upgrades
 
-Run every reporter script from this package directory so implementation bytecode uses its Solidity 0.8.34, optimizer,
+Run every reporter script from the repository root so implementation bytecode uses the root Solidity 0.8.30, optimizer,
 and dependency settings. Choose the entrypoint explicitly:
 
 | Script | Use |
 | --- | --- |
-| `script/DeployOOReporter.s.sol` | Fresh pull-only `OOReporter` implementation and initialized ERC1967 proxy. |
-| `script/DeployPolymarketOOReporter.s.sol` | Fresh callback-enabled `PolymarketOOReporter` implementation and initialized ERC1967 proxy. |
-| `script/UpgradeOOReporter.s.sol` | Upgrade an existing reporter proxy to `PolymarketOOReporter` without changing its Managed OO. |
+| `script/reporters/DeployOOReporter.s.sol` | Fresh pull-only `OOReporter` implementation and initialized ERC1967 proxy. |
+| `script/reporters/DeployPolymarketOOReporter.s.sol` | Fresh callback-enabled `PolymarketOOReporter` implementation and initialized ERC1967 proxy. |
+| `script/reporters/UpgradeOOReporter.s.sol` | Upgrade an existing reporter proxy to `PolymarketOOReporter` without changing its Managed OO. |
 
 The fresh deployment scripts share the same initialization flow. The upgrade script preserves the reporter proxy and
 all reporter state, deploys or reuses only the final `PolymarketOOReporter` implementation, and calls
@@ -306,14 +306,12 @@ verification flags. Production deployments should initialize the intended owner,
 explicitly.
 
 ```bash
-cd pm-v2-oo-reporter
-
 export DEPLOYER_ADDRESS="implementation and proxy deployer"
 export INITIAL_OWNER="reporter owner or Safe"
 export INITIAL_ORACLE_INITIALIZER="UMA initializer address"
 export INITIAL_REQUESTER="Polymarket OOReporterModule address"
 
-forge script script/DeployPolymarketOOReporter.s.sol \
+forge script script/reporters/DeployPolymarketOOReporter.s.sol \
   --rpc-url "$RPC_URL" \
   --sender "$DEPLOYER_ADDRESS" \
   --interactive \
@@ -324,7 +322,7 @@ forge script script/DeployPolymarketOOReporter.s.sol \
   --etherscan-api-key "$ETHERSCAN_API_KEY"
 ```
 
-Use `script/DeployOOReporter.s.sol` instead only when downstream integrations will pull results and no automatic
+Use `script/reporters/DeployOOReporter.s.sol` instead only when downstream integrations will pull results and no automatic
 `report(requestId)` callback is wanted. Foundry submits and verifies both the selected implementation and the
 `ERC1967Proxy`.
 
@@ -390,14 +388,12 @@ owner call. No signing material is read from an environment variable.
 For a direct EOA-owned upgrade, set `EXPECTED_OWNER` and `DEPLOYER_ADDRESS` to the same address and opt in explicitly:
 
 ```bash
-cd pm-v2-oo-reporter
-
 export EXECUTE_UPGRADE=true
 
-forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
+forge script script/reporters/UpgradeOOReporter.s.sol:UpgradeOOReporter \
   --rpc-url "$RPC_URL" -vvv
 
-forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
+forge script script/reporters/UpgradeOOReporter.s.sol:UpgradeOOReporter \
   --rpc-url "$RPC_URL" \
   --sender "$DEPLOYER_ADDRESS" \
   --interactive \
@@ -419,7 +415,7 @@ needs reporter ownership.
 export EXECUTE_UPGRADE=false
 
 # Deploy only the implementation with the external signer.
-forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
+forge script script/reporters/UpgradeOOReporter.s.sol:UpgradeOOReporter \
   --rpc-url "$RPC_URL" \
   --sender "$DEPLOYER_ADDRESS" \
   --interactive \
@@ -429,7 +425,7 @@ forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
 
 # After setting FINAL_IMPLEMENTATION and EXPECTED_FINAL_IMPLEMENTATION_CODEHASH,
 # rerun read-only to produce the reviewed Safe payload and final state fingerprint.
-forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
+forge script script/reporters/UpgradeOOReporter.s.sol:UpgradeOOReporter \
   --rpc-url "$RPC_URL" -vvv
 ```
 
@@ -445,7 +441,7 @@ post-broadcast run.
 export VERIFY_ONLY=true
 export EXPECTED_STATE_FINGERPRINT="fingerprint from the final pre-upgrade run"
 
-forge script script/UpgradeOOReporter.s.sol:UpgradeOOReporter \
+forge script script/reporters/UpgradeOOReporter.s.sol:UpgradeOOReporter \
   --rpc-url "$RPC_URL" -vvv
 ```
 
@@ -582,13 +578,13 @@ using `cast send` directly.
 
 If a fresh deployment was broadcast without `--verify`, recover the exact addresses and proxy initialization calldata
 from its artifact. The following selects the callback-enabled variant; use `DeployOOReporter`, `OOReporter`, and
-`src/OOReporter.sol:OOReporter` instead for the pull-only variant:
+`src/reporters/OOReporter.sol:OOReporter` instead for the pull-only variant:
 
 ```bash
 CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL")
 DEPLOY_SCRIPT=DeployPolymarketOOReporter
 IMPLEMENTATION_NAME=PolymarketOOReporter
-IMPLEMENTATION_SOURCE=src/PolymarketOOReporter.sol:PolymarketOOReporter
+IMPLEMENTATION_SOURCE=src/reporters/integrations/PolymarketOOReporter.sol:PolymarketOOReporter
 BROADCAST_PATH="broadcast/${DEPLOY_SCRIPT}.s.sol/${CHAIN_ID}/run-latest.json"
 
 IMPLEMENTATION_ADDRESS=$(jq -r \
@@ -634,7 +630,7 @@ NEW_IMPLEMENTATION=$(jq -r \
   "$UPGRADE_BROADCAST")
 
 forge verify-contract "$NEW_IMPLEMENTATION" \
-  src/PolymarketOOReporter.sol:PolymarketOOReporter \
+  src/reporters/integrations/PolymarketOOReporter.sol:PolymarketOOReporter \
   --chain "$CHAIN_ID" \
   --verifier etherscan \
   --etherscan-api-key "$ETHERSCAN_API_KEY" \
@@ -680,8 +676,8 @@ verification of the new implementation only. See Tenderly's
 From the managed-oracle repository root:
 
 ```bash
-cd pm-v2-oo-reporter && forge test
+forge test --match-path 'test/reporters/*'
 ```
 
-The package enables the Solidity optimizer with 200 runs so both reporter implementations remain comfortably below
+The root project enables the Solidity optimizer so both reporter implementations remain comfortably below
 the EIP-170 deployed bytecode limit.

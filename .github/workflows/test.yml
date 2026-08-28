@@ -60,40 +60,6 @@ jobs:
           forge test -vvv --no-match-contract ".*Fork.*|ManagedOptimisticOracleV2UpgradeValidationTest"
         id: test
 
-  pm-v2-oo-reporter:
-    name: PM v2 OOReporter package
-    runs-on: ubuntu-latest
-    env:
-      FOUNDRY_PROFILE: default
-    defaults:
-      run:
-        working-directory: pm-v2-oo-reporter
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: v1.7.1
-
-      - name: Show Forge version
-        run: |
-          forge --version
-
-      - name: Run Forge fmt
-        run: |
-          forge fmt --check
-
-      - name: Run Forge build
-        run: |
-          forge build
-
-      - name: Run Forge tests
-        run: |
-          forge test
-
   fork-tests:
     name: Fork Tests (Polygon)
     runs-on: ubuntu-latest

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
-import {PolymarketOOReporter} from "src/PolymarketOOReporter.sol";
-import {IOOReporter, RequestData} from "src/interfaces/IOOReporter.sol";
-import {MockERC20} from "test/mocks/MockERC20.sol";
-import {MockOptimisticOracleV2} from "test/mocks/MockOptimisticOracleV2.sol";
+import {PolymarketOOReporter} from "src/reporters/integrations/PolymarketOOReporter.sol";
+import {IOOReporter, RequestData} from "src/reporters/interfaces/IOOReporter.sol";
+import {MockERC20} from "test/reporters/mocks/MockERC20.sol";
+import {MockOptimisticOracleV2} from "test/reporters/mocks/MockOptimisticOracleV2.sol";
 
 interface PolymarketReporterVm {
     function prank(address msgSender) external;

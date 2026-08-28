@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
 
-import {OOReporter} from "../src/OOReporter.sol";
-import {PolymarketOOReporter} from "../src/PolymarketOOReporter.sol";
-import {RequestData} from "../src/interfaces/IOOReporter.sol";
+import {OOReporter} from "src/reporters/OOReporter.sol";
+import {PolymarketOOReporter} from "src/reporters/integrations/PolymarketOOReporter.sol";
+import {RequestData} from "src/reporters/interfaces/IOOReporter.sol";
 
 interface IUUPSUpgradeable {
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
