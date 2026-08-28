@@ -22,6 +22,8 @@ import {FixedPointInterface} from "src/common/interfaces/FixedPointInterface.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {AccessManager} from "@openzeppelin/contracts/access/manager/AccessManager.sol";
+import {IAccessManager} from "@openzeppelin/contracts/access/manager/IAccessManager.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 // Import shared mocks
@@ -63,6 +65,7 @@ contract ManagedOptimisticOracleV2Test is Test {
     bytes internal constant ANCILLARY = bytes(":memo: test");
     uint256 internal constant DEFAULT_LIVENESS = 2 hours;
     uint256 internal constant MINIMUM_DISPUTE_WINDOW = 5 minutes;
+    uint64 internal constant REQUEST_MANAGER_OPERATOR_ROLE = 1;
 
     function setUp() public {
         // Addresses
@@ -207,6 +210,27 @@ contract ManagedOptimisticOracleV2Test is Test {
         currency.approve(address(moo), type(uint256).max);
     }
 
+    function _deployRequestManagerAccessManager(address admin, address operator)
+        internal
+        returns (AccessManager manager)
+    {
+        manager = new AccessManager(admin);
+
+        bytes4[] memory selectors = new bytes4[](4);
+        selectors[0] = ManagedOptimisticOracleV2.requestManagerSetReward.selector;
+        selectors[1] = ManagedOptimisticOracleV2.requestManagerSetBond.selector;
+        selectors[2] = ManagedOptimisticOracleV2.requestManagerSetCustomLiveness.selector;
+        selectors[3] = ManagedOptimisticOracleV2.requestManagerSetProposerWhitelist.selector;
+
+        vm.startPrank(admin);
+        manager.grantRole(REQUEST_MANAGER_OPERATOR_ROLE, operator, 0);
+        manager.setTargetFunctionRole(address(moo), selectors, REQUEST_MANAGER_OPERATOR_ROLE);
+        vm.stopPrank();
+
+        vm.prank(configAdmin);
+        moo.addRequestManager(address(manager));
+    }
+
     // -------------------- Initialization & Roles --------------------
 
     function testInitializeSetsState() external {
@@ -296,6 +320,130 @@ contract ManagedOptimisticOracleV2Test is Test {
         moo.removeRequestManager(newMgr);
         vm.stopPrank();
         assertFalse(moo.hasRole(REQUEST_MANAGER_ROLE, newMgr));
+    }
+
+    function testAccessManagerRoutesAuthorizedRequestManagerCalls() external {
+        address accessManagerAdmin = makeAddr("accessManagerAdmin");
+        address operator = makeAddr("accessManagerOperator");
+        AccessManager manager = _deployRequestManagerAccessManager(accessManagerAdmin, operator);
+
+        assertTrue(moo.hasRole(moo.REQUEST_MANAGER_ROLE(), address(manager)));
+        assertFalse(moo.hasRole(moo.REQUEST_MANAGER_ROLE(), operator));
+
+        vm.prank(operator);
+        manager.execute(
+            address(moo),
+            abi.encodeCall(
+                ManagedOptimisticOracleV2.requestManagerSetCustomLiveness, (requester, IDENTIFIER, ANCILLARY, 3 hours)
+            )
+        );
+
+        bytes32 managedRequestId = moo.getManagedRequestId(requester, IDENTIFIER, ANCILLARY);
+        (uint256 customLiveness,) = moo.customLivenessValues(managedRequestId);
+        assertEq(customLiveness, 3 hours);
+    }
+
+    function testAccessManagerBatchesRepeatedRequestManagerSelector() external {
+        address accessManagerAdmin = makeAddr("accessManagerAdmin");
+        address operator = makeAddr("accessManagerOperator");
+        AccessManager manager = _deployRequestManagerAccessManager(accessManagerAdmin, operator);
+        bytes32 id = keccak256("OTHER_PRICE_ID");
+
+        bytes memory firstLivenessCall = abi.encodeCall(
+            ManagedOptimisticOracleV2.requestManagerSetCustomLiveness, (requester, IDENTIFIER, ANCILLARY, 3 hours)
+        );
+        bytes memory secondLivenessCall = abi.encodeCall(
+            ManagedOptimisticOracleV2.requestManagerSetCustomLiveness, (requester, id, ANCILLARY, 4 hours)
+        );
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(AccessManager.execute, (address(moo), firstLivenessCall));
+        calls[1] = abi.encodeCall(AccessManager.execute, (address(moo), secondLivenessCall));
+
+        vm.prank(operator);
+        manager.multicall(calls);
+
+        bytes32 firstManagedRequestId = moo.getManagedRequestId(requester, IDENTIFIER, ANCILLARY);
+        bytes32 secondManagedRequestId = moo.getManagedRequestId(requester, id, ANCILLARY);
+        (uint256 firstCustomLiveness,) = moo.customLivenessValues(firstManagedRequestId);
+        (uint256 secondCustomLiveness,) = moo.customLivenessValues(secondManagedRequestId);
+        assertEq(firstCustomLiveness, 3 hours);
+        assertEq(secondCustomLiveness, 4 hours);
+    }
+
+    function testAccessManagerRejectsUnconfiguredCalls() external {
+        address accessManagerAdmin = makeAddr("accessManagerAdmin");
+        address operator = makeAddr("accessManagerOperator");
+        AccessManager manager = _deployRequestManagerAccessManager(accessManagerAdmin, operator);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessManager.AccessManagerUnauthorizedCall.selector,
+                operator,
+                address(moo),
+                ManagedOptimisticOracleV2.setDefaultLiveness.selector
+            )
+        );
+        vm.prank(operator);
+        manager.execute(address(moo), abi.encodeCall(ManagedOptimisticOracleV2.setDefaultLiveness, (3 hours)));
+    }
+
+    function testAccessManagerRotatesOperatorsAndBatchesCalls() external {
+        address accessManagerAdmin = makeAddr("accessManagerAdmin");
+        address operator = makeAddr("accessManagerOperator");
+        address replacementOperator = makeAddr("replacementAccessManagerOperator");
+        AccessManager manager = _deployRequestManagerAccessManager(accessManagerAdmin, operator);
+
+        vm.startPrank(accessManagerAdmin);
+        manager.grantRole(REQUEST_MANAGER_OPERATOR_ROLE, replacementOperator, 0);
+        manager.revokeRole(REQUEST_MANAGER_OPERATOR_ROLE, operator);
+        vm.stopPrank();
+
+        bytes memory livenessCall = abi.encodeCall(
+            ManagedOptimisticOracleV2.requestManagerSetCustomLiveness, (requester, IDENTIFIER, ANCILLARY, 3 hours)
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessManager.AccessManagerUnauthorizedCall.selector,
+                operator,
+                address(moo),
+                ManagedOptimisticOracleV2.requestManagerSetCustomLiveness.selector
+            )
+        );
+        vm.prank(operator);
+        manager.execute(address(moo), livenessCall);
+
+        bytes[] memory calls = new bytes[](3);
+        calls[0] = abi.encodeCall(AccessManager.execute, (address(moo), livenessCall));
+        calls[1] = abi.encodeCall(
+            AccessManager.execute,
+            (
+                address(moo),
+                abi.encodeCall(
+                    ManagedOptimisticOracleV2.requestManagerSetBond,
+                    (requester, IDENTIFIER, ANCILLARY, IERC20(address(currency)), 2 ether)
+                )
+            )
+        );
+        calls[2] = abi.encodeCall(
+            AccessManager.execute,
+            (
+                address(moo),
+                abi.encodeCall(
+                    ManagedOptimisticOracleV2.requestManagerSetProposerWhitelist,
+                    (requester, IDENTIFIER, ANCILLARY, address(disabledWhitelist))
+                )
+            )
+        );
+
+        vm.prank(replacementOperator);
+        manager.multicall(calls);
+
+        bytes32 managedRequestId = moo.getManagedRequestId(requester, IDENTIFIER, ANCILLARY);
+        (uint256 customLiveness,) = moo.customLivenessValues(managedRequestId);
+        (uint256 customBond,) = moo.customBonds(managedRequestId, IERC20(address(currency)));
+        assertEq(customLiveness, 3 hours);
+        assertEq(customBond, 2 ether);
+        assertEq(address(moo.customProposerWhitelists(managedRequestId)), address(disabledWhitelist));
     }
 
     function testAddAndRemoveResolver() external {
