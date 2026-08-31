@@ -270,9 +270,9 @@ interface IOOReporter {
     function automaticRerequestsEnabled() external view returns (bool);
 
     /// @notice Registers a requester-defined request ID and its UMA request identity before OO initialization.
-    /// @dev Matching price identifier, request rules, requester, and liveness values share one Managed OO lifecycle.
-    /// minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness remains a registration-time bound
-    /// and offchain target that does not cap initialization or re-requests.
+    /// @dev Up to ten request IDs with matching price identifier, request rules, requester, and liveness values share one
+    /// Managed OO lifecycle. minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness remains a
+    /// registration-time bound and offchain target that does not cap initialization or re-requests.
     /// @param requestId Requester-defined request ID to bind to the UMA request identity.
     /// @param priceIdentifier UMA price identifier to request.
     /// @param requestRules Raw UMA request rules supplied by the requester.

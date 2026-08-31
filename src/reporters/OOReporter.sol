@@ -488,7 +488,9 @@ contract OOReporter is
         _executeAutomaticRerequest(requestId, request, rerequestType);
     }
 
-    /// @dev Isolates the bounded callback fan-out so an out-of-gas failure cannot revert settlement state or events.
+    /// @dev Isolates the bounded callback fan-out so an out-of-gas failure cannot revert settlement state or
+    /// already-emitted resolution events.
+    /// @param reporterRequestKey Key for the linked request IDs whose callbacks should be executed.
     function executeResolutionCallbacks(bytes32 reporterRequestKey) external {
         if (msg.sender != address(this)) revert CallerNotSelf();
 
