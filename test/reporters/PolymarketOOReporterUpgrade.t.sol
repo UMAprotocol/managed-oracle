@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {OOReporter} from "src/reporters/OOReporter.sol";
 import {PolymarketOOReporter} from "src/reporters/integrations/PolymarketOOReporter.sol";
 import {IOOReporter, RequestData} from "src/reporters/interfaces/IOOReporter.sol";
+import {LegacyOOReporter, LegacyRequestData} from "test/reporters/mocks/LegacyOOReporter.sol";
 import {MockERC20} from "test/reporters/mocks/MockERC20.sol";
 import {MockOptimisticOracleV2} from "test/reporters/mocks/MockOptimisticOracleV2.sol";
 
@@ -61,6 +62,8 @@ contract UpgradeReporterModule {
 }
 
 contract PolymarketOOReporterUpgradeTest is Test {
+    event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
+
     bytes32 private constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     bytes32 private constant RESOLVED_REQUEST_ID = keccak256("resolved-before-upgrade");
     bytes32 private constant PENDING_REQUEST_ID = keccak256("pending-during-upgrade");
@@ -142,6 +145,8 @@ contract PolymarketOOReporterUpgradeTest is Test {
         );
         assertEq(upgraded.getRequestId(BINARY_IDENTIFIER, pendingRules), PENDING_REQUEST_ID, "pending lookup changed");
 
+        vm.expectEmit(address(upgraded));
+        emit RequestResolved(PENDING_REQUEST_ID, pendingBefore.requestTimestamp, 1 ether);
         optimisticOracle.settle(
             address(upgraded), BINARY_IDENTIFIER, pendingBefore.requestTimestamp, pendingRules, 1 ether
         );
@@ -151,6 +156,48 @@ contract PolymarketOOReporterUpgradeTest is Test {
         assertEq(module.lastReporter(), address(upgraded), "callback reporter mismatch");
         assertTrue(module.observedResolved(), "callback observed unresolved request");
         assertEq(module.observedOutcome(), 1 ether, "callback outcome mismatch");
+    }
+
+    function test_upgradeFromLegacyPreservesSettlementCallback() external {
+        (LegacyOOReporter legacyReporter, UpgradeReporterModule legacyModule) = _deployLegacyReporter();
+        bytes memory requestRules = bytes("pending legacy request");
+        legacyModule.registerRequest(PENDING_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+        vm.prank(oracleInitializer);
+        legacyReporter.initializeRequest(PENDING_REQUEST_ID, 0, 0, LIVENESS);
+        LegacyRequestData memory pendingBefore = legacyReporter.getRequest(PENDING_REQUEST_ID);
+
+        PolymarketOOReporter implementation = new PolymarketOOReporter();
+        vm.prank(owner);
+        IUUPSUpgrade(address(legacyReporter)).upgradeToAndCall(address(implementation), bytes(""));
+        PolymarketOOReporter upgraded = PolymarketOOReporter(address(legacyReporter));
+
+        vm.expectEmit(address(upgraded));
+        emit RequestResolved(PENDING_REQUEST_ID, pendingBefore.requestTimestamp, 1 ether);
+        optimisticOracle.settle(
+            address(upgraded), BINARY_IDENTIFIER, pendingBefore.requestTimestamp, requestRules, 1 ether
+        );
+
+        assertEq(legacyModule.reportCount(), 1, "legacy callback not invoked");
+        assertEq(legacyModule.lastRequestId(), PENDING_REQUEST_ID, "legacy callback request id mismatch");
+        assertEq(legacyModule.lastReporter(), address(upgraded), "legacy callback reporter mismatch");
+        assertTrue(legacyModule.observedResolved(), "legacy callback observed unresolved request");
+        assertEq(legacyModule.observedOutcome(), 1 ether, "legacy callback outcome mismatch");
+    }
+
+    function test_upgradeFromLegacyCountsCanonicalRequestTowardLimit() external {
+        (LegacyOOReporter legacyReporter, UpgradeReporterModule legacyModule) = _deployLegacyReporter();
+        bytes memory requestRules = bytes("legacy request with duplicates");
+        legacyModule.registerRequest(PENDING_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+
+        PolymarketOOReporter implementation = new PolymarketOOReporter();
+        vm.prank(owner);
+        IUUPSUpgrade(address(legacyReporter)).upgradeToAndCall(address(implementation), bytes(""));
+
+        for (uint256 i = 2; i <= 10; ++i) {
+            legacyModule.registerRequest(bytes32(i), BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+        }
+        vm.expectRevert(OOReporter.ReporterRequestIdLimitReached.selector);
+        legacyModule.registerRequest(bytes32(uint256(11)), BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
     }
 
     function test_upgradeRejectsNonOwner() external {
@@ -189,5 +236,26 @@ contract PolymarketOOReporterUpgradeTest is Test {
         module.registerRequest(requestId, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
         vm.prank(oracleInitializer);
         baseReporter.initializeRequest(requestId, 0, 0, LIVENESS);
+    }
+
+    function _deployLegacyReporter()
+        private
+        returns (LegacyOOReporter legacyReporter, UpgradeReporterModule legacyModule)
+    {
+        legacyModule = new UpgradeReporterModule();
+        LegacyOOReporter implementation = new LegacyOOReporter();
+        bytes memory initData = abi.encodeCall(
+            LegacyOOReporter.initialize,
+            (
+                owner,
+                address(optimisticOracle),
+                address(usdc),
+                oracleInitializer,
+                address(legacyModule),
+                DEFAULT_REREQUEST_BUDGET
+            )
+        );
+        legacyReporter = LegacyOOReporter(address(new ERC1967Proxy(address(implementation), initData)));
+        legacyModule.setReporter(IOOReporter(address(legacyReporter)));
     }
 }

@@ -54,6 +54,11 @@ contract MockPolymarketOOReporterModule {
     address public lastReporter;
     bool public observedResolved;
     int256 public observedOutcome;
+    bytes32 private reentrantRequestId;
+    bytes32 private reentrantPriceIdentifier;
+    bytes private reentrantRequestRules;
+    uint64 private reentrantMinimumLiveness;
+    uint64 private reentrantMaximumLiveness;
 
     function setReporter(IOOReporter newReporter) external {
         reporter = newReporter;
@@ -61,6 +66,20 @@ contract MockPolymarketOOReporterModule {
 
     function setShouldRevert(bool newShouldRevert) external {
         shouldRevert = newShouldRevert;
+    }
+
+    function setReentrantRegistration(
+        bytes32 requestId,
+        bytes32 priceIdentifier,
+        bytes calldata requestRules,
+        uint64 minimumLiveness,
+        uint64 maximumLiveness
+    ) external {
+        reentrantRequestId = requestId;
+        reentrantPriceIdentifier = priceIdentifier;
+        reentrantRequestRules = requestRules;
+        reentrantMinimumLiveness = minimumLiveness;
+        reentrantMaximumLiveness = maximumLiveness;
     }
 
     function registerRequest(
@@ -82,6 +101,17 @@ contract MockPolymarketOOReporterModule {
         lastReporter = msg.sender;
         observedResolved = reporter.isRequestResolved(requestId);
         observedOutcome = reporter.getRequestResolution(requestId);
+        bytes32 requestIdToRegister = reentrantRequestId;
+        if (requestIdToRegister != bytes32(0)) {
+            reentrantRequestId = bytes32(0);
+            reporter.registerRequest(
+                requestIdToRegister,
+                reentrantPriceIdentifier,
+                reentrantRequestRules,
+                reentrantMinimumLiveness,
+                reentrantMaximumLiveness
+            );
+        }
     }
 }
 
@@ -176,6 +206,8 @@ contract PolymarketOOReporterTest {
         module.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
 
         vm.expectEmit(address(reporter));
+        emit RequestResolved(SECOND_REQUEST_ID, request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(reporter));
         emit ReportCallbackSucceeded(SECOND_REQUEST_ID, address(module));
         vm.prank(oracleInitializer);
         reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
@@ -187,6 +219,30 @@ contract PolymarketOOReporterTest {
         _assertEq(module.lastRequestId(), SECOND_REQUEST_ID, "late duplicate request id mismatch");
         _assertTrue(module.observedResolved(), "late report should observe resolved state");
         _assertEq(module.observedOutcome(), 1 ether, "late report outcome mismatch");
+    }
+
+    function test_reentrantRegistrationWaitsForLateInitialization() external {
+        bytes memory requestRules = bytes("Will ETH reach 10k?");
+        module.registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+        module.setReentrantRegistration(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
+
+        _assertEq(module.reportCount(), 1, "reentrant duplicate should not join active fan-out");
+        _assertFalse(module.reported(SECOND_REQUEST_ID), "reentrant duplicate should wait for initialization");
+
+        vm.expectEmit(address(reporter));
+        emit RequestResolved(SECOND_REQUEST_ID, request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(reporter));
+        emit ReportCallbackSucceeded(SECOND_REQUEST_ID, address(module));
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+
+        _assertEq(module.reportCount(), 2, "late duplicate should report after initialization");
+        _assertTrue(module.reported(SECOND_REQUEST_ID), "late duplicate was not reported");
     }
 
     function test_reportFailureDoesNotRevertSettlementAndCanBeRetried() external {

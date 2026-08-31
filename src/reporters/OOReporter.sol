@@ -244,6 +244,8 @@ contract OOReporter is
         bytes32 reporterRequestKey = _reporterRequestKey(priceIdentifier, requestRules);
         bytes32 existingRequestId = requestIdsByReporterKey(reporterRequestKey);
         bytes32[] storage requestIds = $.requestIdsByReporterRequestKey[reporterRequestKey];
+        // Backfill requests registered before this array was added so the canonical ID counts toward the cap.
+        if (existingRequestId != bytes32(0) && requestIds.length == 0) requestIds.push(existingRequestId);
         if (requestIds.length >= MAX_REQUEST_IDS_PER_REPORTER_KEY) revert ReporterRequestIdLimitReached();
         if (existingRequestId != bytes32(0)) {
             RequestData storage existingRequest = $.requests[existingRequestId];
@@ -312,7 +314,10 @@ contract OOReporter is
             if (registration.initialized) return;
 
             registration.initialized = true;
-            if (request.resolved) _onRequestResolved(requestId, registration.requester);
+            if (request.resolved) {
+                emit RequestResolved(requestId, request.requestTimestamp, request.outcome);
+                _onRequestResolved(requestId, registration.requester);
+            }
             return;
         }
         if (request.initialized) revert RequestAlreadyInitialized();
@@ -443,6 +448,8 @@ contract OOReporter is
 
             bytes32 reporterRequestKey = _reporterRequestKey(identifier, requestRules);
             bytes32[] storage requestIds = _getStorage().requestIdsByReporterRequestKey[reporterRequestKey];
+            // Backfill untouched pre-array requests before emitting events and invoking callbacks.
+            if (requestIds.length == 0) requestIds.push(requestId);
             for (uint256 i = 0; i < requestIds.length; ++i) {
                 emit RequestResolved(requestIds[i], timestamp, price);
             }
@@ -496,7 +503,8 @@ contract OOReporter is
 
         OOReporterStorage storage $ = _getStorage();
         bytes32[] storage requestIds = $.requestIdsByReporterRequestKey[reporterRequestKey];
-        for (uint256 i = 0; i < requestIds.length; ++i) {
+        uint256 requestIdsLength = requestIds.length;
+        for (uint256 i = 0; i < requestIdsLength; ++i) {
             bytes32 linkedRequestId = requestIds[i];
             RequestData storage registration = $.requests[linkedRequestId];
             registration.initialized = true;
