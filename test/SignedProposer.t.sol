@@ -521,7 +521,9 @@ contract SignedProposerTest is Test {
         vm.prank(relayer);
         bool[] memory successes = signedProposer.tryMulticall(calls);
 
-        for (uint256 i; i < successes.length; ++i) assertFalse(successes[i]);
+        for (uint256 i; i < successes.length; ++i) {
+            assertFalse(successes[i]);
+        }
     }
 
     function test_tryMulticall_lateProposalCollision_doesNotBlockLaterProposal() public {
@@ -657,6 +659,37 @@ contract SignedProposerTest is Test {
             callbackRequester.nestedRevertData(),
             abi.encodeWithSelector(TryMulticall.TryMulticallReentrantCall.selector)
         );
+    }
+
+    function test_tryMulticall_gasExhaustingChildCanRevertEntireBatch() public {
+        uint256 timestamp = block.timestamp;
+        _makeRequest(timestamp, 0);
+        _setBond();
+        _fundAndApproveProposer(TOTAL_BOND);
+
+        RevertingSignedProposerOracle gasExhaustingOracle =
+            new RevertingSignedProposerOracle(IERC20(address(currency)), true, 0);
+        SignedProposer.Proposal memory gasExhaustingProposal = SignedProposer.Proposal({
+            oracle: address(gasExhaustingOracle),
+            requester: requester,
+            identifier: IDENTIFIER,
+            timestamp: timestamp,
+            ancillaryData: ANCILLARY,
+            proposedPrice: 1 ether,
+            maxPayment: 0
+        });
+        SignedProposer.Proposal memory validProposal = _buildProposal(timestamp, 2 ether);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = _encodeProposalCall(gasExhaustingProposal, proposer, permit, "", 0);
+        calls[1] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
+
+        vm.prank(relayer);
+        (bool success,) =
+            address(signedProposer).call{gas: 1_000_000}(abi.encodeCall(TryMulticall.tryMulticall, (calls)));
+
+        assertFalse(success);
+        assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposer, address(0));
     }
 
     function test_tryMulticall_hashesCompleteLargeRevertData() public {

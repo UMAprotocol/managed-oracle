@@ -8,6 +8,7 @@ import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
 import {SignatureVerification} from "permit2/src/libraries/SignatureVerification.sol";
 
 import {SignedProposer} from "src/optimistic-oracle-v2/implementation/SignedProposer.sol";
+import {TryMulticall} from "src/common/implementation/TryMulticall.sol";
 import {ManagedOptimisticOracleV2} from "src/optimistic-oracle-v2/implementation/ManagedOptimisticOracleV2.sol";
 import {OptimisticOracleV2Interface} from "src/optimistic-oracle-v2/interfaces/OptimisticOracleV2Interface.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
@@ -26,6 +27,11 @@ import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract SignedProposerPermit2Test is Test, DeployPermit2 {
+    // Polygon block 81,683,818, shared with SignedProposerTryMulticallForkTest.
+    uint256 internal constant POLYGON_BLOCK_GAS_LIMIT = 53_902_641;
+    // Bor rejects transactions larger than 128 KiB before EVM execution.
+    uint256 internal constant BOR_MAX_TRANSACTION_BYTES = 128 * 1024;
+    uint256 internal constant POLYGON_MAX_PROPOSALS_WITH_MAX_ANCILLARY_DATA = 14;
     bytes32 internal constant IDENTIFIER = keccak256("PRICE_ID");
     bytes internal constant ANCILLARY = bytes(":memo: test");
     uint256 internal constant LEGACY_DEFAULT_LIVENESS = 2 hours;
@@ -150,16 +156,27 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
     }
 
     function _makeRequest(uint256 timestamp, uint256 reward) internal returns (uint256 totalBond) {
+        return _makeRequest(timestamp, reward, ANCILLARY);
+    }
+
+    function _makeRequest(uint256 timestamp, uint256 reward, bytes memory ancillaryData)
+        internal
+        returns (uint256 totalBond)
+    {
         currency.mint(requester, reward);
         vm.startPrank(requester);
         currency.approve(address(moo), type(uint256).max);
-        totalBond = moo.requestPrice(IDENTIFIER, timestamp, ANCILLARY, IERC20(address(currency)), reward);
+        totalBond = moo.requestPrice(IDENTIFIER, timestamp, ancillaryData, IERC20(address(currency)), reward);
         vm.stopPrank();
     }
 
     function _setBond() internal {
+        _setBond(ANCILLARY);
+    }
+
+    function _setBond(bytes memory ancillaryData) internal {
         vm.prank(requestManager);
-        moo.requestManagerSetBond(requester, IDENTIFIER, ANCILLARY, IERC20(address(currency)), BOND);
+        moo.requestManagerSetBond(requester, IDENTIFIER, ancillaryData, IERC20(address(currency)), BOND);
     }
 
     function _fundAndApproveProposer(uint256 amount) internal {
@@ -177,15 +194,99 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         view
         returns (SignedProposer.Proposal memory)
     {
+        return _buildProposal(timestamp, price, maxPayment, ANCILLARY);
+    }
+
+    function _buildProposal(uint256 timestamp, int256 price, uint256 maxPayment, bytes memory ancillaryData)
+        internal
+        view
+        returns (SignedProposer.Proposal memory)
+    {
         return SignedProposer.Proposal({
             oracle: address(moo),
             requester: requester,
             identifier: IDENTIFIER,
             timestamp: timestamp,
-            ancillaryData: ANCILLARY,
+            ancillaryData: ancillaryData,
             proposedPrice: price,
             maxPayment: maxPayment
         });
+    }
+
+    function _maximallyPricedAncillaryData() internal view returns (bytes memory ancillaryData) {
+        ancillaryData = new bytes(moo.OO_ANCILLARY_DATA_LIMIT());
+        for (uint256 i; i < ancillaryData.length; ++i) {
+            ancillaryData[i] = 0xff;
+        }
+    }
+
+    function _transactionIntrinsicGas(bytes memory transactionData) internal pure returns (uint256 intrinsicGas) {
+        intrinsicGas = 21_000;
+        for (uint256 i; i < transactionData.length; ++i) {
+            intrinsicGas += transactionData[i] == 0 ? 4 : 16;
+        }
+    }
+
+    function _executeWithinPolygonBlock(bytes[] memory calls)
+        internal
+        returns (bool transactionSucceeded, bool[] memory successes)
+    {
+        bytes memory transactionData = abi.encodeCall(TryMulticall.tryMulticall, (calls));
+        uint256 intrinsicGas = _transactionIntrinsicGas(transactionData);
+        if (intrinsicGas >= POLYGON_BLOCK_GAS_LIMIT) return (false, successes);
+
+        vm.prank(relayer);
+        bytes memory returnData;
+        (transactionSucceeded, returnData) =
+            address(signedProposer).call{gas: POLYGON_BLOCK_GAS_LIMIT - intrinsicGas}(transactionData);
+        if (transactionSucceeded) successes = abi.decode(returnData, (bool[]));
+    }
+
+    function _prefix(bytes[] memory calls, uint256 length) internal pure returns (bytes[] memory selectedCalls) {
+        selectedCalls = new bytes[](length);
+        for (uint256 i; i < length; ++i) {
+            selectedCalls[i] = calls[i];
+        }
+    }
+
+    function _allSucceeded(bool transactionSucceeded, bool[] memory successes, uint256 expectedLength)
+        internal
+        pure
+        returns (bool)
+    {
+        if (!transactionSucceeded || successes.length != expectedLength) return false;
+        for (uint256 i; i < successes.length; ++i) {
+            if (!successes[i]) return false;
+        }
+        return true;
+    }
+
+    function _prepareMaxAncillaryCalls(uint256 count, bytes memory ancillaryData)
+        internal
+        returns (bytes[] memory calls)
+    {
+        vm.warp(block.timestamp + count + 1);
+        calls = new bytes[](count);
+        _fundAndApproveProposer(TOTAL_BOND * count);
+
+        for (uint256 i; i < count; ++i) {
+            uint256 timestamp = block.timestamp - i;
+            _makeRequest(timestamp, 0, ancillaryData);
+            _setBond(ancillaryData);
+
+            SignedProposer.Proposal memory proposal = _buildProposal(timestamp, int256(i + 1), 0, ancillaryData);
+            ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, i, block.timestamp + 1 hours);
+            calls[i] = abi.encodeCall(
+                SignedProposer.propose,
+                (
+                    proposal,
+                    proposer,
+                    permit,
+                    _getPermitWitnessTransferSignature(permit, proposal, address(signedProposer)),
+                    0
+                )
+            );
+        }
     }
 
     function _buildPermit(uint256 amount, uint256 nonce, uint256 deadline)
@@ -418,5 +519,37 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 1);
         assertEq(currency.balanceOf(proposer), proposerBalanceBefore);
         assertEq(currency.balanceOf(address(signedProposer)), signedProposerBalanceBefore);
+    }
+
+    function test_tryMulticall_maxAncillaryData_polygonBlockCapacity() public {
+        bytes memory ancillaryData = _maximallyPricedAncillaryData();
+        assertEq(ancillaryData.length, moo.OO_ANCILLARY_DATA_LIMIT());
+
+        uint256 firstFailingBatch = POLYGON_MAX_PROPOSALS_WITH_MAX_ANCILLARY_DATA + 1;
+        bytes[] memory allCalls = _prepareMaxAncillaryCalls(firstFailingBatch, ancillaryData);
+        bytes[] memory boundaryBatch = _prefix(allCalls, POLYGON_MAX_PROPOSALS_WITH_MAX_ANCILLARY_DATA);
+        bytes memory boundaryTransactionData = abi.encodeCall(TryMulticall.tryMulticall, (boundaryBatch));
+        bytes memory overBoundaryTransactionData = abi.encodeCall(TryMulticall.tryMulticall, (allCalls));
+
+        // The successful boundary leaves more than 6 KiB for the signed transaction envelope. At the next proposal,
+        // calldata alone exceeds Bor's complete RLP-encoded transaction limit and is rejected before EVM execution.
+        assertLt(boundaryTransactionData.length, BOR_MAX_TRANSACTION_BYTES);
+        assertGt(overBoundaryTransactionData.length, BOR_MAX_TRANSACTION_BYTES);
+
+        (bool boundaryTransactionSucceeded, bool[] memory boundarySuccesses) = _executeWithinPolygonBlock(boundaryBatch);
+        assertTrue(
+            _allSucceeded(
+                boundaryTransactionSucceeded, boundarySuccesses, POLYGON_MAX_PROPOSALS_WITH_MAX_ANCILLARY_DATA
+            )
+        );
+
+        emit log_named_uint("max ancillary bytes", ancillaryData.length);
+        emit log_named_uint("encoded proposal bytes", allCalls[0].length);
+        emit log_named_uint("Bor max transaction bytes", BOR_MAX_TRANSACTION_BYTES);
+        emit log_named_uint("largest accepted batch calldata bytes", boundaryTransactionData.length);
+        emit log_named_uint("first rejected batch calldata bytes", overBoundaryTransactionData.length);
+        emit log_named_uint("Polygon block gas limit", POLYGON_BLOCK_GAS_LIMIT);
+        emit log_named_uint("largest successful proposal batch", POLYGON_MAX_PROPOSALS_WITH_MAX_ANCILLARY_DATA);
+        emit log_named_uint("first failing proposal batch", firstFailingBatch);
     }
 }

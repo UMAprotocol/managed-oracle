@@ -322,9 +322,16 @@ The script only deploys the contract. The admin configures delegated proposers a
 
 Delegated proposers can submit ABI-encoded `SignedProposer.propose` calls through
 `tryMulticall(bytes[])`. There is no contract-level batch-size or per-child gas limit; transaction
-calldata and available block gas provide the practical bounds. Each valid child executes by
-self-delegatecall with the original relayer as `msg.sender`. Ordinary child reverts do not roll
-back successful siblings, but exhausting the transaction's gas will revert the entire batch.
+calldata, client transaction-pool policy, and available block gas provide the practical bounds.
+Each valid child executes by self-delegatecall with the original relayer as `msg.sender`. Ordinary
+child reverts do not roll back successful siblings, but exhausting the transaction's gas while
+executing a child or processing its revert data will revert the entire batch.
+
+Polygon Bor rejects transactions larger than 128 KiB. With the maximum valid OOv2 ancillary data
+of 8,139 non-zero bytes, each encoded `propose` child is 8,804 bytes: 14 children produce 124,612
+bytes of outer calldata and execute within the 53,902,641 gas limit at pinned block `81,683,818`,
+while 15 children produce 133,508 bytes before the signed transaction envelope and are rejected.
+Smaller ancillary data permits larger batches, subject to the same transaction-size and gas bounds.
 
 The function returns a `bool[]` aligned with the submitted calls. A failed child also emits:
 

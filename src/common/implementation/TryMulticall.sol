@@ -17,7 +17,8 @@ abstract contract TryMulticall {
 
     /**
      * @notice Executes allowed calls independently and returns their success values.
-     * @dev Self-delegatecall preserves the original caller. Failures emit only bounded metadata.
+     * @dev Self-delegatecall preserves the original caller. Ordinary failures emit only bounded metadata. There is no
+     * child gas or revert-data cap, so gas exhaustion while executing or recording a failure can revert the full batch.
      */
     function tryMulticall(bytes[] calldata calls) external returns (bool[] memory successes) {
         _checkTryMulticallCaller();
