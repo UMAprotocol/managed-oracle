@@ -323,9 +323,12 @@ The script only deploys the contract. The admin configures delegated proposers a
 Delegated proposers can submit ABI-encoded `SignedProposer.propose` calls through
 `tryMulticall(bytes[])`. There is no contract-level batch-size or per-child gas limit; transaction
 calldata, client transaction-pool policy, and available block gas provide the practical bounds.
-Each valid child executes by self-delegatecall with the original relayer as `msg.sender`. Ordinary
-child reverts do not roll back successful siblings, but exhausting the transaction's gas while
-executing a child or processing its revert data will revert the entire batch.
+Each valid child executes by self-delegatecall with the original relayer as `msg.sender`. A child
+revert does not roll back successful siblings if the outer call retains enough gas to finish. Under
+EIP-150, a gas-exhausting child can return `false` while preserving 1/64 of the caller's gas, so the
+outer call may continue; however, later children can then be gas-starved and also return `false`.
+If the remaining outer gas is insufficient to finish the loop or encode the result, the entire
+batch reverts and rolls back earlier successes.
 
 Polygon Bor rejects transactions larger than 128 KiB. With the maximum valid OOv2 ancillary data
 of 8,139 non-zero bytes, each encoded `propose` child is 8,804 bytes: 14 children produce 124,612
@@ -348,7 +351,9 @@ event ProposalCallFailed(
 zero when unavailable), and `revertDataHash` hashes the complete revert data. Full proposal
 calldata, signatures, and revert data are never logged. Successful children continue to emit the
 existing `ProposalExecuted` and oracle `ProposePrice` events. Consumers should use those events as
-the authoritative success evidence and `ProposalCallFailed` to classify individual failures.
+the authoritative success evidence. A `false` result and `ProposalCallFailed` mean only that the
+execution attempt did not complete successfully; they do not prove the proposal itself is invalid.
+In particular, empty failure metadata is ambiguous between an empty revert and out-of-gas.
 
 OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. `tryMulticall`
 does not change worker behavior; worker integration must be performed separately.

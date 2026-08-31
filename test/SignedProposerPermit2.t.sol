@@ -21,6 +21,7 @@ import {MockStore} from "./mocks/MockStore.sol";
 import {MockIdentifierWhitelist} from "./mocks/MockIdentifierWhitelist.sol";
 import {MockFinder} from "./mocks/MockFinder.sol";
 import {MockOracle} from "./mocks/MockOracle.sol";
+import {MaliciousSignedProposerOracle} from "./mocks/MaliciousSignedProposerOracle.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
@@ -519,6 +520,69 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 1);
         assertEq(currency.balanceOf(proposer), proposerBalanceBefore);
         assertEq(currency.balanceOf(address(signedProposer)), signedProposerBalanceBefore);
+    }
+
+    function test_tryMulticall_gasExhaustionAfterPermit2TransferRollsBackFailedChildAndContinues() public {
+        uint256 timestamp = block.timestamp;
+        _makeRequest(timestamp, 0);
+        _setBond();
+
+        MaliciousSignedProposerOracle gasExhaustingOracle =
+            new MaliciousSignedProposerOracle(IERC20(address(currency)), address(signedProposer), address(this));
+        gasExhaustingOracle.setBondAmount(TOTAL_BOND);
+        gasExhaustingOracle.setWhitelisted(proposer, true);
+        gasExhaustingOracle.setExhaustGasAfterTransfer(true);
+
+        SignedProposer.Proposal memory gasExhaustingProposal = SignedProposer.Proposal({
+            oracle: address(gasExhaustingOracle),
+            requester: requester,
+            identifier: IDENTIFIER,
+            timestamp: timestamp,
+            ancillaryData: ANCILLARY,
+            proposedPrice: 1 ether,
+            maxPayment: 0
+        });
+        SignedProposer.Proposal memory validProposal = _buildProposal(timestamp, 2 ether);
+        ISignatureTransfer.PermitTransferFrom memory gasExhaustingPermit =
+            _buildPermit(TOTAL_BOND, 19, block.timestamp + 1 hours);
+        ISignatureTransfer.PermitTransferFrom memory validPermit =
+            _buildPermit(TOTAL_BOND, 20, block.timestamp + 1 hours);
+        _fundAndApproveProposer(TOTAL_BOND * 2);
+
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(
+            SignedProposer.propose,
+            (
+                gasExhaustingProposal,
+                proposer,
+                gasExhaustingPermit,
+                _getPermitWitnessTransferSignature(gasExhaustingPermit, gasExhaustingProposal, address(signedProposer)),
+                0
+            )
+        );
+        calls[1] = abi.encodeCall(
+            SignedProposer.propose,
+            (
+                validProposal,
+                proposer,
+                validPermit,
+                _getPermitWitnessTransferSignature(validPermit, validProposal, address(signedProposer)),
+                0
+            )
+        );
+
+        (bool transactionSucceeded, bool[] memory successes) = _executeWithinPolygonBlock(calls);
+
+        assertTrue(transactionSucceeded);
+        assertFalse(successes[0]);
+        assertTrue(successes[1]);
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 1 << 20);
+        assertEq(currency.balanceOf(proposer), TOTAL_BOND);
+        assertEq(currency.balanceOf(address(signedProposer)), 0);
+        assertEq(currency.balanceOf(address(gasExhaustingOracle)), 0);
+        assertEq(currency.allowance(address(signedProposer), address(gasExhaustingOracle)), 0);
+        assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposer, proposer);
+        assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposedPrice, 2 ether);
     }
 
     function test_tryMulticall_maxAncillaryData_polygonBlockCapacity() public {

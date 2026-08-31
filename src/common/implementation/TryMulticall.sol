@@ -8,6 +8,9 @@ pragma solidity ^0.8.27;
 abstract contract TryMulticall {
     bool private _tryMulticallEntered;
 
+    /// @notice Emitted when a child execution attempt returns unsuccessfully.
+    /// @dev Empty failure metadata can mean either an empty revert or an out-of-gas child. This event does not prove
+    /// the submitted operation itself is invalid; callers may retry it with a different gas allocation.
     event ProposalCallFailed(
         uint256 indexed index, bytes32 indexed callHash, bytes4 errorSelector, bytes32 revertDataHash
     );
@@ -16,9 +19,12 @@ abstract contract TryMulticall {
     error TryMulticallInvalidSelector(uint256 index, bytes4 selector);
 
     /**
-     * @notice Executes allowed calls independently and returns their success values.
+     * @notice Executes allowed calls independently and returns their execution-attempt success values.
      * @dev Self-delegatecall preserves the original caller. Ordinary failures emit only bounded metadata. There is no
-     * child gas or revert-data cap, so gas exhaustion while executing or recording a failure can revert the full batch.
+     * child gas or revert-data cap. Under EIP-150, an out-of-gas child can return `false` while leaving the outer call
+     * enough gas to continue, but later children may receive too little gas and also return `false`. If the remaining
+     * outer gas cannot finish the loop or encode the result, the full batch reverts. A `false` value therefore means
+     * only that the corresponding execution attempt failed; it does not prove the submitted operation is invalid.
      */
     function tryMulticall(bytes[] calldata calls) external returns (bool[] memory successes) {
         _checkTryMulticallCaller();

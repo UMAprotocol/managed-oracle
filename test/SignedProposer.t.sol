@@ -90,6 +90,9 @@ contract SignedProposerTest is Test {
     uint256 internal constant BOND = 100 ether;
     uint256 internal constant FINAL_FEE = 10 ether;
     uint256 internal constant TOTAL_BOND = BOND + FINAL_FEE;
+    uint256 internal constant FULL_BATCH_REVERT_GAS = 1_000_000;
+    uint256 internal constant GAS_STARVATION_CONTINUATION_GAS = 8_000_000;
+    uint256 internal constant LATER_CHILD_RECOVERY_GAS = 30_000_000;
 
     bytes32 internal constant DELEGATED_PROPOSER_ROLE = keccak256("DELEGATED_PROPOSER_ROLE");
     bytes32 internal constant WHITELIST_ADMIN_ROLE = keccak256("WHITELIST_ADMIN_ROLE");
@@ -273,6 +276,48 @@ contract SignedProposerTest is Test {
                 selector := mload(add(revertData, 0x20))
             }
         }
+    }
+
+    function _buildRevertingProposal(bool exhaustGas, uint256 revertDataSize, uint256 timestamp, int256 price)
+        internal
+        returns (SignedProposer.Proposal memory proposal)
+    {
+        RevertingSignedProposerOracle revertingOracle =
+            new RevertingSignedProposerOracle(IERC20(address(currency)), exhaustGas, revertDataSize);
+        proposal = SignedProposer.Proposal({
+            oracle: address(revertingOracle),
+            requester: requester,
+            identifier: IDENTIFIER,
+            timestamp: timestamp,
+            ancillaryData: ANCILLARY,
+            proposedPrice: price,
+            maxPayment: 0
+        });
+    }
+
+    function _gasExhaustingThenValidCalls() internal returns (bytes[] memory calls, uint256 validTimestamp) {
+        validTimestamp = block.timestamp;
+        _makeRequest(validTimestamp, 0);
+        _setBond();
+        _fundAndApproveProposer(TOTAL_BOND);
+
+        SignedProposer.Proposal memory gasExhaustingProposal = _buildRevertingProposal(true, 0, validTimestamp, 1 ether);
+        SignedProposer.Proposal memory validProposal = _buildProposal(validTimestamp, 2 ether);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
+        calls = new bytes[](2);
+        calls[0] = _encodeProposalCall(gasExhaustingProposal, proposer, permit, "", 0);
+        calls[1] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
+    }
+
+    function _tryMulticallWithGas(bytes[] memory calls, uint256 gasLimit)
+        internal
+        returns (bool outerSuccess, bool[] memory successes)
+    {
+        vm.prank(relayer);
+        bytes memory returnData;
+        (outerSuccess, returnData) =
+            address(signedProposer).call{gas: gasLimit}(abi.encodeCall(TryMulticall.tryMulticall, (calls)));
+        if (outerSuccess) successes = abi.decode(returnData, (bool[]));
     }
 
     // ─── Propose tests ──────────────────────────────────────────────────────────
@@ -662,34 +707,126 @@ contract SignedProposerTest is Test {
     }
 
     function test_tryMulticall_gasExhaustingChildCanRevertEntireBatch() public {
-        uint256 timestamp = block.timestamp;
-        _makeRequest(timestamp, 0);
+        (bytes[] memory calls, uint256 validTimestamp) = _gasExhaustingThenValidCalls();
+        (bool outerSuccess,) = _tryMulticallWithGas(calls, FULL_BATCH_REVERT_GAS);
+
+        assertFalse(outerSuccess);
+        assertEq(moo.getRequest(requester, IDENTIFIER, validTimestamp, ANCILLARY).proposer, address(0));
+    }
+
+    function test_tryMulticall_gasExhaustingChildCanStarveLaterChildWithoutRevertingOuterBatch() public {
+        (bytes[] memory calls, uint256 validTimestamp) = _gasExhaustingThenValidCalls();
+        bytes32 emptyRevertDataHash = keccak256(bytes(""));
+
+        vm.expectEmit(true, true, false, true, address(signedProposer));
+        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0), emptyRevertDataHash);
+        vm.expectEmit(true, true, false, true, address(signedProposer));
+        emit ProposalCallFailed(1, keccak256(calls[1]), bytes4(0), emptyRevertDataHash);
+
+        (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, GAS_STARVATION_CONTINUATION_GAS);
+
+        assertTrue(outerSuccess);
+        assertFalse(successes[0]);
+        assertFalse(successes[1]);
+        assertEq(moo.getRequest(requester, IDENTIFIER, validTimestamp, ANCILLARY).proposer, address(0));
+        assertEq(currency.balanceOf(proposer), TOTAL_BOND);
+    }
+
+    function test_tryMulticall_gasExhaustingChildCanLeaveEnoughGasForLaterChild() public {
+        (bytes[] memory calls, uint256 validTimestamp) = _gasExhaustingThenValidCalls();
+
+        vm.expectEmit(true, true, false, true, address(signedProposer));
+        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0), keccak256(bytes("")));
+
+        (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, LATER_CHILD_RECOVERY_GAS);
+
+        assertTrue(outerSuccess);
+        assertFalse(successes[0]);
+        assertTrue(successes[1]);
+        assertEq(moo.getRequest(requester, IDENTIFIER, validTimestamp, ANCILLARY).proposedPrice, 2 ether);
+        assertEq(currency.balanceOf(proposer), 0);
+    }
+
+    function test_tryMulticall_emptyRevertAndGasStarvationShareFailureMetadata() public {
+        uint256 validTimestamp = block.timestamp;
+        _makeRequest(validTimestamp, 0);
         _setBond();
         _fundAndApproveProposer(TOTAL_BOND);
 
-        RevertingSignedProposerOracle gasExhaustingOracle =
-            new RevertingSignedProposerOracle(IERC20(address(currency)), true, 0);
-        SignedProposer.Proposal memory gasExhaustingProposal = SignedProposer.Proposal({
-            oracle: address(gasExhaustingOracle),
-            requester: requester,
-            identifier: IDENTIFIER,
-            timestamp: timestamp,
-            ancillaryData: ANCILLARY,
-            proposedPrice: 1 ether,
-            maxPayment: 0
-        });
-        SignedProposer.Proposal memory validProposal = _buildProposal(timestamp, 2 ether);
+        SignedProposer.Proposal memory emptyRevertProposal = _buildRevertingProposal(false, 0, validTimestamp, 1 ether);
+        SignedProposer.Proposal memory validProposal = _buildProposal(validTimestamp, 2 ether);
         ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
         bytes[] memory calls = new bytes[](2);
-        calls[0] = _encodeProposalCall(gasExhaustingProposal, proposer, permit, "", 0);
+        calls[0] = _encodeProposalCall(emptyRevertProposal, proposer, permit, "", 0);
         calls[1] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
 
-        vm.prank(relayer);
-        (bool success,) =
-            address(signedProposer).call{gas: 1_000_000}(abi.encodeCall(TryMulticall.tryMulticall, (calls)));
+        vm.expectEmit(true, true, false, true, address(signedProposer));
+        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0), keccak256(bytes("")));
 
-        assertFalse(success);
-        assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposer, address(0));
+        (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, GAS_STARVATION_CONTINUATION_GAS);
+
+        assertTrue(outerSuccess);
+        assertFalse(successes[0]);
+        assertTrue(successes[1]);
+        assertEq(moo.getRequest(requester, IDENTIFIER, validTimestamp, ANCILLARY).proposedPrice, 2 ether);
+    }
+
+    function test_tryMulticall_gasExhaustingLastChildPreservesEarlierSuccess() public {
+        (bytes[] memory originalCalls, uint256 validTimestamp) = _gasExhaustingThenValidCalls();
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = originalCalls[1];
+        calls[1] = originalCalls[0];
+
+        (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, LATER_CHILD_RECOVERY_GAS);
+
+        assertTrue(outerSuccess);
+        assertTrue(successes[0]);
+        assertFalse(successes[1]);
+        assertEq(moo.getRequest(requester, IDENTIFIER, validTimestamp, ANCILLARY).proposedPrice, 2 ether);
+        assertEq(currency.balanceOf(proposer), 0);
+    }
+
+    function test_tryMulticall_outerOutOfGasRollsBackEarlierSuccessfulChild() public {
+        (bytes[] memory originalCalls, uint256 validTimestamp) = _gasExhaustingThenValidCalls();
+        bytes[] memory calls = new bytes[](3);
+        calls[0] = originalCalls[1];
+        calls[1] = originalCalls[0];
+        calls[2] = originalCalls[0];
+
+        (bool outerSuccess,) = _tryMulticallWithGas(calls, FULL_BATCH_REVERT_GAS);
+
+        assertFalse(outerSuccess);
+        assertEq(moo.getRequest(requester, IDENTIFIER, validTimestamp, ANCILLARY).proposer, address(0));
+        assertEq(currency.balanceOf(proposer), TOTAL_BOND);
+    }
+
+    function test_tryMulticall_gasExhaustingMiddleChildPreservesBothSuccessfulSiblings() public {
+        vm.warp(block.timestamp + 2);
+        uint256 firstTimestamp = block.timestamp - 1;
+        uint256 secondTimestamp = block.timestamp;
+        _makeRequest(firstTimestamp, 0);
+        _makeRequest(secondTimestamp, 0);
+        _setBond();
+        _fundAndApproveProposer(TOTAL_BOND * 2);
+
+        SignedProposer.Proposal memory firstProposal = _buildProposal(firstTimestamp, 1 ether);
+        SignedProposer.Proposal memory gasExhaustingProposal = _buildRevertingProposal(true, 0, firstTimestamp, 9 ether);
+        SignedProposer.Proposal memory secondProposal = _buildProposal(secondTimestamp, 2 ether);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
+        bytes[] memory calls = new bytes[](3);
+        calls[0] = _encodeProposalCall(firstProposal, proposer, permit, "", 0);
+        calls[1] = _encodeProposalCall(gasExhaustingProposal, proposer, permit, "", 0);
+        calls[2] = _encodeProposalCall(secondProposal, proposer, permit, "", 0);
+
+        (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, LATER_CHILD_RECOVERY_GAS);
+
+        assertTrue(outerSuccess);
+        assertTrue(successes[0]);
+        assertFalse(successes[1]);
+        assertTrue(successes[2]);
+        assertEq(moo.getRequest(requester, IDENTIFIER, firstTimestamp, ANCILLARY).proposedPrice, 1 ether);
+        assertEq(moo.getRequest(requester, IDENTIFIER, secondTimestamp, ANCILLARY).proposedPrice, 2 ether);
+        assertEq(currency.balanceOf(proposer), 0);
     }
 
     function test_tryMulticall_hashesCompleteLargeRevertData() public {
