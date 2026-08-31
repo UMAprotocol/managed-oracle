@@ -213,7 +213,7 @@ contract PolymarketOOReporterTest {
     }
 
     function test_largeFanoutFallsBackToIndividualReportsWhenSettlementGasIsConstrained() external {
-        uint256 linkedRequestCount = 12;
+        uint256 linkedRequestCount = 10;
         bytes memory requestRules = bytes("Will ETH reach 10k?");
         for (uint256 i = 1; i <= linkedRequestCount; ++i) {
             module.registerRequest(bytes32(i), BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
@@ -223,8 +223,10 @@ contract PolymarketOOReporterTest {
         reporter.initializeRequest(bytes32(uint256(1)), 0, 0, LIVENESS);
         RequestData memory request = reporter.getRequest(bytes32(uint256(1)));
 
-        vm.expectEmit(address(reporter));
-        emit RequestResolved(bytes32(uint256(1)), request.requestTimestamp, 1 ether);
+        for (uint256 i = 1; i <= linkedRequestCount; ++i) {
+            vm.expectEmit(address(reporter));
+            emit RequestResolved(bytes32(i), request.requestTimestamp, 1 ether);
+        }
         vm.expectEmit(address(reporter));
         emit ResolutionCallbacksFailed(bytes32(uint256(1)), request.requestTimestamp);
 
@@ -232,8 +234,7 @@ contract PolymarketOOReporterTest {
             MockOptimisticOracleV2.settle,
             (address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether)
         );
-        // This cap covers settlement bookkeeping but not this mock module's complete fan-out. It tests fallback
-        // behavior, not a production request-ID limit, which depends on the downstream module's callback gas cost.
+        // This cap covers settlement bookkeeping and resolution events, but not the complete callback fan-out.
         (bool success,) = address(optimisticOracle).call{gas: 500_000}(settleCall);
 
         _assertTrue(success, "oracle settlement should survive fan-out exhaustion");

@@ -28,6 +28,8 @@ contract OOReporter is
     using SafeERC20 for IERC20;
 
     error OwnershipRenunciationDisabled();
+    /// @notice Thrown when one Managed OO request already serves the maximum number of external request IDs.
+    error ReporterRequestIdLimitReached();
 
     /*--------------------------------------------------------------
                              CONSTANTS
@@ -39,6 +41,8 @@ contract OOReporter is
     uint256 public constant MAXIMUM_CUSTOM_LIVENESS = 5200 weeks;
     /// @notice UMA sentinel price for "too early" / unresolvable (P4).
     int256 public constant P4_PRICE = type(int256).min;
+    /// @notice Maximum Polymarket request IDs that can share one Managed OO request.
+    uint256 private constant MAX_REQUEST_IDS_PER_REPORTER_KEY = 10;
 
     /*--------------------------------------------------------------
                               STORAGE
@@ -240,6 +244,7 @@ contract OOReporter is
         bytes32 reporterRequestKey = _reporterRequestKey(priceIdentifier, requestRules);
         bytes32 existingRequestId = requestIdsByReporterKey(reporterRequestKey);
         bytes32[] storage requestIds = $.requestIdsByReporterRequestKey[reporterRequestKey];
+        if (requestIds.length >= MAX_REQUEST_IDS_PER_REPORTER_KEY) revert ReporterRequestIdLimitReached();
         if (existingRequestId != bytes32(0)) {
             RequestData storage existingRequest = $.requests[existingRequestId];
             if (
@@ -437,8 +442,11 @@ contract OOReporter is
             request.rerequestAllowed = false;
 
             bytes32 reporterRequestKey = _reporterRequestKey(identifier, requestRules);
-            emit RequestResolved(requestId, timestamp, price);
-            try this.executeResolutionCallbacks(reporterRequestKey, timestamp, price) {}
+            bytes32[] storage requestIds = _getStorage().requestIdsByReporterRequestKey[reporterRequestKey];
+            for (uint256 i = 0; i < requestIds.length; ++i) {
+                emit RequestResolved(requestIds[i], timestamp, price);
+            }
+            try this.executeResolutionCallbacks(reporterRequestKey) {}
             catch {
                 emit ResolutionCallbacksFailed(requestId, timestamp);
             }
@@ -480,18 +488,16 @@ contract OOReporter is
         _executeAutomaticRerequest(requestId, request, rerequestType);
     }
 
-    /// @dev Isolates the unbounded callback fan-out so an out-of-gas failure cannot revert settlement state.
-    function executeResolutionCallbacks(bytes32 reporterRequestKey, uint256 timestamp, int256 price) external {
+    /// @dev Isolates the bounded callback fan-out so an out-of-gas failure cannot revert settlement state or events.
+    function executeResolutionCallbacks(bytes32 reporterRequestKey) external {
         if (msg.sender != address(this)) revert CallerNotSelf();
 
         OOReporterStorage storage $ = _getStorage();
         bytes32[] storage requestIds = $.requestIdsByReporterRequestKey[reporterRequestKey];
-        bytes32 canonicalRequestId = requestIdsByReporterKey(reporterRequestKey);
         for (uint256 i = 0; i < requestIds.length; ++i) {
             bytes32 linkedRequestId = requestIds[i];
             RequestData storage registration = $.requests[linkedRequestId];
             registration.initialized = true;
-            if (linkedRequestId != canonicalRequestId) emit RequestResolved(linkedRequestId, timestamp, price);
             _onRequestResolved(linkedRequestId, registration.requester);
         }
     }

@@ -234,14 +234,18 @@ contract OOReporterTest {
         );
     }
 
-    function test_registerRequestDoesNotCapDuplicateReporterTuple() external {
+    function test_registerRequestCapsDuplicateReporterTuple() external {
         bytes memory requestRules = _requestRules("primary");
-        for (uint256 i = 1; i <= 11; ++i) {
+        for (uint256 i = 1; i <= 10; ++i) {
             vm.prank(requester);
             reporter.registerRequest(bytes32(i), BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
         }
 
-        assertTrue(reporter.getRequest(bytes32(uint256(11))).registered, "eleventh request should be registered");
+        vm.prank(requester);
+        vm.expectRevert(OOReporter.ReporterRequestIdLimitReached.selector);
+        reporter.registerRequest(
+            bytes32(uint256(11)), BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS
+        );
     }
 
     function test_registerRequestAcceptsOORequestRulesLimit() external {
@@ -764,6 +768,10 @@ contract OOReporterTest {
         callbackReporter.registerRequest(
             REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS
         );
+        vm.prank(requester);
+        callbackReporter.registerRequest(
+            SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS
+        );
         vm.prank(oracleInitializer);
         callbackReporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
         RequestData memory request = callbackReporter.getRequest(REQUEST_ID);
@@ -771,12 +779,17 @@ contract OOReporterTest {
         vm.expectEmit(address(callbackReporter));
         emit RequestResolved(REQUEST_ID, request.requestTimestamp, 1 ether);
         vm.expectEmit(address(callbackReporter));
+        emit RequestResolved(SECOND_REQUEST_ID, request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(callbackReporter));
         emit ResolutionCallbacksFailed(REQUEST_ID, request.requestTimestamp);
         optimisticOracle.settle(
             address(callbackReporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether
         );
 
         assertTrue(callbackReporter.isRequestResolved(REQUEST_ID), "resolution should survive callback failure");
+        assertTrue(
+            callbackReporter.isRequestResolved(SECOND_REQUEST_ID), "alias resolution should survive callback failure"
+        );
         assertEq(callbackReporter.getRequestResolution(REQUEST_ID), 1 ether, "resolved outcome mismatch");
     }
 
@@ -853,7 +866,7 @@ contract OOReporterTest {
         reporter.executeAutomaticRerequest(REQUEST_ID, RerequestType.AutomaticDispute);
 
         vm.expectRevert(IOOReporter.CallerNotSelf.selector);
-        reporter.executeResolutionCallbacks(bytes32(0), 0, 0);
+        reporter.executeResolutionCallbacks(bytes32(0));
     }
 
     function test_priceDisputedAllowsManualRecoveryAboveRegisteredMaximumAfterConfigurationDrift() external {

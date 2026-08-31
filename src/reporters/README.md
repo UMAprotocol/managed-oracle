@@ -39,9 +39,9 @@ Deploy the base `OOReporter` for pull-only integrations and the Polymarket varia
 implements `IOOReporterModule.report(bytes32)`.
 
 The reporter creates one Managed OO lifecycle for each `(priceIdentifier, requestRules)` tuple. The same requester can
-register any number of request IDs with the same tuple and liveness range. Those IDs share the original Managed OO
-request, resolution, and automatic re-request state. Registrations from another requester or with a different liveness
-range are rejected.
+register up to ten request IDs with the same tuple and liveness range. Those IDs share the original Managed OO request,
+resolution, and automatic re-request state. Registrations from another requester, with a different liveness range, or
+above the ten-ID limit are rejected.
 
 ## Responsibilities
 
@@ -179,11 +179,11 @@ After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(reque
 the module that registered it. The reporter commits its shared resolved state before making these external calls, so the
 module can read the outcome using any associated request ID during `report`.
 
-The reporter emits `RequestResolved` for the canonical request ID before starting the unbounded callback fan-out, which
-runs in an external self-call wrapped in `try/catch`. If the complete fan-out reverts, including because it runs out of
-gas, the stored resolution, canonical resolution event, and Managed OO settlement remain successful and the reporter
-emits `ResolutionCallbacksFailed(requestId, requestTimestamp)`. Any alias resolution events and earlier callbacks from
-that reverted fan-out are rolled back, so operators must call each module's permissionless `report(requestId)`
+The reporter first emits `RequestResolved` for every associated request ID, then runs the callback fan-out in an external
+self-call wrapped in `try/catch`. Both loops are bounded by the ten-ID registration limit. If the callback fan-out
+reverts, including because it runs out of gas, the stored resolution, all resolution events, and Managed OO settlement
+remain successful and the reporter emits `ResolutionCallbacksFailed(requestId, requestTimestamp)`. Earlier callbacks
+from that reverted fan-out are rolled back, so operators must call each module's permissionless `report(requestId)`
 individually off-chain.
 
 Each callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
