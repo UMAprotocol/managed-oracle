@@ -11,6 +11,7 @@ import {SignedProposerOracleInterface} from "../interfaces/SignedProposerOracleI
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 import {AddressWhitelist} from "../../common/implementation/AddressWhitelist.sol";
 import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelistInterface.sol";
+import {TryMulticall} from "../../common/implementation/TryMulticall.sol";
 
 /**
  * @title SignedProposer
@@ -31,10 +32,10 @@ import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelis
  * the signer-approved Permit2 amount for that proposal.
  *
  * The contract is permissioned:
- * - `DELEGATED_PROPOSER_ROLE` — may call `propose`.
+ * - `DELEGATED_PROPOSER_ROLE` — may call `propose` and `tryMulticall`.
  * - `WHITELIST_ADMIN_ROLE` — may directly add/remove entries on whitelists owned by this contract.
  */
-contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
+contract SignedProposer is AccessControl, Multicall, ReentrancyGuard, TryMulticall {
     using SafeERC20 for IERC20;
 
     // ─── Structs ──────────────────────────────────────────────────────────────────
@@ -89,7 +90,6 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
     error PermitTokenMismatch(address requestCurrency, address permitToken);
     error CannotRemoveSelfFromWhitelist();
     error NewOwnerNotWhitelisted(address newOwner);
-
     // ─── Constructor ──────────────────────────────────────────────────────────────
 
     constructor(ISignatureTransfer _permit2, address admin) {
@@ -141,6 +141,14 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
     }
 
     // ─── Internals ────────────────────────────────────────────────────────────────
+
+    function _checkTryMulticallCaller() internal view override {
+        _checkRole(DELEGATED_PROPOSER_ROLE);
+    }
+
+    function _tryMulticallSelector() internal pure override returns (bytes4) {
+        return SignedProposer.propose.selector;
+    }
 
     function _getRequestCurrency(Proposal calldata proposal) internal view returns (IERC20) {
         OptimisticOracleV2Interface.Request memory request = OptimisticOracleV2Interface(proposal.oracle).getRequest(

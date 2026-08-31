@@ -325,6 +325,46 @@ forge script script/DeploySignedProposer.s.sol --rpc-url "YOUR_RPC_URL" --broadc
 
 The script only deploys the contract. The admin configures delegated proposers and any required whitelist ownership separately.
 
+### Partial-success proposal batches
+
+Delegated proposers can submit ABI-encoded `SignedProposer.propose` calls through
+`tryMulticall(bytes[])`. There is no contract-level batch-size or per-child gas limit; transaction
+calldata, client transaction-pool policy, and available block gas provide the practical bounds.
+Each valid child executes by self-delegatecall with the original relayer as `msg.sender`. A child
+revert does not roll back successful siblings if the outer call retains enough gas to finish. Under
+EIP-150, a gas-exhausting child can return `false` while preserving 1/64 of the caller's gas, so the
+outer call may continue; however, later children can then be gas-starved and also return `false`.
+If the remaining outer gas is insufficient to finish the loop or encode the result, the entire
+batch reverts and rolls back earlier successes.
+
+Polygon Bor rejects transactions larger than 128 KiB. With the maximum valid OOv2 ancillary data
+of 8,139 non-zero bytes, each encoded `propose` child is 8,804 bytes: 14 children produce 124,612
+bytes of outer calldata and execute within the 53,902,641 gas limit at pinned block `81,683,818`,
+while 15 children produce 133,508 bytes before the signed transaction envelope and are rejected.
+Smaller ancillary data permits larger batches, subject to the same transaction-size and gas bounds.
+
+The function returns a `bool[]` aligned with the submitted calls. A failed child also emits:
+
+```solidity
+event ProposalCallFailed(
+    uint256 indexed index,
+    bytes32 indexed callHash,
+    bytes4 errorSelector,
+    bytes32 revertDataHash
+);
+```
+
+`callHash` is `keccak256(calls[index])`, `errorSelector` is the first four revert-data bytes (or
+zero when unavailable), and `revertDataHash` hashes the complete revert data. Full proposal
+calldata, signatures, and revert data are never logged. Successful children continue to emit the
+existing `ProposalExecuted` and oracle `ProposePrice` events. Consumers should use those events as
+the authoritative success evidence. A `false` result and `ProposalCallFailed` mean only that the
+execution attempt did not complete successfully; they do not prove the proposal itself is invalid.
+In particular, empty failure metadata is ambiguous between an empty revert and out-of-gas.
+
+OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. `tryMulticall`
+does not change worker behavior; worker integration must be performed separately.
+
 ### Verification
 
 ```bash
