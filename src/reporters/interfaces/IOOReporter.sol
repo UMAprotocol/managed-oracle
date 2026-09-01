@@ -96,7 +96,7 @@ interface IOOReporter {
     error RequestAlreadyInitialized();
     /// @notice Thrown when registering a request ID that has already been registered.
     error RequestAlreadyRegistered();
-    /// @notice Thrown when registering a duplicate OO request tuple for a different request ID.
+    /// @notice Thrown when a duplicate OO request tuple has a different requester or liveness range.
     error ReporterRequestKeyAlreadyRegistered(bytes32 existingRequestId);
     /// @notice Thrown when an operation targets a request that already has a final outcome.
     error RequestAlreadyResolved();
@@ -179,7 +179,10 @@ interface IOOReporter {
         uint256 newReward
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
+    /// @dev Events for every linked request ID are emitted before the isolated callback batch.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
+    /// @notice Emitted when the isolated request-ID callback fan-out reverts after all resolution events are emitted.
+    event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
     /// @notice Emitted when a callback opens the oracle-initializer re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
@@ -267,12 +270,9 @@ interface IOOReporter {
     function automaticRerequestsEnabled() external view returns (bool);
 
     /// @notice Registers a requester-defined request ID and its UMA request identity before OO initialization.
-    /// @dev The reporter reserves each price identifier and request rules pair globally across approved requesters.
-    /// Enabled requesters share one owner-managed request namespace; the contract does not isolate identical UMA
-    /// request identities per requester. Independent integrations that need the exact same UMA request identity should
-    /// use separate reporter deployments; integrations with similar rules can domain-separate request rules so their
-    /// UMA request identities differ. minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness
-    /// remains a registration-time bound and offchain target that does not cap initialization or re-requests.
+    /// @dev Up to ten request IDs with matching price identifier, request rules, requester, and liveness values share one
+    /// Managed OO lifecycle. minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness remains a
+    /// registration-time bound and offchain target that does not cap initialization or re-requests.
     /// @param requestId Requester-defined request ID to bind to the UMA request identity.
     /// @param priceIdentifier UMA price identifier to request.
     /// @param requestRules Raw UMA request rules supplied by the requester.
@@ -303,7 +303,9 @@ interface IOOReporter {
 
     /// @notice Creates the Managed OO request for a registered request.
     /// @dev Pays the reward from the reporter's reward-currency balance and, when the Managed OO allowance is below
-    /// the reward, tops it up to an unbounded approval for the trusted oracle instead of approving per request.
+    /// the reward, tops it up to an unbounded approval for the trusted oracle instead of approving per request. A
+    /// duplicate ID reuses the shared request; if registered after resolution, its first initialization triggers the
+    /// resolution hook immediately, while subsequent initializations are no-ops.
     /// @param requestId Registered request ID.
     /// @param reward Reward offered to a successful OO proposer.
     /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective

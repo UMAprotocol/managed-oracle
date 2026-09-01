@@ -58,6 +58,14 @@ contract SimpleProxy {
     }
 }
 
+contract OutOfGasCallbackOOReporter is OOReporter {
+    function _onRequestResolved(bytes32, address) internal view override {
+        assembly {
+            if gt(gas(), 0) { invalid() }
+        }
+    }
+}
+
 contract OOReporterTest {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
@@ -92,6 +100,7 @@ contract OOReporterTest {
         uint256 manualRerequestsRemaining
     );
     event RequestRerequestBudgetSet(bytes32 indexed requestId, uint256 manualRerequestsRemaining);
+    event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
     event DefaultRerequestBudgetSet(uint256 defaultRerequestBudget);
     event AutomaticRerequestsEnabledSet(bool enabled);
 
@@ -189,13 +198,54 @@ contract OOReporterTest {
         );
     }
 
-    function test_registerRequestRejectsDuplicateReporterTuple() external {
+    function test_registerRequestAssociatesDuplicateReporterTuple() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(requester);
+        reporter.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
+
+        assertEq(reporter.getRequestId(BINARY_IDENTIFIER, requestRules), REQUEST_ID, "canonical request id changed");
+        RequestData memory request = reporter.getRequest(SECOND_REQUEST_ID);
+        assertTrue(request.registered, "duplicate request should be registered");
+        assertEq(request.priceIdentifier, BINARY_IDENTIFIER, "identifier mismatch");
+        assertEq(request.requestRules, requestRules, "rules mismatch");
+    }
+
+    function test_registerRequestRejectsDuplicateReporterTupleFromDifferentRequester() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.prank(owner);
+        reporter.setRequesterEnabled(secondRequester, true);
+        vm.prank(secondRequester);
+        vm.expectRevert(abi.encodeWithSelector(IOOReporter.ReporterRequestKeyAlreadyRegistered.selector, REQUEST_ID));
+        reporter.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
+    }
+
+    function test_registerRequestRejectsDuplicateReporterTupleWithDifferentLiveness() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
 
         vm.prank(requester);
         vm.expectRevert(abi.encodeWithSelector(IOOReporter.ReporterRequestKeyAlreadyRegistered.selector, REQUEST_ID));
-        reporter.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
+        reporter.registerRequest(
+            SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS + 1
+        );
+    }
+
+    function test_registerRequestCapsDuplicateReporterTuple() external {
+        bytes memory requestRules = _requestRules("primary");
+        for (uint256 i = 1; i <= 10; ++i) {
+            vm.prank(requester);
+            reporter.registerRequest(bytes32(i), BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS);
+        }
+
+        vm.prank(requester);
+        vm.expectRevert(OOReporter.ReporterRequestIdLimitReached.selector);
+        reporter.registerRequest(
+            bytes32(uint256(11)), BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS
+        );
     }
 
     function test_registerRequestAcceptsOORequestRulesLimit() external {
@@ -363,6 +413,25 @@ contract OOReporterTest {
         vm.prank(oracleInitializer);
         vm.expectRevert(IOOReporter.RequestAlreadyInitialized.selector);
         reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+    }
+
+    function test_initializeDuplicateRequestIdReusesCanonicalManagedOORequest() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        _registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+
+        vm.startPrank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+        vm.stopPrank();
+
+        RequestData memory canonical = reporter.getRequest(REQUEST_ID);
+        RequestData memory duplicate = reporter.getRequest(SECOND_REQUEST_ID);
+        assertEq(keccak256(abi.encode(duplicate)), keccak256(abi.encode(canonical)), "lifecycle should be shared");
+
+        bytes32 requestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, canonical.requestTimestamp, requestRules);
+        assertTrue(optimisticOracle.getMockRequest(requestKey).requested, "canonical OO request should exist");
     }
 
     function test_initializeRequestRejectsZeroLiveness() external {
@@ -685,6 +754,45 @@ contract OOReporterTest {
         );
     }
 
+    function test_priceSettledKeepsResolutionWhenCallbackFanoutRunsOutOfGas() external {
+        OutOfGasCallbackOOReporter implementation = new OutOfGasCallbackOOReporter();
+        bytes memory initData = abi.encodeCall(
+            IOOReporter.initialize,
+            (owner, address(optimisticOracle), address(usdc), oracleInitializer, requester, DEFAULT_REREQUEST_BUDGET)
+        );
+        OutOfGasCallbackOOReporter callbackReporter =
+            OutOfGasCallbackOOReporter(address(new SimpleProxy(address(implementation), initData)));
+        bytes memory requestRules = _requestRules("out-of-gas callback");
+
+        vm.prank(requester);
+        callbackReporter.registerRequest(
+            REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS
+        );
+        vm.prank(requester);
+        callbackReporter.registerRequest(
+            SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, MINIMUM_LIVENESS, MAXIMUM_LIVENESS
+        );
+        vm.prank(oracleInitializer);
+        callbackReporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+        RequestData memory request = callbackReporter.getRequest(REQUEST_ID);
+
+        vm.expectEmit(address(callbackReporter));
+        emit RequestResolved(REQUEST_ID, request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(callbackReporter));
+        emit RequestResolved(SECOND_REQUEST_ID, request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(callbackReporter));
+        emit ResolutionCallbacksFailed(REQUEST_ID, request.requestTimestamp);
+        optimisticOracle.settle(
+            address(callbackReporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether
+        );
+
+        assertTrue(callbackReporter.isRequestResolved(REQUEST_ID), "resolution should survive callback failure");
+        assertTrue(
+            callbackReporter.isRequestResolved(SECOND_REQUEST_ID), "alias resolution should survive callback failure"
+        );
+        assertEq(callbackReporter.getRequestResolution(REQUEST_ID), 1 ether, "resolved outcome mismatch");
+    }
+
     function test_priceDisputedAutomaticallyRerequestsOnceWithoutConsumingBudget() external {
         bytes memory requestRules = _requestRules("primary");
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
@@ -753,9 +861,12 @@ contract OOReporterTest {
         );
     }
 
-    function test_executeAutomaticRerequestRejectsNonSelfCaller() external {
+    function test_executeCallbackHelpersRejectNonSelfCaller() external {
         vm.expectRevert(IOOReporter.CallerNotSelf.selector);
         reporter.executeAutomaticRerequest(REQUEST_ID, RerequestType.AutomaticDispute);
+
+        vm.expectRevert(IOOReporter.CallerNotSelf.selector);
+        reporter.executeResolutionCallbacks(bytes32(0));
     }
 
     function test_priceDisputedAllowsManualRecoveryAboveRegisteredMaximumAfterConfigurationDrift() external {

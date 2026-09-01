@@ -28,6 +28,8 @@ contract OOReporter is
     using SafeERC20 for IERC20;
 
     error OwnershipRenunciationDisabled();
+    /// @notice Thrown when one Managed OO request already serves the maximum number of external request IDs.
+    error ReporterRequestIdLimitReached();
 
     /*--------------------------------------------------------------
                              CONSTANTS
@@ -39,6 +41,8 @@ contract OOReporter is
     uint256 public constant MAXIMUM_CUSTOM_LIVENESS = 5200 weeks;
     /// @notice UMA sentinel price for "too early" / unresolvable (P4).
     int256 public constant P4_PRICE = type(int256).min;
+    /// @notice Maximum Polymarket request IDs that can share one Managed OO request.
+    uint256 private constant MAX_REQUEST_IDS_PER_REPORTER_KEY = 10;
 
     /*--------------------------------------------------------------
                               STORAGE
@@ -62,6 +66,8 @@ contract OOReporter is
         uint256 defaultRerequestBudget;
         /// @notice Whether first-dispute and P4 automatic re-requests are enabled.
         bool automaticRerequestsEnabled;
+        /// @notice Polymarket request IDs sharing each `(priceIdentifier, requestRules)` Managed OO request.
+        mapping(bytes32 reporterRequestKey => bytes32[] requestIds) requestIdsByReporterRequestKey;
     }
 
     // keccak256(abi.encode(uint256(keccak256("uma.storage.OOReporter")) - 1)) & ~bytes32(uint256(0xff))
@@ -237,7 +243,17 @@ contract OOReporter is
 
         bytes32 reporterRequestKey = _reporterRequestKey(priceIdentifier, requestRules);
         bytes32 existingRequestId = requestIdsByReporterKey(reporterRequestKey);
-        if (existingRequestId != bytes32(0)) revert ReporterRequestKeyAlreadyRegistered(existingRequestId);
+        bytes32[] storage requestIds = $.requestIdsByReporterRequestKey[reporterRequestKey];
+        // Backfill requests registered before this array was added so the canonical ID counts toward the cap.
+        if (existingRequestId != bytes32(0) && requestIds.length == 0) requestIds.push(existingRequestId);
+        if (requestIds.length >= MAX_REQUEST_IDS_PER_REPORTER_KEY) revert ReporterRequestIdLimitReached();
+        if (existingRequestId != bytes32(0)) {
+            RequestData storage existingRequest = $.requests[existingRequestId];
+            if (
+                existingRequest.requester != msg.sender || existingRequest.minimumLiveness != minimumLiveness
+                    || existingRequest.maximumLiveness != maximumLiveness
+            ) revert ReporterRequestKeyAlreadyRegistered(existingRequestId);
+        }
 
         request.registered = true;
         request.requester = msg.sender;
@@ -245,7 +261,8 @@ contract OOReporter is
         request.requestRules = requestRules;
         request.minimumLiveness = minimumLiveness;
         request.maximumLiveness = maximumLiveness;
-        $.requestIdsByReporterKey[reporterRequestKey] = requestId;
+        requestIds.push(requestId);
+        if (existingRequestId == bytes32(0)) $.requestIdsByReporterKey[reporterRequestKey] = requestId;
 
         emit RequestRegistered(requestId, msg.sender, priceIdentifier, requestRules, minimumLiveness, maximumLiveness);
     }
@@ -289,7 +306,20 @@ contract OOReporter is
         external
         onlyOracleInitializer
     {
-        RequestData storage request = _requireRegistered(requestId);
+        bytes32 canonicalRequestId = _canonicalRequestId(requestId);
+        OOReporterStorage storage $ = _getStorage();
+        RequestData storage request = $.requests[canonicalRequestId];
+        if (request.initialized && requestId != canonicalRequestId) {
+            RequestData storage registration = $.requests[requestId];
+            if (registration.initialized) return;
+
+            registration.initialized = true;
+            if (request.resolved) {
+                emit RequestResolved(requestId, request.requestTimestamp, request.outcome);
+                _onRequestResolved(requestId, registration.requester);
+            }
+            return;
+        }
         if (request.initialized) revert RequestAlreadyInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
         _requireValidRequestLiveness(request, liveness);
@@ -303,6 +333,7 @@ contract OOReporter is
         request.proposalBond = proposalBond;
         request.liveness = liveness;
         request.manualRerequestsRemaining = manualRerequestsRemaining;
+        if (requestId != canonicalRequestId) $.requests[requestId].initialized = true;
 
         _requestPrice(request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness);
 
@@ -415,8 +446,17 @@ contract OOReporter is
             request.outcome = price;
             request.rerequestAllowed = false;
 
-            emit RequestResolved(requestId, timestamp, price);
-            _onRequestResolved(requestId, request.requester);
+            bytes32 reporterRequestKey = _reporterRequestKey(identifier, requestRules);
+            bytes32[] storage requestIds = _getStorage().requestIdsByReporterRequestKey[reporterRequestKey];
+            // Backfill untouched pre-array requests before emitting events and invoking callbacks.
+            if (requestIds.length == 0) requestIds.push(requestId);
+            for (uint256 i = 0; i < requestIds.length; ++i) {
+                emit RequestResolved(requestIds[i], timestamp, price);
+            }
+            try this.executeResolutionCallbacks(reporterRequestKey) {}
+            catch {
+                emit ResolutionCallbacksFailed(requestId, timestamp);
+            }
         }
     }
 
@@ -453,6 +493,23 @@ contract OOReporter is
 
         RequestData storage request = _requireRegistered(requestId);
         _executeAutomaticRerequest(requestId, request, rerequestType);
+    }
+
+    /// @dev Isolates the bounded callback fan-out so an out-of-gas failure cannot revert settlement state or
+    /// already-emitted resolution events.
+    /// @param reporterRequestKey Key for the linked request IDs whose callbacks should be executed.
+    function executeResolutionCallbacks(bytes32 reporterRequestKey) external {
+        if (msg.sender != address(this)) revert CallerNotSelf();
+
+        OOReporterStorage storage $ = _getStorage();
+        bytes32[] storage requestIds = $.requestIdsByReporterRequestKey[reporterRequestKey];
+        uint256 requestIdsLength = requestIds.length;
+        for (uint256 i = 0; i < requestIdsLength; ++i) {
+            bytes32 linkedRequestId = requestIds[i];
+            RequestData storage registration = $.requests[linkedRequestId];
+            registration.initialized = true;
+            _onRequestResolved(linkedRequestId, registration.requester);
+        }
     }
 
     /// @inheritdoc IOOReporter
@@ -637,9 +694,17 @@ contract OOReporter is
     }
 
     /// @dev Returns a registered request or reverts for unknown IDs.
+    function _canonicalRequestId(bytes32 requestId) private view returns (bytes32 canonicalRequestId) {
+        OOReporterStorage storage $ = _getStorage();
+        RequestData storage registration = $.requests[requestId];
+        if (!registration.registered) revert RequestNotRegistered();
+        canonicalRequestId =
+            $.requestIdsByReporterKey[_reporterRequestKey(registration.priceIdentifier, registration.requestRules)];
+    }
+
+    /// @dev Returns the canonical request shared by requestId and any duplicate registrations.
     function _requireRegistered(bytes32 requestId) private view returns (RequestData storage request) {
-        request = _getStorage().requests[requestId];
-        if (!request.registered) revert RequestNotRegistered();
+        request = _getStorage().requests[_canonicalRequestId(requestId)];
     }
 
     /// @dev Derives the callback lookup key from UMA request identity fields that are stable across re-requests.
