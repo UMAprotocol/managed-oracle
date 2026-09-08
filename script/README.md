@@ -373,6 +373,87 @@ In particular, empty failure metadata is ambiguous between an empty revert and o
 OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. `tryMulticall`
 does not change worker behavior; worker integration must be performed separately.
 
+### One-signature proposal batches
+
+`proposeBatch(BatchProposal[] proposals, address proposer, PermitTransferFrom permit, bytes signature, uint256[] payments)` executes a partial-success batch for **one signer and one collateral token**. Unlike `tryMulticall`, it uses one Permit2 signature, one nonce, and one upfront token transfer for the entire batch. It adds no persistent batch state or initializer changes.
+
+```solidity
+struct BatchProposal {
+    Proposal proposal; // Existing fields, including maxPayment.
+    uint256 maxAmount; // This item's maximum bond + payment spend.
+}
+```
+
+The signed witness is `BatchWitness(BatchProposal[] proposals)`. Each array item binds all existing proposal fields and its own `maxAmount`, and the array order is signed. The sum of `maxAmount` values must equal `permit.permitted.amount`. The batch must be nonempty and `payments.length` must match `proposals.length`. Actual `payments` are selected by the relayer and capped by each signed `proposal.maxPayment`; payments also consume that item's budget.
+
+The contract pulls the full budget once, verifies the exact token receipt, and attempts each item in an external self-call. That helper is callable only by the contract itself; the outer reentrancy guard remains active. Each oracle receives an allowance bounded by its item's budget minus payment, and any remaining allowance is revoked. A failed item rolls back all of its effects, including token movement and temporary whitelist changes. An item whose request currency does not match the permit token fails individually. The final refund is:
+
+```text
+permit.permitted.amount - sum(successful actual bonds + successful payments)
+```
+
+Previously retained payments are excluded from the refund. Successful items emit `ProposalExecuted`; failed items emit `BatchProposalFailed(index, proposalHash, errorSelector, revertDataHash)`, where `proposalHash` is the EIP-712 struct hash of the signed `BatchProposal` item. The function returns a matching `bool[]`, and `BatchExecuted(proposer, token, nonce, spent, refund)` summarizes the batch. Full signatures and ancillary data are not logged by these batch events.
+
+A completed outer transaction consumes the Permit2 nonce **even when every item fails**. Refunds do not restore it: retry failed items using a fresh batch signature and unused nonce. Invalid signatures, malformed batch shape/budgets, a failed Permit2 transfer, or a failed final refund revert the whole transaction, including nonce consumption and any successful proposals. This is a one-shot batch authorization, not an authorization that can be filled over multiple transactions.
+
+Like `tryMulticall`, this method has no per-child gas cap or batch-size constant. An out-of-gas child can starve later items or prevent the outer transaction from finishing; an outer revert rolls everything back. Clients must estimate gas and check calldata size for the actual batch. The 14/15 maximum-ancillary-data boundary documented above applies to the older `tryMulticall` encoding, not this encoding; do not assume that 15–20 items always fit Polygon's transaction-size limit.
+
+#### Constructing the signature in a UI
+
+Use the existing `Proposal` fields as typed data rather than ABI-encoded arbitrary calls. With `@uniswap/permit2-sdk` and an ethers v6 signer, the following constructs one signature. `proposals` is the ordered array of `{ proposal: { oracle, requester, identifier, timestamp, ancillaryData, proposedPrice, maxPayment }, maxAmount }` objects. `ancillaryData` is a hex-encoded byte string, and large integers should use decimal strings or bigint rather than JavaScript numbers.
+
+```typescript
+import { SignatureTransfer } from '@uniswap/permit2-sdk'
+
+const permit = {
+  permitted: {
+    token: collateralToken,
+    amount: proposals.reduce((sum, item) => sum + BigInt(item.maxAmount), 0n).toString(),
+  },
+  spender: signedProposerProxy, // The proxy, not the implementation or relayer.
+  nonce,                     // Unused Permit2 unordered nonce for this signer.
+  deadline,
+}
+
+const { domain, types, values } = SignatureTransfer.getPermitData(
+  permit,
+  permit2Address,
+  chainId,
+  {
+    witness: { proposals },
+    witnessTypeName: 'BatchWitness',
+    witnessType: {
+      BatchWitness: [{ name: 'proposals', type: 'BatchProposal[]' }],
+      BatchProposal: [
+        { name: 'proposal', type: 'Proposal' },
+        { name: 'maxAmount', type: 'uint256' },
+      ],
+      Proposal: [
+        { name: 'oracle', type: 'address' },
+        { name: 'requester', type: 'address' },
+        { name: 'identifier', type: 'bytes32' },
+        { name: 'timestamp', type: 'uint256' },
+        { name: 'ancillaryData', type: 'bytes' },
+        { name: 'proposedPrice', type: 'int256' },
+        { name: 'maxPayment', type: 'uint256' },
+      ],
+    },
+  },
+)
+const signature = await signer.signTypedData(domain, types, values)
+
+// Submit via an account holding DELEGATED_PROPOSER_ROLE.
+await relayContract.proposeBatch(
+  proposals,
+  await signer.getAddress(),
+  { permitted: permit.permitted, nonce: permit.nonce, deadline: permit.deadline },
+  signature,
+  payments,
+)
+```
+
+The wallet must already have sufficient ERC20 allowance to Permit2; a first-time token approval is separate from this one batch signature. The UI should show every proposal and its spend/payment caps, verify intended oracle addresses, and identify failed items for a fresh signature. Wallet rendering of nested typed-data arrays varies. The existing single-proposal witness remains unchanged, and `tryMulticall` still accepts only `propose` calls; use `proposeBatch` directly for this flow.
+
 ### Verification
 
 Verify the implementation with no constructor arguments. Verify the ERC1967 proxy separately using its implementation address and encoded `initialize(permit2, admin)` calldata as constructor arguments.

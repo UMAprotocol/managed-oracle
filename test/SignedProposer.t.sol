@@ -263,6 +263,117 @@ contract SignedProposerTest is Test {
         test_tryMulticall_allSuccess_preservesProposalEventsAndAccounting();
     }
 
+    function test_proposeBatch_rejectsEmptyMismatchedAndIncorrectlyFundedBatches() public {
+        SignedProposer.BatchProposal[] memory items = new SignedProposer.BatchProposal[](0);
+        uint256[] memory payments = new uint256[](0);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(1 ether, 0, block.timestamp + 1 hours);
+        vm.expectRevert(SignedProposer.EmptyBatch.selector);
+        vm.prank(relayer);
+        signedProposer.proposeBatch(items, proposer, permit, "", payments);
+
+        items = new SignedProposer.BatchProposal[](1);
+        items[0] = SignedProposer.BatchProposal(_buildProposal(block.timestamp, 1 ether), 2 ether);
+        vm.expectRevert(SignedProposer.BatchLengthMismatch.selector);
+        vm.prank(relayer);
+        signedProposer.proposeBatch(items, proposer, permit, "", payments);
+
+        payments = new uint256[](1);
+        vm.expectRevert(abi.encodeWithSelector(SignedProposer.BatchAmountMismatch.selector, 2 ether, 1 ether));
+        vm.prank(relayer);
+        signedProposer.proposeBatch(items, proposer, permit, "", payments);
+    }
+
+    function test_proposeBatch_onlyDelegatedRelayers() public {
+        SignedProposer.BatchProposal[] memory items = new SignedProposer.BatchProposal[](0);
+        uint256[] memory payments = new uint256[](0);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(0, 0, block.timestamp + 1 hours);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, admin, DELEGATED_PROPOSER_ROLE
+            )
+        );
+        vm.prank(admin);
+        signedProposer.proposeBatch(items, proposer, permit, "", payments);
+    }
+
+    function test_executeBatchProposal_cannotBypassFundingThroughPublicEntryPoints() public {
+        SignedProposer.BatchProposal memory item =
+            SignedProposer.BatchProposal(_buildProposal(block.timestamp, 1 ether), TOTAL_BOND);
+        bytes[] memory calls = new bytes[](1);
+        calls[0] = abi.encodeCall(SignedProposer.executeBatchProposal, (item, proposer, IERC20(address(currency)), 0));
+        vm.expectRevert(SignedProposer.OnlySelf.selector);
+        vm.prank(relayer);
+        signedProposer.executeBatchProposal(item, proposer, IERC20(address(currency)), 0);
+        vm.expectRevert(SignedProposer.OnlySelf.selector);
+        vm.prank(admin);
+        signedProposer.multicall(calls);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                TryMulticall.TryMulticallInvalidSelector.selector, 0, SignedProposer.executeBatchProposal.selector
+            )
+        );
+        vm.prank(relayer);
+        signedProposer.tryMulticall(calls);
+    }
+
+    function test_proposeBatch_rejectsShortPermit2Receipt() public {
+        ShortTransferERC20Mock shortToken = new ShortTransferERC20Mock();
+        SignedProposer.BatchProposal[] memory items = new SignedProposer.BatchProposal[](1);
+        items[0] = SignedProposer.BatchProposal(_buildProposal(block.timestamp, 1 ether), 100 ether);
+        uint256[] memory payments = new uint256[](1);
+        ISignatureTransfer.PermitTransferFrom memory permit =
+            _buildPermitForToken(address(shortToken), 100 ether, 0, block.timestamp + 1 hours);
+        shortToken.mint(proposer, 100 ether);
+        vm.prank(proposer);
+        shortToken.approve(address(mockPermit2), 100 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(SignedProposer.PermitTransferAmountMismatch.selector, 100 ether, 90 ether)
+        );
+        vm.prank(relayer);
+        signedProposer.proposeBatch(items, proposer, permit, "", payments);
+        assertEq(shortToken.balanceOf(proposer), 100 ether);
+    }
+
+    function test_proposeBatch_blocksReentrantSingleProposal() public {
+        _batchWithReentrantCallback(false);
+    }
+
+    function test_proposeBatch_blocksReentrantBatch() public {
+        _batchWithReentrantCallback(true);
+    }
+
+    function _batchWithReentrantCallback(bool nestedBatch) internal {
+        ReentrantSignedProposerRequester callbackRequester =
+            new ReentrantSignedProposerRequester(moo, signedProposer, IERC20(address(currency)));
+        requester = address(callbackRequester);
+        requesterWhitelist.addToWhitelist(requester);
+        vm.prank(admin);
+        signedProposer.addDelegatedProposer(requester);
+        callbackRequester.requestWithProposalCallback(IDENTIFIER, block.timestamp, ANCILLARY);
+        _setBond();
+        SignedProposer.BatchProposal[] memory items = new SignedProposer.BatchProposal[](1);
+        items[0] = SignedProposer.BatchProposal(_buildProposal(block.timestamp, 1 ether), TOTAL_BOND);
+        uint256[] memory payments = new uint256[](1);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
+        if (nestedBatch) {
+            callbackRequester.setReentrantBatchCall(
+                abi.encodeCall(SignedProposer.proposeBatch, (items, proposer, permit, bytes(""), payments))
+            );
+        } else {
+            callbackRequester.setReentrantProposal(items[0].proposal, proposer, permit, "", 0);
+        }
+        _fundAndApproveProposer(TOTAL_BOND);
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.proposeBatch(items, proposer, permit, "", payments);
+        assertTrue(successes[0]);
+        assertTrue(callbackRequester.attemptedReentrantPropose());
+        assertFalse(callbackRequester.reentrantProposeSucceeded());
+        assertEq(
+            callbackRequester.reentrantRevertData(),
+            abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector)
+        );
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────────
 
     function _makeRequest(uint256 timestamp, uint256 reward) internal returns (uint256 totalBond) {
@@ -1547,6 +1658,7 @@ contract ReentrantSignedProposerRequester {
     ISignatureTransfer.PermitTransferFrom internal reentrantPermit;
     address internal reentrantProposer;
     bytes internal reentrantSignature;
+    bytes internal reentrantBatchCall;
     uint256 internal reentrantPayment;
 
     bool public attemptedReentrantPropose;
@@ -1562,6 +1674,10 @@ contract ReentrantSignedProposerRequester {
     function requestWithProposalCallback(bytes32 identifier, uint256 timestamp, bytes memory ancillaryData) external {
         oracle.requestPrice(identifier, timestamp, ancillaryData, currency, 0);
         oracle.setCallbacks(identifier, timestamp, ancillaryData, true, false, false);
+    }
+
+    function setReentrantBatchCall(bytes calldata callData) external {
+        reentrantBatchCall = callData;
     }
 
     function setReentrantProposal(
@@ -1582,6 +1698,10 @@ contract ReentrantSignedProposerRequester {
         require(msg.sender == address(oracle), "ReentrantRequester: unauthorized");
 
         attemptedReentrantPropose = true;
+        if (reentrantBatchCall.length > 0) {
+            (reentrantProposeSucceeded, reentrantRevertData) = address(signedProposer).call(reentrantBatchCall);
+            return;
+        }
         try signedProposer.propose(
             reentrantProposal, reentrantProposer, reentrantPermit, reentrantSignature, reentrantPayment
         ) returns (uint256) {
