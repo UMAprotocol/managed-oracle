@@ -213,12 +213,15 @@ contract SignedProposer is
         address proposer,
         ISignatureTransfer.PermitTransferFrom calldata permit,
         bytes calldata signature,
-        uint256[] calldata payments
+        uint256[] memory payments
     ) external onlyRole(DELEGATED_PROPOSER_ROLE) nonReentrant returns (bool[] memory successes) {
         uint256 length = proposals.length;
         if (length == 0) revert EmptyBatch();
         if (length != payments.length) revert BatchLengthMismatch();
 
+        // Permit2 needs the full ordered witness before it can authenticate and fund the batch.
+        // This first pass hashes each item once and checks the total budget; the second executes
+        // the funded items. A permissioned relayer must still prove the signer's exact authorization.
         bytes32[] memory hashes = new bytes32[](length);
         uint256 totalBudget;
         for (uint256 i; i < length; ++i) {
@@ -232,7 +235,8 @@ contract SignedProposer is
         _permit2Transfer(permit, proposer, signature, witness, BATCH_WITNESS_TYPE_STRING);
 
         IERC20 currency = IERC20(permit.permitted.token);
-        uint256 refund = totalBudget;
+        // Deduct only successful bond + payment spends; failed budgets remain refundable.
+        uint256 refund = permit.permitted.amount;
         successes = new bool[](length);
         for (uint256 i; i < length; ++i) {
             try this.executeBatchProposal(proposals[i], proposer, currency, payments[i]) returns (uint256 spent) {
@@ -244,7 +248,7 @@ contract SignedProposer is
             }
         }
         if (refund > 0) currency.safeTransfer(proposer, refund);
-        emit BatchExecuted(proposer, address(currency), permit.nonce, totalBudget - refund, refund);
+        emit BatchExecuted(proposer, address(currency), permit.nonce, permit.permitted.amount - refund, refund);
     }
 
     /// @dev Only the funded batch may enter this call boundary. The outer nonReentrant guard stays

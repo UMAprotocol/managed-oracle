@@ -396,7 +396,18 @@ Previously retained payments are excluded from the refund. Successful items emit
 
 A completed outer transaction consumes the Permit2 nonce **even when every item fails**. Refunds do not restore it: retry failed items using a fresh batch signature and unused nonce. Invalid signatures, malformed batch shape/budgets, a failed Permit2 transfer, or a failed final refund revert the whole transaction, including nonce consumption and any successful proposals. This is a one-shot batch authorization, not an authorization that can be filled over multiple transactions.
 
-Like `tryMulticall`, this method has no per-child gas cap or batch-size constant. An out-of-gas child can starve later items or prevent the outer transaction from finishing; an outer revert rolls everything back. Clients must estimate gas and check calldata size for the actual batch. The 14/15 maximum-ancillary-data boundary documented above applies to the older `tryMulticall` encoding, not this encoding; do not assume that 15–20 items always fit Polygon's transaction-size limit.
+Like `tryMulticall`, this method has no per-child gas cap or batch-size constant. An out-of-gas child can starve later items or prevent the outer transaction from finishing; an outer revert rolls everything back. Clients must estimate gas and check calldata size for the actual batch.
+
+For **8,139 bytes of ancillary data per proposal** and a standard **65-byte EOA Permit2 signature**, `proposeBatch` fits **15 proposals** within Polygon Bor's 131,072-byte transaction-size limit:
+
+| Proposals | Outer calldata bytes | Result |
+|-----------|----------------------|--------|
+| 15 | 128,612 | Fits, with 2,460 bytes left for the transaction envelope |
+| 16 | 137,156 | Exceeds the limit before adding the envelope |
+
+The encoding is `452 + 8,544 × proposals` bytes at this ancillary-data/signature size. The capacity test reserves another 512 bytes for an ordinary signed legacy/type-2 transaction without an access list. Larger contract-wallet signatures or access lists require their own size check. Shorter ancillary data allows larger batches.
+
+`test_proposeBatch_maxAncillaryData_polygonCapacity` uses maximum-length, all-nonzero ancillary data, real Permit2 bytecode, the upgradeable relay, Managed OO, and temporary whitelist insertion/removal for every proposal. All 15 proposals succeed within the repository's 53,902,641 Polygon block gas reference limit (block `81,683,818`), after reserving intrinsic calldata gas. The test also passes with Foundry `--isolate` for separate transaction contexts. This is a local execution/capacity test, not a live Polygon submission or a guarantee of current RPC acceptance. The older `tryMulticall` encoding fits 14 proposals at the same maximum ancillary size because it carries a separate permit and signature for each proposal.
 
 #### Constructing the signature in a UI
 

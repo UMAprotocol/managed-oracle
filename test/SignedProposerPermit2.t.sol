@@ -240,7 +240,13 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         internal
         returns (bool transactionSucceeded, bool[] memory successes)
     {
-        bytes memory transactionData = abi.encodeCall(TryMulticall.tryMulticall, (calls));
+        return _executeWithinPolygonBlock(abi.encodeCall(TryMulticall.tryMulticall, (calls)));
+    }
+
+    function _executeWithinPolygonBlock(bytes memory transactionData)
+        internal
+        returns (bool transactionSucceeded, bool[] memory successes)
+    {
         uint256 intrinsicGas = _transactionIntrinsicGas(transactionData);
         if (intrinsicGas >= POLYGON_BLOCK_GAS_LIMIT) return (false, successes);
 
@@ -592,7 +598,7 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         ) = _prepareSignedBatch();
         bytes memory signature = _batchSignature(items, permit, address(signedProposer));
         vm.mockCallRevert(address(currency), abi.encodeCall(IERC20.transfer, (proposer, 27 ether)), hex"1234");
-        vm.expectRevert(hex"1234");
+        vm.expectRevert(bytes(hex"1234"));
         vm.prank(relayer);
         signedProposer.proposeBatch(items, proposer, permit, signature, payments);
         assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 0);
@@ -884,6 +890,74 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         assertEq(currency.allowance(address(signedProposer), address(gasExhaustingOracle)), 0);
         assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposer, proposer);
         assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposedPrice, 2 ether);
+    }
+
+    function test_proposeBatch_maxAncillaryData_polygonCapacity() public {
+        uint256 maxBatch = 15;
+        bytes memory ancillaryData = _maximallyPricedAncillaryData();
+        assertEq(ancillaryData.length, 8_139);
+        vm.warp(block.timestamp + maxBatch + 1);
+        SignedProposer.BatchProposal[] memory boundary = new SignedProposer.BatchProposal[](maxBatch);
+        SignedProposer.BatchProposal[] memory oversized = new SignedProposer.BatchProposal[](maxBatch + 1);
+        for (uint256 i; i < oversized.length; ++i) {
+            uint256 timestamp = block.timestamp - i;
+            _makeRequest(timestamp, 0, ancillaryData);
+            oversized[i] =
+                SignedProposer.BatchProposal(_buildProposal(timestamp, int256(i + 1), 0, ancillaryData), TOTAL_BOND);
+            if (i < maxBatch) boundary[i] = oversized[i];
+        }
+        _setBond(ancillaryData);
+        _fundAndApproveProposer(TOTAL_BOND * maxBatch);
+        // Include temporary whitelist insertion/removal for every successful item.
+        defaultProposerWhitelist.removeFromWhitelist(proposer);
+        defaultProposerWhitelist.transferOwnership(address(signedProposer));
+
+        ISignatureTransfer.PermitTransferFrom memory permit =
+            _buildPermit(TOTAL_BOND * maxBatch, 43, block.timestamp + 1 hours);
+        bytes memory boundaryData = abi.encodeCall(
+            SignedProposer.proposeBatch,
+            (
+                boundary,
+                proposer,
+                permit,
+                _batchSignature(boundary, permit, address(signedProposer)),
+                new uint256[](maxBatch)
+            )
+        );
+        permit.permitted.amount += TOTAL_BOND;
+        bytes memory oversizedData = abi.encodeCall(
+            SignedProposer.proposeBatch,
+            (
+                oversized,
+                proposer,
+                permit,
+                _batchSignature(oversized, permit, address(signedProposer)),
+                new uint256[](maxBatch + 1)
+            )
+        );
+
+        // For 65-byte EOA signatures: 452 fixed bytes + 8,544 bytes per maximum-sized item.
+        assertEq(boundaryData.length, 128_612);
+        assertEq(oversizedData.length, 137_156);
+        // Leave ample room for an ordinary signed legacy/type-2 envelope without an access list.
+        assertLt(boundaryData.length + 512, BOR_MAX_TRANSACTION_BYTES);
+        // The next batch already exceeds Bor's 128 KiB limit before adding the transaction envelope.
+        assertGt(oversizedData.length, BOR_MAX_TRANSACTION_BYTES);
+        (bool outerSuccess, bool[] memory successes) = _executeWithinPolygonBlock(boundaryData);
+        uint256 executionGas = vm.lastCallGas().gasTotalUsed;
+        assertTrue(_allSucceeded(outerSuccess, successes, maxBatch));
+        assertEq(currency.balanceOf(proposer), 0);
+        assertEq(currency.balanceOf(address(signedProposer)), 0);
+        assertEq(currency.allowance(address(signedProposer), address(moo)), 0);
+        assertFalse(defaultProposerWhitelist.isOnWhitelist(proposer));
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 1 << 43);
+
+        emit log_named_uint("max ancillary bytes per proposal", ancillaryData.length);
+        emit log_named_uint("largest successful proposal batch", maxBatch);
+        emit log_named_uint("15 proposal calldata bytes", boundaryData.length);
+        emit log_named_uint("batch execution gas (excluding intrinsic gas)", executionGas);
+        emit log_named_uint("16 proposal calldata bytes", oversizedData.length);
+        emit log_named_uint("Polygon block gas limit", POLYGON_BLOCK_GAS_LIMIT);
     }
 
     function test_tryMulticall_maxAncillaryData_polygonBlockCapacity() public {
