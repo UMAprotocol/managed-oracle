@@ -143,7 +143,14 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         permit2Address = deployPermit2();
         vm.label(permit2Address, "PERMIT2");
 
-        signedProposer = new SignedProposer(ISignatureTransfer(permit2Address), admin);
+        signedProposer = SignedProposer(
+            address(
+                new ERC1967Proxy(
+                    address(new SignedProposer()),
+                    abi.encodeCall(SignedProposer.initialize, (ISignatureTransfer(permit2Address), admin))
+                )
+            )
+        );
         vm.prank(admin);
         signedProposer.addDelegatedProposer(relayer);
 
@@ -422,6 +429,14 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
     }
 
     function test_tryMulticall_realPermit2DifferentProposersAndNonces() public {
+        _testRealPermit2Batch(false);
+    }
+
+    function test_upgrade_preservesPreviouslySignedPermit2Batch() public {
+        _testRealPermit2Batch(true);
+    }
+
+    function _testRealPermit2Batch(bool upgradeBeforeRelay) internal {
         vm.warp(block.timestamp + 2);
         uint256 firstTimestamp = block.timestamp - 1;
         uint256 secondTimestamp = block.timestamp;
@@ -470,6 +485,12 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
                 0
             )
         );
+
+        if (upgradeBeforeRelay) {
+            SignedProposer implementation = new SignedProposer();
+            vm.prank(admin);
+            signedProposer.upgradeToAndCall(address(implementation), "");
+        }
 
         vm.prank(relayer);
         bool[] memory successes = signedProposer.tryMulticall(calls);

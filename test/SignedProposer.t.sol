@@ -20,12 +20,14 @@ import {MockOracle} from "./mocks/MockOracle.sol";
 import {MockPermit2} from "./mocks/MockPermit2.sol";
 import {MaliciousSignedProposerOracle} from "./mocks/MaliciousSignedProposerOracle.sol";
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 contract ShortTransferERC20Mock is ERC20Mock {
     uint256 internal constant TRANSFER_FEE_BPS = 1_000;
@@ -164,7 +166,14 @@ contract SignedProposerTest is Test {
         moo.addRequestManager(requestManager);
 
         // Deploy SignedProposer with admin, then grant relayer the delegated proposer role.
-        signedProposer = new SignedProposer(ISignatureTransfer(address(mockPermit2)), admin);
+        signedProposer = SignedProposer(
+            address(
+                new ERC1967Proxy(
+                    address(new SignedProposer()),
+                    abi.encodeCall(SignedProposer.initialize, (ISignatureTransfer(address(mockPermit2)), admin))
+                )
+            )
+        );
         vm.prank(admin);
         signedProposer.addDelegatedProposer(relayer);
 
@@ -174,6 +183,84 @@ contract SignedProposerTest is Test {
 
         // Whitelist requester.
         requesterWhitelist.addToWhitelist(requester);
+    }
+
+    function test_revert_initialize_implementationLockedAndProxyCannotReinitialize() public {
+        SignedProposer implementation = new SignedProposer();
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        implementation.initialize(ISignatureTransfer(address(mockPermit2)), admin);
+
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        signedProposer.initialize(ISignatureTransfer(address(mockPermit2)), admin);
+    }
+
+    function test_revert_initialize_zeroAddresses() public {
+        SignedProposer implementation = new SignedProposer();
+        vm.expectRevert(SignedProposer.ZeroAddress.selector);
+        new ERC1967Proxy(
+            address(implementation), abi.encodeCall(SignedProposer.initialize, (ISignatureTransfer(address(0)), admin))
+        );
+        vm.expectRevert(SignedProposer.ZeroAddress.selector);
+        new ERC1967Proxy(
+            address(implementation),
+            abi.encodeCall(SignedProposer.initialize, (ISignatureTransfer(address(mockPermit2)), address(0)))
+        );
+    }
+
+    function test_revert_upgrade_onlyDefaultAdmin() public {
+        SignedProposer implementation = new SignedProposer();
+        address whitelistAdmin = makeAddr("whitelistAdmin");
+        vm.prank(admin);
+        signedProposer.addWhitelistAdmin(whitelistAdmin);
+        address[3] memory unauthorized = [relayer, whitelistAdmin, makeAddr("outsider")];
+        for (uint256 i; i < unauthorized.length; ++i) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    IAccessControl.AccessControlUnauthorizedAccount.selector, unauthorized[i], DEFAULT_ADMIN_ROLE
+                )
+            );
+            vm.prank(unauthorized[i]);
+            signedProposer.upgradeToAndCall(address(implementation), "");
+        }
+    }
+
+    function test_revert_upgrade_nonUUPSImplementation() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(ERC1967Utils.ERC1967InvalidImplementation.selector, address(mockPermit2))
+        );
+        vm.prank(admin);
+        signedProposer.upgradeToAndCall(address(mockPermit2), "");
+    }
+
+    function test_upgrade_preservesStateAndBatching() public {
+        vm.prank(admin);
+        signedProposer.addWhitelistAdmin(relayer);
+        defaultProposerWhitelist.transferOwnership(address(signedProposer));
+        test_tryMulticall_allSuccess_preservesProposalEventsAndAccounting();
+        uint256 retainedPayment = currency.balanceOf(address(signedProposer));
+        assertGt(retainedPayment, 0);
+
+        SignedProposer implementation = new SignedProposer();
+        vm.prank(admin);
+        signedProposer.upgradeToAndCall(address(implementation), "");
+
+        assertEq(
+            address(uint160(uint256(vm.load(address(signedProposer), ERC1967Utils.IMPLEMENTATION_SLOT)))),
+            address(implementation)
+        );
+        assertEq(address(signedProposer.permit2()), address(mockPermit2));
+        assertTrue(signedProposer.hasRole(DEFAULT_ADMIN_ROLE, admin));
+        assertTrue(signedProposer.hasRole(DELEGATED_PROPOSER_ROLE, relayer));
+        assertTrue(signedProposer.hasRole(WHITELIST_ADMIN_ROLE, relayer));
+        assertEq(defaultProposerWhitelist.owner(), address(signedProposer));
+        assertTrue(defaultProposerWhitelist.isOnWhitelist(address(signedProposer)));
+        assertEq(currency.balanceOf(address(signedProposer)), retainedPayment);
+        vm.prank(admin);
+        signedProposer.withdrawPayments(IERC20(address(currency)), admin, retainedPayment);
+        assertEq(currency.balanceOf(admin), retainedPayment);
+
+        // Exercises self-delegatecall, the batch lock, proposal reentrancy guard, and accounting after upgrading.
+        test_tryMulticall_allSuccess_preservesProposalEventsAndAccounting();
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -446,7 +533,7 @@ contract SignedProposerTest is Test {
         assertFalse(callbackRequester.reentrantProposeSucceeded());
         assertEq(
             callbackRequester.reentrantRevertData(),
-            abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector)
+            abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector)
         );
     }
 
@@ -1225,7 +1312,16 @@ contract SignedProposerTest is Test {
         defaultProposerWhitelist.removeFromWhitelist(proposer);
 
         address replacementAdmin = makeAddr("replacementAdmin");
-        SignedProposer replacement = new SignedProposer(ISignatureTransfer(address(mockPermit2)), replacementAdmin);
+        SignedProposer replacement = SignedProposer(
+            address(
+                new ERC1967Proxy(
+                    address(new SignedProposer()),
+                    abi.encodeCall(
+                        SignedProposer.initialize, (ISignatureTransfer(address(mockPermit2)), replacementAdmin)
+                    )
+                )
+            )
+        );
 
         defaultProposerWhitelist.addToWhitelist(address(replacement));
         defaultProposerWhitelist.transferOwnership(address(signedProposer));
