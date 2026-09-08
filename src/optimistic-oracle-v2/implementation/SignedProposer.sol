@@ -18,7 +18,7 @@ import {TryMulticall} from "../../common/implementation/TryMulticall.sol";
  * @title SignedProposer
  * @notice Allows proposers to sign Permit2 witness proposals off-chain and have them submitted by
  * a delegated relayer. The proposal parameters are embedded as the Permit2 witness so a single
- * signature authorises both the token transfer and the specific proposal.
+ * signature authorises both the token transfer and a specific proposal or ordered proposal batch.
  *
  * The signer is set as the proposer (receiving rewards on settlement).
  *
@@ -37,7 +37,7 @@ import {TryMulticall} from "../../common/implementation/TryMulticall.sol";
  *
  * The contract is permissioned:
  * - `DEFAULT_ADMIN_ROLE` — manages roles, payments, whitelist ownership, and upgrades.
- * - `DELEGATED_PROPOSER_ROLE` — may call `propose` and `tryMulticall`.
+ * - `DELEGATED_PROPOSER_ROLE` — may call `propose`, `proposeBatch`, and `tryMulticall`.
  * - `WHITELIST_ADMIN_ROLE` — may directly add/remove entries on whitelists owned by this contract.
  */
 contract SignedProposer is
@@ -51,7 +51,7 @@ contract SignedProposer is
 
     // ─── Structs ──────────────────────────────────────────────────────────────────
 
-    /// @notice Proposal witness — token amount, nonce & deadline live in the Permit2 permit.
+    /// @notice Proposal witness fields shared by individual permits and batch items.
     struct Proposal {
         address oracle;
         address requester;
@@ -60,6 +60,12 @@ contract SignedProposer is
         bytes ancillaryData;
         int256 proposedPrice;
         uint256 maxPayment;
+    }
+
+    /// @notice One signed batch item; maxAmount covers this proposal's bond and payment.
+    struct BatchProposal {
+        Proposal proposal;
+        uint256 maxAmount;
     }
 
     // ─── Roles ─────────────────────────────────────────────────────────────────────
@@ -76,6 +82,15 @@ contract SignedProposer is
     /// @dev Appended by Permit2 to build the full PermitWitnessTransferFrom EIP-712 type.
     string public constant WITNESS_TYPE_STRING =
         "Proposal witness)Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)TokenPermissions(address token,uint256 amount)";
+
+    bytes32 public constant BATCH_PROPOSAL_TYPEHASH = keccak256(
+        "BatchProposal(Proposal proposal,uint256 maxAmount)Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)"
+    );
+    bytes32 public constant BATCH_WITNESS_TYPEHASH = keccak256(
+        "BatchWitness(BatchProposal[] proposals)BatchProposal(Proposal proposal,uint256 maxAmount)Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)"
+    );
+    string public constant BATCH_WITNESS_TYPE_STRING =
+        "BatchWitness witness)BatchProposal(Proposal proposal,uint256 maxAmount)BatchWitness(BatchProposal[] proposals)Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)TokenPermissions(address token,uint256 amount)";
 
     // ─── Storage ───────────────────────────────────────────────────────────────
 
@@ -96,6 +111,17 @@ contract SignedProposer is
 
     event PaymentWithdrawn(address indexed token, address indexed to, uint256 amount);
 
+    event BatchProposalFailed(
+        uint256 indexed index, bytes32 indexed proposalHash, bytes4 errorSelector, bytes32 revertDataHash
+    );
+    event BatchExecuted(
+        address indexed proposer, address indexed token, uint256 indexed nonce, uint256 spent, uint256 refund
+    );
+
+    error EmptyBatch();
+    error BatchLengthMismatch();
+    error BatchAmountMismatch(uint256 totalBudget, uint256 permitAmount);
+    error OnlySelf();
     error ZeroAddress();
     error PaymentExceedsMaxPayment();
     error PermitTransferAmountMismatch(uint256 expectedAmount, uint256 receivedAmount);
@@ -163,8 +189,83 @@ contract SignedProposer is
         if (address(currency) != permit.permitted.token) {
             revert PermitTokenMismatch(address(currency), permit.permitted.token);
         }
-        _permit2Transfer(proposal, permit, proposer, signature);
-        totalBond = _executeProposal(proposal, proposer, currency, permit.permitted.amount, payment);
+        _permit2Transfer(permit, proposer, signature, _hashProposal(proposal), WITNESS_TYPE_STRING);
+        totalBond = _executeProposal(proposal, proposer, currency, permit.permitted.amount, payment, true);
+    }
+
+    /**
+     * @notice Execute a same-token batch for one signer using one Permit2 witness signature.
+     * @dev The ordered proposals and their individual budgets are signed. Their budgets must sum
+     * exactly to permit.permitted.amount. Each child rolls back independently on failure; only
+     * successful bonds/payments are charged, and all unused funds are refunded once at the end.
+     * A completed batch consumes its nonce even if every child fails. Invalid signatures, invalid
+     * batch shape/funding, a failed final refund, or insufficient outer gas revert the whole batch.
+     * As with tryMulticall, there is no per-child gas cap or guarantee against gas starvation.
+     * @param proposals Signed proposal fields and bond-plus-payment budgets, in execution order.
+     * @param proposer Signer, token owner, and refund recipient for the entire batch.
+     * @param permit Single-token Permit2 authorization covering the sum of all item budgets.
+     * @param signature One signature over the permit and BatchWitness.
+     * @param payments Actual per-item payments, bounded by each signed proposal.maxPayment.
+     * @return successes Per-item execution results. Failed items require a fresh signed batch to retry.
+     */
+    function proposeBatch(
+        BatchProposal[] calldata proposals,
+        address proposer,
+        ISignatureTransfer.PermitTransferFrom calldata permit,
+        bytes calldata signature,
+        uint256[] memory payments
+    ) external onlyRole(DELEGATED_PROPOSER_ROLE) nonReentrant returns (bool[] memory successes) {
+        uint256 length = proposals.length;
+        if (length == 0) revert EmptyBatch();
+        if (length != payments.length) revert BatchLengthMismatch();
+
+        // Permit2 needs the full ordered witness before it can authenticate and fund the batch.
+        // This first pass hashes each item once and checks the total budget; the second executes
+        // the funded items. A permissioned relayer must still prove the signer's exact authorization.
+        bytes32[] memory hashes = new bytes32[](length);
+        uint256 totalBudget;
+        for (uint256 i; i < length; ++i) {
+            hashes[i] = _hashBatchProposal(proposals[i]);
+            totalBudget += proposals[i].maxAmount;
+        }
+        if (totalBudget != permit.permitted.amount) {
+            revert BatchAmountMismatch(totalBudget, permit.permitted.amount);
+        }
+        bytes32 witness = keccak256(abi.encode(BATCH_WITNESS_TYPEHASH, keccak256(abi.encodePacked(hashes))));
+        _permit2Transfer(permit, proposer, signature, witness, BATCH_WITNESS_TYPE_STRING);
+
+        IERC20 currency = IERC20(permit.permitted.token);
+        // Deduct only successful bond + payment spends; failed budgets remain refundable.
+        uint256 refund = permit.permitted.amount;
+        successes = new bool[](length);
+        for (uint256 i; i < length; ++i) {
+            try this.executeBatchProposal(proposals[i], proposer, currency, payments[i]) returns (uint256 spent) {
+                successes[i] = true;
+                refund -= spent;
+            } catch (bytes memory reason) {
+                bytes4 errorSelector = reason.length >= 4 ? bytes4(reason) : bytes4(0);
+                emit BatchProposalFailed(i, hashes[i], errorSelector, keccak256(reason));
+            }
+        }
+        if (refund > 0) currency.safeTransfer(proposer, refund);
+        emit BatchExecuted(proposer, address(currency), permit.nonce, permit.permitted.amount - refund, refund);
+    }
+
+    /// @dev Only the funded batch may enter this call boundary. The outer nonReentrant guard stays
+    /// active throughout child execution; token/oracle callbacks cannot enter propose or proposeBatch.
+    /// An external self-call lets the parent catch failures and roll back every effect of this child.
+    function executeBatchProposal(BatchProposal calldata item, address proposer, IERC20 currency, uint256 payment)
+        external
+        returns (uint256 spent)
+    {
+        if (msg.sender != address(this)) revert OnlySelf();
+        if (payment > item.proposal.maxPayment) revert PaymentExceedsMaxPayment();
+        IERC20 requestCurrency = _getRequestCurrency(item.proposal);
+        if (requestCurrency != currency) {
+            revert PermitTokenMismatch(address(requestCurrency), address(currency));
+        }
+        // Defer refunds to the outer batch; the individual cap still bounds this oracle's allowance.
+        spent = _executeProposal(item.proposal, proposer, currency, item.maxAmount, payment, false) + payment;
     }
 
     // ─── Internals ────────────────────────────────────────────────────────────────
@@ -184,16 +285,8 @@ contract SignedProposer is
         return request.currency;
     }
 
-    function _permit2Transfer(
-        Proposal calldata proposal,
-        ISignatureTransfer.PermitTransferFrom calldata permit,
-        address proposer,
-        bytes calldata signature
-    ) internal {
-        IERC20 currency = IERC20(permit.permitted.token);
-        uint256 balanceBefore = currency.balanceOf(address(this));
-
-        bytes32 witness = keccak256(
+    function _hashProposal(Proposal calldata proposal) internal pure returns (bytes32) {
+        return keccak256(
             abi.encode(
                 PROPOSAL_TYPEHASH,
                 proposal.oracle,
@@ -205,13 +298,28 @@ contract SignedProposer is
                 proposal.maxPayment
             )
         );
+    }
+
+    function _hashBatchProposal(BatchProposal calldata item) internal pure returns (bytes32) {
+        return keccak256(abi.encode(BATCH_PROPOSAL_TYPEHASH, _hashProposal(item.proposal), item.maxAmount));
+    }
+
+    function _permit2Transfer(
+        ISignatureTransfer.PermitTransferFrom calldata permit,
+        address proposer,
+        bytes calldata signature,
+        bytes32 witness,
+        string memory witnessTypeString
+    ) internal {
+        IERC20 currency = IERC20(permit.permitted.token);
+        uint256 balanceBefore = currency.balanceOf(address(this));
 
         permit2.permitWitnessTransferFrom(
             permit,
             ISignatureTransfer.SignatureTransferDetails({to: address(this), requestedAmount: permit.permitted.amount}),
             proposer,
             witness,
-            WITNESS_TYPE_STRING,
+            witnessTypeString,
             signature
         );
 
@@ -227,7 +335,8 @@ contract SignedProposer is
         address proposer,
         IERC20 currency,
         uint256 maxAmount,
-        uint256 payment
+        uint256 payment,
+        bool refundExcess
     ) internal returns (uint256 totalBond) {
         AddressWhitelistInterface whitelist = _getEffectiveProposerWhitelist(proposal);
         bool addedToWhitelist;
@@ -244,7 +353,7 @@ contract SignedProposer is
         if (addedToWhitelist) whitelist.removeFromWhitelist(proposer);
 
         uint256 excess = maxAmount - totalBond - payment;
-        if (excess > 0) currency.safeTransfer(proposer, excess);
+        if (refundExcess && excess > 0) currency.safeTransfer(proposer, excess);
 
         emit ProposalExecuted(
             proposer,
