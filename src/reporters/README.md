@@ -179,16 +179,20 @@ After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(reque
 the module that registered it. The reporter commits its shared resolved state before making these external calls, so the
 module can read the outcome using any associated request ID during `report`.
 
-The reporter first emits `RequestResolved` for every associated request ID, then runs the callback fan-out in an external
-self-call wrapped in `try/catch`. Both loops are bounded by the ten-ID registration limit. If the callback fan-out
-reverts, including because it runs out of gas, the stored resolution, all resolution events, and Managed OO settlement
-remain successful and the reporter emits `ResolutionCallbacksFailed(requestId, requestTimestamp)`. Earlier callbacks
-from that reverted fan-out are rolled back, so operators must call each module's permissionless `report(requestId)`
-individually off-chain.
+The reporter uses one loop, bounded by the ten-ID registration limit, to emit each ID's `RequestResolved` event and
+then attempt its callback. The loop length is captured before any callback, so reentrant registrations wait for late
+initialization. There is no outer callback self-call or batch catch; successful callbacks persist if a later one fails.
 
-Each callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
-`ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and
-the reporter emits `ReportCallbackFailed(requestId, reporterModule)`. The module's permissionless `report(requestId)`
+Before each external `report` call, the Polymarket integration subtracts a proposed 150,000 gas reserve from `gasleft()`.
+If no callback budget remains, it emits `ReportCallbackFailed` and returns to the loop, which continues emitting all
+remaining resolution events. The reserve must cover the remaining registration writes, resolution/failure events,
+loop overhead, gas spent between measuring and forwarding gas, and the enclosing settlement return path. This value
+is a review candidate, not a general proof: it assumes sufficient transaction gas and must be validated against the
+production call path and gas schedule. The base reporter's internal hook is trusted; derived integrations must bound
+and catch their own external calls.
+
+Each attempted callback is wrapped in `try/catch`. A successful call emits `ReportCallbackSucceeded`; a reverted or
+skipped call emits `ReportCallbackFailed`. The module's permissionless `report(requestId)`
 entry point can then be retried separately. P4 settlements and stale, unknown, or repeated settlement callbacks do not
 trigger reporting. A newly registered ID for an already-resolved shared request follows the initialization behavior
 described above.

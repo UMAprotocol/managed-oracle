@@ -450,12 +450,14 @@ contract OOReporter is
             bytes32[] storage requestIds = _getStorage().requestIdsByReporterRequestKey[reporterRequestKey];
             // Backfill untouched pre-array requests before emitting events and invoking callbacks.
             if (requestIds.length == 0) requestIds.push(requestId);
-            for (uint256 i = 0; i < requestIds.length; ++i) {
-                emit RequestResolved(requestIds[i], timestamp, price);
-            }
-            try this.executeResolutionCallbacks(reporterRequestKey) {}
-            catch {
-                emit ResolutionCallbacksFailed(requestId, timestamp);
+            // A callback may register another ID; leave it for late initialization.
+            uint256 requestIdsLength = requestIds.length;
+            for (uint256 i = 0; i < requestIdsLength; ++i) {
+                bytes32 linkedRequestId = requestIds[i];
+                RequestData storage registration = _getStorage().requests[linkedRequestId];
+                registration.initialized = true;
+                emit RequestResolved(linkedRequestId, timestamp, price);
+                _onRequestResolved(linkedRequestId, registration.requester);
             }
         }
     }
@@ -493,23 +495,6 @@ contract OOReporter is
 
         RequestData storage request = _requireRegistered(requestId);
         _executeAutomaticRerequest(requestId, request, rerequestType);
-    }
-
-    /// @dev Isolates the bounded callback fan-out so an out-of-gas failure cannot revert settlement state or
-    /// already-emitted resolution events.
-    /// @param reporterRequestKey Key for the linked request IDs whose callbacks should be executed.
-    function executeResolutionCallbacks(bytes32 reporterRequestKey) external {
-        if (msg.sender != address(this)) revert CallerNotSelf();
-
-        OOReporterStorage storage $ = _getStorage();
-        bytes32[] storage requestIds = $.requestIdsByReporterRequestKey[reporterRequestKey];
-        uint256 requestIdsLength = requestIds.length;
-        for (uint256 i = 0; i < requestIdsLength; ++i) {
-            bytes32 linkedRequestId = requestIds[i];
-            RequestData storage registration = $.requests[linkedRequestId];
-            registration.initialized = true;
-            _onRequestResolved(linkedRequestId, registration.requester);
-        }
     }
 
     /// @inheritdoc IOOReporter

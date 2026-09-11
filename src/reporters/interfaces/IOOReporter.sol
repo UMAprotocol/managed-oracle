@@ -179,10 +179,8 @@ interface IOOReporter {
         uint256 newReward
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
-    /// @dev Events for every linked request ID are emitted before the isolated callback batch.
+    /// @dev Each linked request ID emits this event before attempting its own resolution callback.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
-    /// @notice Emitted when the isolated request-ID callback fan-out reverts after all resolution events are emitted.
-    event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
     /// @notice Emitted when a callback opens the oracle-initializer re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
