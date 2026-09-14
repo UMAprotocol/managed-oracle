@@ -269,18 +269,20 @@ contract OOReporter is
 
     /// @inheritdoc IOOReporter
     function updateRequestRules(bytes32 requestId, bytes calldata updatedRules) external onlyRequester {
-        RequestData storage request = _requireRegistered(requestId);
+        bytes32 canonicalRequestId = _canonicalRequestId(requestId);
+        RequestData storage request = _getStorage().requests[canonicalRequestId];
         if (request.resolved) revert RequestAlreadyResolved();
         if (msg.sender != request.requester) revert CallerNotRequestRegistrar();
 
         optimisticOracle().updateRequestRules(request.priceIdentifier, request.requestRules, updatedRules);
 
-        emit RequestRulesUpdated(requestId, block.timestamp, msg.sender, updatedRules);
+        emit RequestRulesUpdated(canonicalRequestId, block.timestamp, msg.sender, updatedRules);
     }
 
     /// @inheritdoc IOOReporter
     function setRequestReward(bytes32 requestId, uint256 newReward) external onlyOracleInitializer {
-        RequestData storage request = _requireRegistered(requestId);
+        bytes32 canonicalRequestId = _canonicalRequestId(requestId);
+        RequestData storage request = _getStorage().requests[canonicalRequestId];
         if (!request.initialized) revert RequestNotInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
 
@@ -297,7 +299,7 @@ contract OOReporter is
         oracle.setReward(request.priceIdentifier, request.requestTimestamp, request.requestRules, newReward);
 
         emit RequestRewardUpdated(
-            requestId, request.requestTimestamp, msg.sender, address(currency), oldReward, newReward
+            canonicalRequestId, request.requestTimestamp, msg.sender, address(currency), oldReward, newReward
         );
     }
 
@@ -338,7 +340,7 @@ contract OOReporter is
         _requestPrice(request.priceIdentifier, requestTimestamp, request.requestRules, reward, proposalBond, liveness);
 
         emit RequestInitialized(
-            requestId,
+            canonicalRequestId,
             requestTimestamp,
             msg.sender,
             request.priceIdentifier,
@@ -356,7 +358,8 @@ contract OOReporter is
         external
         onlyOracleInitializer
     {
-        RequestData storage request = _requireRegistered(requestId);
+        bytes32 canonicalRequestId = _canonicalRequestId(requestId);
+        RequestData storage request = _getStorage().requests[canonicalRequestId];
         if (!request.initialized) revert RequestNotInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
         if (!request.rerequestAllowed) revert RequestRerequestNotAllowed();
@@ -367,12 +370,13 @@ contract OOReporter is
 
         request.manualRerequestsRemaining -= 1;
 
-        _emitRequestRerequested(requestId, request, previousRequestTimestamp, msg.sender, RerequestType.Manual);
+        _emitRequestRerequested(canonicalRequestId, request, previousRequestTimestamp, msg.sender, RerequestType.Manual);
     }
 
     /// @inheritdoc IOOReporter
     function setRequestRerequestBudget(bytes32 requestId, uint256 newManualRerequestsRemaining) external onlyOwner {
-        RequestData storage request = _requireRegistered(requestId);
+        bytes32 canonicalRequestId = _canonicalRequestId(requestId);
+        RequestData storage request = _getStorage().requests[canonicalRequestId];
         if (!request.initialized) revert RequestNotInitialized();
         if (request.resolved) revert RequestAlreadyResolved();
         uint256 budgetCeiling = defaultRerequestBudget();
@@ -385,7 +389,7 @@ contract OOReporter is
 
         request.manualRerequestsRemaining = newManualRerequestsRemaining;
 
-        emit RequestRerequestBudgetSet(requestId, newManualRerequestsRemaining);
+        emit RequestRerequestBudgetSet(canonicalRequestId, newManualRerequestsRemaining);
     }
 
     /// @notice Managed OO dispute callback. Attempts one auto re-request, otherwise opens the manual gate.

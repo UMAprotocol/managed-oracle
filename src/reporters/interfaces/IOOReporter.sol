@@ -150,7 +150,7 @@ interface IOOReporter {
         uint64 minimumLiveness,
         uint64 maximumLiveness
     );
-    /// @notice Emitted when an approved oracle initializer creates the first Managed OO request.
+    /// @notice Emitted under the canonical request ID when the first shared Managed OO request is created.
     /// @dev proposalBond and liveness are reporter-requested parameters. Effective proposal-time values can differ
     /// if Managed OO request-manager preconfigs apply.
     event RequestInitialized(
@@ -165,11 +165,11 @@ interface IOOReporter {
         uint64 liveness,
         uint256 manualRerequestsRemaining
     );
-    /// @notice Emitted when the registering requester posts updated request rules for offchain consumers.
+    /// @notice Emitted under the canonical request ID when the requester posts shared request rules updates.
     event RequestRulesUpdated(
         bytes32 indexed requestId, uint256 indexed timestamp, address indexed updater, bytes updatedRules
     );
-    /// @notice Emitted when an approved oracle initializer updates the active Managed OO request reward.
+    /// @notice Emitted under the canonical request ID when the active shared Managed OO request reward changes.
     event RequestRewardUpdated(
         bytes32 indexed requestId,
         uint256 indexed requestTimestamp,
@@ -179,19 +179,22 @@ interface IOOReporter {
         uint256 newReward
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
-    /// @dev Events for every linked request ID are emitted before the isolated callback batch.
+    /// @dev Emitted for every linked request ID before the isolated callback batch; this does not confirm delivery.
+    /// Recovery via duplicate initialization can re-emit this event after a reverted batch. Consumers should
+    /// deduplicate by (reporter address, requestId, requestTimestamp).
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
-    /// @notice Emitted when the isolated request-ID callback fan-out reverts after all resolution events are emitted.
+    /// @notice Emitted under the canonical request ID when the callback batch reverts after resolution events.
+    /// @dev All callback effects and per-ID callback events from the reverted batch are rolled back.
     event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
-    /// @notice Emitted when a callback opens the oracle-initializer re-request path.
+    /// @notice Emitted under the canonical request ID when a callback opens the shared manual re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
-    /// @notice Emitted when an automatic re-request fails and the callback falls back to the manual gate.
+    /// @notice Emitted under the canonical request ID when an automatic re-request fails and opens the manual gate.
     event AutomaticRerequestFailed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestType indexed rerequestType
     );
-    /// @notice Emitted when the reporter creates a replacement Managed OO request.
+    /// @notice Emitted under the canonical request ID when the reporter creates a replacement Managed OO request.
     /// @dev proposalBond and liveness are reporter-requested parameters. Effective proposal-time values can differ
     /// if Managed OO request-manager preconfigs apply.
     event RequestRerequested(
@@ -206,7 +209,7 @@ interface IOOReporter {
         uint64 liveness,
         uint256 manualRerequestsRemaining
     );
-    /// @notice Emitted when the owner updates the remaining re-request budget for one request.
+    /// @notice Emitted under the canonical request ID when the owner updates the shared remaining re-request budget.
     event RequestRerequestBudgetSet(bytes32 indexed requestId, uint256 manualRerequestsRemaining);
     /// @notice Emitted when the owner sweeps ERC20 or native token funds from the reporter.
     event FundsSwept(address indexed token, address indexed recipient, uint256 amount);

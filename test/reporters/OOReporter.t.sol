@@ -434,6 +434,92 @@ contract OOReporterTest {
         assertTrue(optimisticOracle.getMockRequest(requestKey).requested, "canonical OO request should exist");
     }
 
+    function test_duplicateOperationsEmitCanonicalLifecycleEvents() external {
+        bytes memory requestRules = _requestRules("primary");
+        _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        _registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules);
+        uint256 initialTimestamp = vm.getBlockTimestamp();
+
+        vm.expectEmit(address(reporter));
+        emit IOOReporter.RequestInitialized(
+            REQUEST_ID,
+            initialTimestamp,
+            oracleInitializer,
+            BINARY_IDENTIFIER,
+            requestRules,
+            address(usdc),
+            0,
+            PROPOSAL_BOND,
+            LIVENESS,
+            DEFAULT_REREQUEST_BUDGET
+        );
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, PROPOSAL_BOND, LIVENESS);
+
+        bytes memory updatedRules = bytes("clarified rules");
+        vm.expectEmit(address(reporter));
+        emit RequestRulesUpdated(REQUEST_ID, initialTimestamp, requester, updatedRules);
+        vm.prank(requester);
+        reporter.updateRequestRules(SECOND_REQUEST_ID, updatedRules);
+
+        usdc.mint(address(reporter), REWARD);
+        vm.expectEmit(address(reporter));
+        emit RequestRewardUpdated(REQUEST_ID, initialTimestamp, oracleInitializer, address(usdc), 0, REWARD);
+        vm.prank(oracleInitializer);
+        reporter.setRequestReward(SECOND_REQUEST_ID, REWARD);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequestBudgetSet(REQUEST_ID, 2);
+        vm.prank(owner);
+        reporter.setRequestRerequestBudget(SECOND_REQUEST_ID, 2);
+
+        vm.warp(initialTimestamp + 1);
+        vm.expectEmit(address(reporter));
+        emit RequestRerequested(
+            REQUEST_ID,
+            initialTimestamp + 1,
+            address(reporter),
+            RerequestType.AutomaticDispute,
+            initialTimestamp,
+            address(usdc),
+            REWARD,
+            PROPOSAL_BOND,
+            LIVENESS,
+            2
+        );
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, initialTimestamp, requestRules);
+
+        vm.warp(initialTimestamp + 2);
+        vm.expectEmit(address(reporter));
+        emit RequestRerequestAllowed(REQUEST_ID, initialTimestamp + 1, RerequestTrigger.Dispute);
+        optimisticOracle.disputePrice(address(reporter), BINARY_IDENTIFIER, initialTimestamp + 1, requestRules);
+
+        vm.expectEmit(address(reporter));
+        emit RequestRerequested(
+            REQUEST_ID,
+            initialTimestamp + 2,
+            oracleInitializer,
+            RerequestType.Manual,
+            initialTimestamp + 1,
+            address(usdc),
+            REWARD,
+            PROPOSAL_BOND,
+            LIVENESS,
+            1
+        );
+        vm.prank(oracleInitializer);
+        reporter.rerequest(SECOND_REQUEST_ID, REWARD, PROPOSAL_BOND, LIVENESS);
+
+        RequestData memory canonical = reporter.getRequest(REQUEST_ID);
+        assertEq(canonical.requestTimestamp, initialTimestamp + 2, "shared request should advance");
+        assertEq(canonical.manualRerequestsRemaining, 1, "shared budget should decrement");
+        assertEq(
+            keccak256(abi.encode(reporter.getRequest(SECOND_REQUEST_ID))),
+            keccak256(abi.encode(canonical)),
+            "alias should share the event's canonical state"
+        );
+    }
+
     function test_initializeRequestRejectsZeroLiveness() external {
         _registerRequest(REQUEST_ID, BINARY_IDENTIFIER, _requestRules("primary"));
 
