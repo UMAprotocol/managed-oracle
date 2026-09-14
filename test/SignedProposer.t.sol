@@ -853,8 +853,12 @@ contract SignedProposerTest is Test {
         calls[0] = _encodeProposalCall(failedProposal, proposer, permit, "", 0);
         calls[1] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
 
+        bytes memory expectedPrefix = new bytes(256);
+        for (uint256 i; i < expectedPrefix.length; ++i) {
+            expectedPrefix[i] = bytes1(uint8(i % 251 + 1));
+        }
         vm.expectEmit(true, true, false, true, address(signedProposer));
-        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0), keccak256(new bytes(256)));
+        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0x01020304), keccak256(expectedPrefix));
 
         vm.prank(relayer);
         bool[] memory successes = signedProposer.tryMulticall(calls);
@@ -876,8 +880,12 @@ contract SignedProposerTest is Test {
         calls[0] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
         calls[1] = _encodeProposalCall(failedProposal, proposer, permit, "", 0);
 
+        bytes memory expectedPrefix = new bytes(256);
+        for (uint256 i; i < expectedPrefix.length; ++i) {
+            expectedPrefix[i] = bytes1(uint8(i % 251 + 1));
+        }
         vm.expectEmit(true, true, false, true, address(signedProposer));
-        emit ProposalCallFailed(1, keccak256(calls[1]), bytes4(0), keccak256(new bytes(256)));
+        emit ProposalCallFailed(1, keccak256(calls[1]), bytes4(0x01020304), keccak256(expectedPrefix));
 
         (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, 2_000_000);
 
@@ -1585,6 +1593,10 @@ contract RevertingSignedProposerOracle {
         }
 
         bytes memory revertData = new bytes(revertDataSize);
+        // Pattern the prefix and bytes beyond the cap without exhausting the gas-limited returndata regression.
+        for (uint256 i; i < revertData.length && i < 512; ++i) {
+            revertData[i] = bytes1(uint8(i % 251 + 1));
+        }
         assembly ("memory-safe") {
             revert(add(revertData, 0x20), mload(revertData))
         }
