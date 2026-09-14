@@ -8,9 +8,6 @@ import {IOOReporterModule} from "../interfaces/IOOReporterModule.sol";
 /// @notice OOReporter variant that automatically relays final results to the registering Polymarket V2 module.
 /// @custom:security-contact bugs@umaproject.org
 contract PolymarketOOReporter is OOReporter {
-    // Proposed reserve for the remaining ten-ID loop, events, call overhead, and settlement return path.
-    uint256 private constant CALLBACK_GAS_RESERVE = 150_000;
-
     /// @notice Emitted when automatic reporting returns without reverting.
     event ReportCallbackSucceeded(bytes32 indexed requestId, address indexed reporterModule);
 

@@ -183,7 +183,8 @@ The reporter uses one loop, bounded by the ten-ID registration limit, to emit ea
 then attempt its callback. The loop length is captured before any callback, so reentrant registrations wait for late
 initialization. There is no outer callback self-call or batch catch; successful callbacks persist if a later one fails.
 
-Before each external `report` call, the Polymarket integration subtracts a proposed 150,000 gas reserve from `gasleft()`.
+`OOReporter` defines the shared `CALLBACK_GAS_RESERVE` constant, currently proposed at 150,000 gas, for derived integrations.
+Before each external `report` call, the Polymarket integration subtracts that inherited reserve from `gasleft()`.
 If no callback budget remains, it emits `ReportCallbackFailed` and returns to the loop, which continues emitting all
 remaining resolution events. The reserve must cover the remaining registration writes, resolution/failure events,
 loop overhead, gas spent between measuring and forwarding gas, and the enclosing settlement return path. This value
