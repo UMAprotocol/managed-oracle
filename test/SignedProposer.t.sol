@@ -829,7 +829,7 @@ contract SignedProposerTest is Test {
         assertEq(currency.balanceOf(proposer), 0);
     }
 
-    function test_tryMulticall_hashesCompleteLargeRevertData() public {
+    function test_tryMulticall_hashesBoundedLargeRevertData() public {
         uint256 timestamp = block.timestamp;
         _makeRequest(timestamp, 0);
         _setBond();
@@ -854,13 +854,38 @@ contract SignedProposerTest is Test {
         calls[1] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
 
         vm.expectEmit(true, true, false, true, address(signedProposer));
-        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0), keccak256(new bytes(revertDataSize)));
+        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0), keccak256(new bytes(256)));
 
         vm.prank(relayer);
         bool[] memory successes = signedProposer.tryMulticall(calls);
 
         assertFalse(successes[0]);
         assertTrue(successes[1]);
+    }
+
+    function test_tryMulticall_largeRevertPreservesEarlierSuccessWithLimitedGas() public {
+        uint256 timestamp = block.timestamp;
+        _makeRequest(timestamp, 0);
+        _setBond();
+        _fundAndApproveProposer(TOTAL_BOND);
+
+        SignedProposer.Proposal memory validProposal = _buildProposal(timestamp, 2 ether);
+        SignedProposer.Proposal memory failedProposal = _buildRevertingProposal(false, 512 * 1024, timestamp, 1 ether);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
+        calls[1] = _encodeProposalCall(failedProposal, proposer, permit, "", 0);
+
+        vm.expectEmit(true, true, false, true, address(signedProposer));
+        emit ProposalCallFailed(1, keccak256(calls[1]), bytes4(0), keccak256(new bytes(256)));
+
+        (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, 2_000_000);
+
+        assertTrue(outerSuccess);
+        assertTrue(successes[0]);
+        assertFalse(successes[1]);
+        assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposedPrice, 2 ether);
+        assertEq(currency.balanceOf(proposer), 0);
     }
 
     // ─── Delegated proposer role tests ───────────────────────────────────────────
