@@ -209,7 +209,8 @@ interface IOOReporter {
         uint64 liveness,
         uint256 manualRerequestsRemaining
     );
-    /// @notice Emitted under the canonical request ID when the owner updates the shared remaining re-request budget.
+    /// @notice Emitted under the canonical request ID when the shared remaining re-request budget changes.
+    /// @dev Emitted for owner updates and automatic refills to the default budget on P4 settlement.
     event RequestRerequestBudgetSet(bytes32 indexed requestId, uint256 manualRerequestsRemaining);
     /// @notice Emitted when the owner sweeps ERC20 or native token funds from the reporter.
     event FundsSwept(address indexed token, address indexed recipient, uint256 amount);
