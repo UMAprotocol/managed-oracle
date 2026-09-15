@@ -43,7 +43,7 @@ contract OOReporter is
     int256 public constant P4_PRICE = type(int256).min;
     /// @notice Maximum Polymarket request IDs that can share one Managed OO request.
     uint256 private constant MAX_REQUEST_IDS_PER_REPORTER_KEY = 10;
-    // Shared reserve for the remaining ten-ID loop, events, call overhead, and settlement return path.
+    // 135k completion budget plus 15k headroom; see the callback gas budget in src/reporters/README.md.
     uint256 internal constant CALLBACK_GAS_RESERVE = 150_000;
 
     /*--------------------------------------------------------------
