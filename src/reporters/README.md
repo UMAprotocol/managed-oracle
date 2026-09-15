@@ -179,22 +179,73 @@ After storing a non-P4 final outcome, `PolymarketOOReporter` calls `report(reque
 the module that registered it. The reporter commits its shared resolved state before making these external calls, so the
 module can read the outcome using any associated request ID during `report`.
 
-The reporter first emits `RequestResolved` for every associated request ID, then runs the callback fan-out in an external
-self-call wrapped in `try/catch`. Both loops are bounded by the ten-ID registration limit. If the callback fan-out
-reverts, including because it runs out of gas, the stored resolution, all resolution events, and Managed OO settlement
-remain successful and the reporter emits `ResolutionCallbacksFailed(requestId, requestTimestamp)`. Earlier callbacks
-from that reverted fan-out are rolled back, so operators must call each module's permissionless `report(requestId)`
-individually off-chain.
+The reporter uses one loop, bounded by the ten-ID registration limit, to emit each ID's `RequestResolved` event and
+then attempt its callback. The loop length is captured before any callback, so reentrant registrations wait for late
+initialization. There is no outer callback self-call or batch catch; successful callbacks persist if a later one fails.
 
-Each callback is wrapped in `try/catch`. If the call returns without reverting, the reporter emits
-`ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and
-the reporter emits `ReportCallbackFailed(requestId, reporterModule)`. The module's permissionless `report(requestId)`
+`OOReporter` defines the shared `CALLBACK_GAS_RESERVE` constant at 150,000 gas for derived integrations.
+Before each external `report` call, the Polymarket integration subtracts that inherited reserve from `gasleft()`.
+If no callback budget remains, it emits `ReportCallbackFailed` and returns to the loop, which continues emitting all
+remaining resolution events. The reserve must cover the remaining registration writes, resolution/failure events,
+loop overhead, gas spent between measuring and forwarding gas, and the enclosing settlement return path. The budget and
+local real-contract validation are detailed below; audit sign-off remains pending. The base reporter's internal hook is
+trusted; derived integrations must use the reserve and catch their own external calls.
+
+Each attempted callback is wrapped in `try/catch`. A successful call emits `ReportCallbackSucceeded`; a reverted or
+skipped call emits `ReportCallbackFailed`. The module's permissionless `report(requestId)`
 entry point can then be retried separately. P4 settlements and stale, unknown, or repeated settlement callbacks do not
 trigger reporting. A newly registered ID for an already-resolved shared request follows the initialization behavior
 described above.
 
 The reporter never calls market-side `finalize()`. Any reporting liveness, threshold, payout translation, and
 finalization logic remains enforced by the Polymarket V2 contracts.
+
+### Callback gas budget
+
+The reserve uses the repository's Solidity 0.8.30, optimizer runs 1, via-IR, and `evm_version = "prague"` configuration.
+The budget uses [EIP-2929](https://eips.ethereum.org/EIPS/eip-2929) cold storage/account costs and
+[EIP-2200](https://eips.ethereum.org/EIPS/eip-2200) storage metering. It does not credit gas refunds or the extra gas
+retained by enclosing proxy/oracle frames under [EIP-150](https://eips.ethereum.org/EIPS/eip-150).
+
+The worst remaining loop has nine untouched duplicate registrations after the first callback exhausts its allowance.
+Each iteration reads the ID, packed registration flags, and requester, sets `initialized`, emits `RequestResolved`,
+and emits `ReportCallbackFailed` without another external call. A registration already has a nonzero flags slot, so
+the flag update is a nonzero-to-nonzero write: three cold reads cost 6,300 and the warmed write costs 2,900 gas. The
+two events cost 3,256 gas together; a 13,500 per-iteration allowance also covers hashing, arithmetic and control flow.
+
+| Work charged to the reserve | Conservative gas budget |
+| --- | ---: |
+| Measurement-to-CALL setup, including a cold callback target | 3,500 |
+| Failed callback catch/event and final loop exit | 2,000 |
+| Nine remaining iterations, 13,500 each | 121,500 |
+| Both proxy returns, oracle guard restoration/modifier reset and ABI return | 8,000 |
+| Completion budget | **135,000** |
+| Additional headroom | **15,000** |
+| `CALLBACK_GAS_RESERVE` | **150,000** |
+
+Opcode profiling of the first-position failure with short rules measured 13,063 gas per skipped iteration and
+119,205 from callback return through reporter completion (including its catch and loop exit). Measurement-to-CALL
+overhead was 375 with a warm target; the budget additionally allows the 2,500 cold-account surcharge. The oracle's
+post-callback guard/modifier/ABI work used 3,583 gas; the two proxy returns used 63 combined. These are gross execution
+costs, without subtracting refunds. The rounded budget totals 135,000; the configured reserve adds 15,000 headroom.
+
+`test/reporters/PolymarketOOReporterSettlement.t.sol` exercises the actual `ManagedOptimisticOracleV2.settle` implementation
+and `PolymarketOOReporter`, each behind an OpenZeppelin `ERC1967Proxy`. Only external configuration/token dependencies and
+the downstream reporter module are test fixtures. It uses maximum-length nonzero rules (8,139 bytes), ten linked IDs,
+uninitialized aliases and cold oracle/reporter/module/token storage. At each of the ten positions, the module writes its
+report state and then executes `INVALID`, consuming the whole callback allowance and reverting that callback's writes.
+The test checks the oracle payout/return value and settled state, all ten resolution events, earlier successful reports,
+failure/skip events and permissionless recovery. Calling the real oracle getter afterward also checks that its guard reset.
+
+Each oracle-proxy call is capped at 8,000,000 execution gas so earlier maximum-rules reports can finish before the selected
+failing callback. A production transaction must additionally cover intrinsic/calldata gas; this cap is not a minimum gas
+recommendation. During validation, a temporary 135,000 reserve passed all ten positions; 110,000 reverted settlement.
+The committed 150,000 reserve passes. The regression also fails against the original callback-batch implementation.
+
+Run `forge test --offline --match-contract PolymarketOOReporterSettlementTest -vv` to reproduce the integration test.
+This validates the configured local EVM schedule, not a live-chain transaction. Sufficient transaction gas is still
+required before callbacks begin. Revalidate the budget if the ten-ID cap, loop, integration hook, compiler settings,
+proxy/settlement return path or chain gas schedule changes.
 
 ## Rules Updates
 
