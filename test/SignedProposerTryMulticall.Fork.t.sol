@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {IEIP712} from "permit2/src/interfaces/IEIP712.sol";
@@ -58,7 +59,14 @@ contract SignedProposerTryMulticallForkTest is Test {
         assertNotEq(firstProposer, secondProposer, "proposers must differ");
 
         currency = new ERC20Mock();
-        signedProposer = new SignedProposer(ISignatureTransfer(POLYGON_PERMIT2), admin);
+        signedProposer = SignedProposer(
+            address(
+                new ERC1967Proxy(
+                    address(new SignedProposer()),
+                    abi.encodeCall(SignedProposer.initialize, (ISignatureTransfer(POLYGON_PERMIT2), admin))
+                )
+            )
+        );
         oracle = new MaliciousSignedProposerOracle(currency, address(signedProposer), address(0));
         oracle.setBondAmount(BOND);
 
