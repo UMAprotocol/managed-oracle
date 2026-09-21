@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
 
-import {OOReporter} from "../src/OOReporter.sol";
-import {PolymarketOOReporter} from "../src/PolymarketOOReporter.sol";
-import {RequestData} from "../src/interfaces/IOOReporter.sol";
+import {OOReporter} from "src/reporters/OOReporter.sol";
+import {PolymarketOOReporter} from "src/reporters/integrations/PolymarketOOReporter.sol";
+import {RequestData} from "src/reporters/interfaces/IOOReporter.sol";
 
 interface IUUPSUpgradeable {
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
@@ -422,8 +422,7 @@ contract UpgradeOOReporter is Script {
 
         if (
             !request.registered || requester != expectedRequester || request.requester != requester
-                || request.priceIdentifier != priceIdentifier
-                || keccak256(request.requestRules) != keccak256(requestRules)
+                || request.priceIdentifier != priceIdentifier || keccak256(request.requestRules) != keccak256(requestRules)
                 || request.minimumLiveness != minimumLiveness || request.maximumLiveness != maximumLiveness
                 || reporter.getRequestId(priceIdentifier, requestRules) != requestId
         ) revert RegisteredRequestStateMismatch(requestId);
@@ -565,8 +564,7 @@ contract UpgradeOOReporter is Script {
                 || reporter.defaultRerequestBudget() != expectedState.defaultRerequestBudget
                 || reporter.automaticRerequestsEnabled() != expectedState.automaticRerequestsEnabled
                 || reporter.isRequester(config.expectedRequester) != expectedState.requesterEnabled
-                || reporter.isOracleInitializer(config.expectedOracleInitializer)
-                    != expectedState.oracleInitializerEnabled
+                || reporter.isOracleInitializer(config.expectedOracleInitializer) != expectedState.oracleInitializerEnabled
                 || vm.load(address(reporter), INITIALIZABLE_STORAGE_SLOT) != expectedState.initializableStorage
                 || PolymarketOOReporter(address(reporter)).pendingOwner() != address(0)
         ) revert PostUpgradeStateMismatch();

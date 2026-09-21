@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
-import {PolymarketOOReporter} from "src/PolymarketOOReporter.sol";
-import {IOOReporter, RequestData} from "src/interfaces/IOOReporter.sol";
-import {MockERC20} from "test/mocks/MockERC20.sol";
-import {MockOptimisticOracleV2} from "test/mocks/MockOptimisticOracleV2.sol";
+import {PolymarketOOReporter} from "src/reporters/integrations/PolymarketOOReporter.sol";
+import {IOOReporter, RequestData} from "src/reporters/interfaces/IOOReporter.sol";
+import {MockERC20} from "test/reporters/mocks/MockERC20.sol";
+import {MockOptimisticOracleV2} from "test/reporters/mocks/MockOptimisticOracleV2.sol";
 
 interface PolymarketReporterVm {
     function prank(address msgSender) external;
@@ -50,9 +50,15 @@ contract MockPolymarketOOReporterModule {
     bool public shouldRevert;
     uint256 public reportCount;
     bytes32 public lastRequestId;
+    mapping(bytes32 requestId => bool reported) public reported;
     address public lastReporter;
     bool public observedResolved;
     int256 public observedOutcome;
+    bytes32 private reentrantRequestId;
+    bytes32 private reentrantPriceIdentifier;
+    bytes private reentrantRequestRules;
+    uint64 private reentrantMinimumLiveness;
+    uint64 private reentrantMaximumLiveness;
 
     function setReporter(IOOReporter newReporter) external {
         reporter = newReporter;
@@ -60,6 +66,20 @@ contract MockPolymarketOOReporterModule {
 
     function setShouldRevert(bool newShouldRevert) external {
         shouldRevert = newShouldRevert;
+    }
+
+    function setReentrantRegistration(
+        bytes32 requestId,
+        bytes32 priceIdentifier,
+        bytes calldata requestRules,
+        uint64 minimumLiveness,
+        uint64 maximumLiveness
+    ) external {
+        reentrantRequestId = requestId;
+        reentrantPriceIdentifier = priceIdentifier;
+        reentrantRequestRules = requestRules;
+        reentrantMinimumLiveness = minimumLiveness;
+        reentrantMaximumLiveness = maximumLiveness;
     }
 
     function registerRequest(
@@ -77,9 +97,21 @@ contract MockPolymarketOOReporterModule {
 
         reportCount += 1;
         lastRequestId = requestId;
+        reported[requestId] = true;
         lastReporter = msg.sender;
         observedResolved = reporter.isRequestResolved(requestId);
         observedOutcome = reporter.getRequestResolution(requestId);
+        bytes32 requestIdToRegister = reentrantRequestId;
+        if (requestIdToRegister != bytes32(0)) {
+            reentrantRequestId = bytes32(0);
+            reporter.registerRequest(
+                requestIdToRegister,
+                reentrantPriceIdentifier,
+                reentrantRequestRules,
+                reentrantMinimumLiveness,
+                reentrantMaximumLiveness
+            );
+        }
     }
 }
 
@@ -88,10 +120,12 @@ contract PolymarketOOReporterTest {
         PolymarketReporterVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
+    event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
     event ReportCallbackSucceeded(bytes32 indexed requestId, address indexed reporterModule);
     event ReportCallbackFailed(bytes32 indexed requestId, address indexed reporterModule);
 
     bytes32 private constant REQUEST_ID = keccak256("polymarket-request-id");
+    bytes32 private constant SECOND_REQUEST_ID = keccak256("second-polymarket-request-id");
     bytes32 private constant BINARY_IDENTIFIER = "YES_OR_NO_QUERY";
     uint64 private constant LIVENESS = 2 hours;
     uint64 private constant MAXIMUM_LIVENESS = 2 days;
@@ -144,6 +178,73 @@ contract PolymarketOOReporterTest {
         _assertEq(module.observedOutcome(), 1 ether, "reported outcome mismatch");
     }
 
+    function test_settlementAutomaticallyReportsAllDuplicateRequestIds() external {
+        bytes memory requestRules = bytes("Will ETH reach 10k?");
+        module.registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+        module.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+
+        _assertEq(module.reportCount(), 2, "report count mismatch");
+        _assertTrue(module.reported(REQUEST_ID), "canonical request was not reported");
+        _assertTrue(module.reported(SECOND_REQUEST_ID), "duplicate request was not reported");
+        _assertTrue(reporter.isRequestResolved(SECOND_REQUEST_ID), "duplicate request should resolve");
+        _assertEq(reporter.getRequestResolution(SECOND_REQUEST_ID), 1 ether, "duplicate outcome mismatch");
+    }
+
+    function test_initializeLateDuplicateImmediatelyReportsResolvedOutcomeOnce() external {
+        bytes memory requestRules = _registerAndInitialize();
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
+
+        module.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+
+        vm.expectEmit(address(reporter));
+        emit RequestResolved(SECOND_REQUEST_ID, request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(reporter));
+        emit ReportCallbackSucceeded(SECOND_REQUEST_ID, address(module));
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+
+        _assertEq(module.reportCount(), 2, "late duplicate should be reported once");
+        _assertTrue(module.reported(SECOND_REQUEST_ID), "late duplicate was not reported");
+        _assertEq(module.lastRequestId(), SECOND_REQUEST_ID, "late duplicate request id mismatch");
+        _assertTrue(module.observedResolved(), "late report should observe resolved state");
+        _assertEq(module.observedOutcome(), 1 ether, "late report outcome mismatch");
+    }
+
+    function test_reentrantRegistrationWaitsForLateInitialization() external {
+        bytes memory requestRules = bytes("Will ETH reach 10k?");
+        module.registerRequest(REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+        module.setReentrantRegistration(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(REQUEST_ID, 0, 0, LIVENESS);
+        RequestData memory request = reporter.getRequest(REQUEST_ID);
+        optimisticOracle.settle(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether);
+
+        _assertEq(module.reportCount(), 1, "reentrant duplicate should not join active fan-out");
+        _assertFalse(module.reported(SECOND_REQUEST_ID), "reentrant duplicate should wait for initialization");
+
+        vm.expectEmit(address(reporter));
+        emit RequestResolved(SECOND_REQUEST_ID, request.requestTimestamp, 1 ether);
+        vm.expectEmit(address(reporter));
+        emit ReportCallbackSucceeded(SECOND_REQUEST_ID, address(module));
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(SECOND_REQUEST_ID, 0, 0, LIVENESS);
+
+        _assertEq(module.reportCount(), 2, "late duplicate should report after initialization");
+        _assertTrue(module.reported(SECOND_REQUEST_ID), "late duplicate was not reported");
+    }
+
     function test_reportFailureDoesNotRevertSettlementAndCanBeRetried() external {
         bytes memory requestRules = _registerAndInitialize();
         RequestData memory request = reporter.getRequest(REQUEST_ID);
@@ -165,6 +266,46 @@ contract PolymarketOOReporterTest {
         module.setShouldRevert(false);
         module.report(REQUEST_ID);
         _assertEq(module.reportCount(), 1, "permissionless retry should succeed");
+    }
+
+    function test_largeFanoutFallsBackToIndividualReportsWhenSettlementGasIsConstrained() external {
+        uint256 linkedRequestCount = 10;
+        bytes memory requestRules = bytes("Will ETH reach 10k?");
+        for (uint256 i = 1; i <= linkedRequestCount; ++i) {
+            module.registerRequest(bytes32(i), BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+        }
+
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(bytes32(uint256(1)), 0, 0, LIVENESS);
+        RequestData memory request = reporter.getRequest(bytes32(uint256(1)));
+
+        for (uint256 i = 1; i <= linkedRequestCount; ++i) {
+            vm.expectEmit(address(reporter));
+            emit RequestResolved(bytes32(i), request.requestTimestamp, 1 ether);
+        }
+        vm.expectEmit(address(reporter));
+        emit ResolutionCallbacksFailed(bytes32(uint256(1)), request.requestTimestamp);
+
+        bytes memory settleCall = abi.encodeCall(
+            MockOptimisticOracleV2.settle,
+            (address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether)
+        );
+        // This cap covers settlement bookkeeping and resolution events, but not the complete callback fan-out.
+        (bool success,) = address(optimisticOracle).call{gas: 500_000}(settleCall);
+
+        _assertTrue(success, "oracle settlement should survive fan-out exhaustion");
+        _assertEq(module.reportCount(), 0, "failed fan-out should roll back all reports");
+        _assertTrue(reporter.isRequestResolved(bytes32(linkedRequestCount)), "linked request should remain resolved");
+        bytes32 requestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+        _assertTrue(optimisticOracle.getMockRequest(requestKey).settled, "oracle settlement should persist");
+
+        for (uint256 i = 1; i <= linkedRequestCount; ++i) {
+            bytes32 requestId = bytes32(i);
+            module.report(requestId);
+            _assertTrue(module.reported(requestId), "individual report should succeed");
+        }
+        _assertEq(module.reportCount(), linkedRequestCount, "individual report count mismatch");
     }
 
     function test_p4SettlementDoesNotReport() external {
