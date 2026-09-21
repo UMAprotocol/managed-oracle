@@ -179,13 +179,9 @@ interface IOOReporter {
         uint256 newReward
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
-    /// @dev Emitted for every linked request ID before the isolated callback batch; this does not confirm delivery.
-    /// Recovery via duplicate initialization can re-emit this event after a reverted batch. Consumers should
-    /// deduplicate by (reporter address, requestId, requestTimestamp).
+    /// @dev Each linked request ID emits this event before attempting its own resolution callback. This records
+    /// outcome availability, not successful callback delivery; failed or skipped module reports are retried separately.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
-    /// @notice Emitted under the canonical request ID when the callback batch reverts after resolution events.
-    /// @dev All callback effects and per-ID callback events from the reverted batch are rolled back.
-    event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
     /// @notice Emitted under the canonical request ID when a callback opens the shared manual re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
