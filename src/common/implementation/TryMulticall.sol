@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 /**
  * @title TryMulticall
  * @notice Executes allowed self-delegatecalls without reverting successful siblings.
+ * @custom:security-contact bugs@umaproject.org
  */
 abstract contract TryMulticall {
     bool private _tryMulticallEntered;
