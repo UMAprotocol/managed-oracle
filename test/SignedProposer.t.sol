@@ -407,6 +407,19 @@ contract SignedProposerTest is Test {
         if (outerSuccess) successes = abi.decode(returnData, (bool[]));
     }
 
+    function test_tryMulticall_usesDerivedStorageNamespace() public {
+        bytes32 location =
+            keccak256(abi.encode(uint256(keccak256("uma.storage.TryMulticall")) - 1)) & ~bytes32(uint256(0xff));
+        vm.store(address(signedProposer), location, bytes32(uint256(1)));
+        vm.expectRevert(TryMulticall.TryMulticallReentrantCall.selector);
+        vm.prank(relayer);
+        signedProposer.tryMulticall(new bytes[](0));
+
+        vm.store(address(signedProposer), location, bytes32(0));
+        vm.prank(relayer);
+        assertEq(signedProposer.tryMulticall(new bytes[](0)).length, 0);
+    }
+
     // ─── Propose tests ──────────────────────────────────────────────────────────
 
     function test_propose() public {

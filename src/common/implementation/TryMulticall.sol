@@ -7,7 +7,14 @@ pragma solidity ^0.8.27;
  * @custom:security-contact bugs@umaproject.org
  */
 abstract contract TryMulticall {
-    bool private _tryMulticallEntered;
+    /// @custom:storage-location erc7201:uma.storage.TryMulticall
+    struct TryMulticallStorage {
+        bool entered;
+    }
+
+    // keccak256(abi.encode(uint256(keccak256("uma.storage.TryMulticall")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant TRY_MULTICALL_STORAGE_LOCATION =
+        0x0dd1bd2d495db0d62878fd399d4ab6dc237ff1584371e8862b3e045d79dcd000;
 
     /// @notice Emitted when a child execution attempt returns unsuccessfully.
     /// @dev Empty failure metadata can mean either an empty revert or an out-of-gas child. This event does not prove
@@ -29,7 +36,8 @@ abstract contract TryMulticall {
      */
     function tryMulticall(bytes[] calldata calls) external returns (bool[] memory successes) {
         _checkTryMulticallCaller();
-        if (_tryMulticallEntered) revert TryMulticallReentrantCall();
+        TryMulticallStorage storage $ = _getTryMulticallStorage();
+        if ($.entered) revert TryMulticallReentrantCall();
 
         uint256 callsLength = calls.length;
         bytes4 allowedSelector = _tryMulticallSelector();
@@ -40,7 +48,7 @@ abstract contract TryMulticall {
         }
 
         successes = new bool[](callsLength);
-        _tryMulticallEntered = true;
+        $.entered = true;
         for (uint256 i; i < callsLength; ++i) {
             bytes calldata callData = calls[i];
             (bool success, bytes memory revertData) = address(this).delegatecall(callData);
@@ -51,7 +59,13 @@ abstract contract TryMulticall {
                 emit ProposalCallFailed(i, keccak256(callData), errorSelector, keccak256(revertData));
             }
         }
-        _tryMulticallEntered = false;
+        $.entered = false;
+    }
+
+    function _getTryMulticallStorage() private pure returns (TryMulticallStorage storage $) {
+        assembly {
+            $.slot := TRY_MULTICALL_STORAGE_LOCATION
+        }
     }
 
     function _checkTryMulticallCaller() internal view virtual;
