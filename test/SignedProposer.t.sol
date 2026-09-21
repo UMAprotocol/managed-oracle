@@ -407,6 +407,19 @@ contract SignedProposerTest is Test {
         if (outerSuccess) successes = abi.decode(returnData, (bool[]));
     }
 
+    function test_tryMulticall_usesDerivedStorageNamespace() public {
+        bytes32 location =
+            keccak256(abi.encode(uint256(keccak256("uma.storage.TryMulticall")) - 1)) & ~bytes32(uint256(0xff));
+        vm.store(address(signedProposer), location, bytes32(uint256(1)));
+        vm.expectRevert(TryMulticall.TryMulticallReentrantCall.selector);
+        vm.prank(relayer);
+        signedProposer.tryMulticall(new bytes[](0));
+
+        vm.store(address(signedProposer), location, bytes32(0));
+        vm.prank(relayer);
+        assertEq(signedProposer.tryMulticall(new bytes[](0)).length, 0);
+    }
+
     // ─── Propose tests ──────────────────────────────────────────────────────────
 
     function test_propose() public {
@@ -916,7 +929,7 @@ contract SignedProposerTest is Test {
         assertEq(currency.balanceOf(proposer), 0);
     }
 
-    function test_tryMulticall_hashesCompleteLargeRevertData() public {
+    function test_tryMulticall_hashesBoundedLargeRevertData() public {
         uint256 timestamp = block.timestamp;
         _makeRequest(timestamp, 0);
         _setBond();
@@ -940,14 +953,47 @@ contract SignedProposerTest is Test {
         calls[0] = _encodeProposalCall(failedProposal, proposer, permit, "", 0);
         calls[1] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
 
+        bytes memory expectedPrefix = new bytes(256);
+        for (uint256 i; i < expectedPrefix.length; ++i) {
+            expectedPrefix[i] = bytes1(uint8(i % 251 + 1));
+        }
         vm.expectEmit(true, true, false, true, address(signedProposer));
-        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0), keccak256(new bytes(revertDataSize)));
+        emit ProposalCallFailed(0, keccak256(calls[0]), bytes4(0x01020304), keccak256(expectedPrefix));
 
         vm.prank(relayer);
         bool[] memory successes = signedProposer.tryMulticall(calls);
 
         assertFalse(successes[0]);
         assertTrue(successes[1]);
+    }
+
+    function test_tryMulticall_largeRevertPreservesEarlierSuccessWithLimitedGas() public {
+        uint256 timestamp = block.timestamp;
+        _makeRequest(timestamp, 0);
+        _setBond();
+        _fundAndApproveProposer(TOTAL_BOND);
+
+        SignedProposer.Proposal memory validProposal = _buildProposal(timestamp, 2 ether);
+        SignedProposer.Proposal memory failedProposal = _buildRevertingProposal(false, 512 * 1024, timestamp, 1 ether);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND, 0, block.timestamp + 1 hours);
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = _encodeProposalCall(validProposal, proposer, permit, "", 0);
+        calls[1] = _encodeProposalCall(failedProposal, proposer, permit, "", 0);
+
+        bytes memory expectedPrefix = new bytes(256);
+        for (uint256 i; i < expectedPrefix.length; ++i) {
+            expectedPrefix[i] = bytes1(uint8(i % 251 + 1));
+        }
+        vm.expectEmit(true, true, false, true, address(signedProposer));
+        emit ProposalCallFailed(1, keccak256(calls[1]), bytes4(0x01020304), keccak256(expectedPrefix));
+
+        (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, 2_000_000);
+
+        assertTrue(outerSuccess);
+        assertTrue(successes[0]);
+        assertFalse(successes[1]);
+        assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposedPrice, 2 ether);
+        assertEq(currency.balanceOf(proposer), 0);
     }
 
     // ─── Delegated proposer role tests ───────────────────────────────────────────
@@ -1656,6 +1702,10 @@ contract RevertingSignedProposerOracle {
         }
 
         bytes memory revertData = new bytes(revertDataSize);
+        // Pattern the prefix and bytes beyond the cap without exhausting the gas-limited returndata regression.
+        for (uint256 i; i < revertData.length && i < 512; ++i) {
+            revertData[i] = bytes1(uint8(i % 251 + 1));
+        }
         assembly ("memory-safe") {
             revert(add(revertData, 0x20), mload(revertData))
         }

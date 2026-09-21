@@ -363,15 +363,21 @@ event ProposalCallFailed(
 ```
 
 `callHash` is `keccak256(calls[index])`, `errorSelector` is the first four revert-data bytes (or
-zero when unavailable), and `revertDataHash` hashes the complete revert data. Full proposal
-calldata, signatures, and revert data are never logged. Successful children continue to emit the
+zero when unavailable), and `revertDataHash` hashes at most the first 256 revert-data bytes. The
+batch copies only that bounded prefix before hashing. Full proposal calldata, signatures, and
+revert data are never logged. Successful children continue to emit the
 existing `ProposalExecuted` and oracle `ProposePrice` events. Consumers should use those events as
 the authoritative success evidence. A `false` result and `ProposalCallFailed` mean only that the
 execution attempt did not complete successfully; they do not prove the proposal itself is invalid.
 In particular, empty failure metadata is ambiguous between an empty revert and out-of-gas.
 
-OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. `tryMulticall`
-does not change worker behavior; worker integration must be performed separately.
+OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. It deliberately accepts any caller
+and selector: self-delegatecall preserves the original caller, and each called function enforces its own permissions.
+It has no batch-level reentrancy guard; individual functions must apply any required protection. Future externally
+reachable functions must retain their own authorization because `multicall` does not impose the delegated-proposer,
+`propose`-only, or nesting restrictions of `tryMulticall`.
+
+`tryMulticall` does not change worker behavior; worker integration must be performed separately.
 
 ### Verification
 
