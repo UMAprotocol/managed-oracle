@@ -16,6 +16,7 @@ import {TryMulticall} from "../../common/implementation/TryMulticall.sol";
 
 /**
  * @title SignedProposer
+ * @custom:security-contact bugs@umaproject.org
  * @notice Allows proposers to sign Permit2 witness proposals off-chain and have them submitted by
  * a delegated relayer. The proposal parameters are embedded as the Permit2 witness so a single
  * signature authorises both the token transfer and the specific proposal.
