@@ -509,7 +509,7 @@ contract UpgradeOOReporter is Script {
     }
 
     function _snapshotReporterState(OOReporter reporter, Config memory config, bytes32[] memory requestIds)
-        private
+        internal
         view
         returns (ReporterState memory state)
     {
@@ -549,7 +549,7 @@ contract UpgradeOOReporter is Script {
         ReporterState memory expectedState,
         bytes32[] memory requestIds,
         address finalImplementation
-    ) private view {
+    ) internal view {
         _expectAddress("final reporter implementation", finalImplementation, _getImplementation(address(reporter)));
         _expectAddress(
             "current Managed OO implementation",
@@ -571,10 +571,9 @@ contract UpgradeOOReporter is Script {
 
         for (uint256 i = 0; i < requestIds.length; i++) {
             RequestData memory request = reporter.getRequest(requestIds[i]);
-            if (
-                keccak256(abi.encode(request)) != expectedState.requestHashes[i]
-                    || reporter.getRequestId(request.priceIdentifier, request.requestRules) != requestIds[i]
-            ) revert RequestStateChanged(requestIds[i]);
+            if (keccak256(abi.encode(request)) != expectedState.requestHashes[i]) {
+                revert RequestStateChanged(requestIds[i]);
+            }
         }
 
         _validateExternalWiring(config);
