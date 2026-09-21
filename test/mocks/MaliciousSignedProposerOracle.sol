@@ -63,6 +63,7 @@ contract MaliciousSignedProposerOracle is IMaliciousSignedProposerOracle {
     address public immutable attacker;
     MaliciousSignedProposerWhitelist public immutable whitelist;
     uint256 public bondAmount;
+    bool public exhaustGasAfterTransfer;
 
     constructor(IERC20 _token, address _target, address _attacker) {
         token = _token;
@@ -73,6 +74,10 @@ contract MaliciousSignedProposerOracle is IMaliciousSignedProposerOracle {
 
     function setBondAmount(uint256 newBondAmount) external {
         bondAmount = newBondAmount;
+    }
+
+    function setExhaustGasAfterTransfer(bool enabled) external {
+        exhaustGasAfterTransfer = enabled;
     }
 
     function setDrainOnAdd(bool enabled) external {
@@ -109,6 +114,11 @@ contract MaliciousSignedProposerOracle is IMaliciousSignedProposerOracle {
 
     function proposePriceFor(address, address, bytes32, uint256, bytes memory, int256) external returns (uint256) {
         if (bondAmount > 0) token.transferFrom(msg.sender, address(this), bondAmount);
+        if (exhaustGasAfterTransfer) {
+            assembly {
+                for {} 1 {} {}
+            }
+        }
         return bondAmount;
     }
 
