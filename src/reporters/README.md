@@ -43,6 +43,12 @@ register up to ten request IDs with the same tuple and liveness range. Those IDs
 resolution, and automatic re-request state. Registrations from another requester, with a different liveness range, or
 above the ten-ID limit are rejected.
 
+Sharing is intentional, including after settlement: registering another ID immediately exposes the canonical
+request's current state and any stored outcome through that ID. It does not create a fresh oracle round, reward, bond,
+or challenge window. Requesters must use the same tuple only for questions with the same resolution semantics. Rules
+must distinguish any different observation period or numerical outcome-to-position mapping; the reporter does not
+include market IDs, event IDs, or a new request timestamp in the association key or validate that external mappings agree.
+
 ## Responsibilities
 
 `OOReporter` owns:
@@ -78,8 +84,12 @@ receives the current `defaultRerequestBudget` as its manual re-request budget.
 
 Calling `initializeRequest` for an associated duplicate request ID is an idempotent no-op after the shared Managed OO
 request has been initialized but remains unresolved. If the duplicate is registered after the shared request resolves,
-its first initialization immediately attempts `report(requestId)` with the stored outcome; later calls are no-ops. All
-request-ID reads resolve to the shared lifecycle and final outcome.
+`isRequestResolved` and `getRequestResolution` expose the stored outcome as soon as registration completes. Its first
+initialization additionally emits `RequestResolved` and invokes the resolution hook, which attempts `report(requestId)`
+in `PolymarketOOReporter`; later initialization calls are no-ops. Initialization is not an approval checkpoint for reading
+or reporting an inherited outcome: the Polymarket module's permissionless `report(requestId)` can use it once the module
+has registered that ID, without another reporter initialization. A resolved shared request cannot be re-requested; a
+question requiring a new oracle round must use distinct rules.
 
 Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
 `setAutomaticRerequestsEnabled(...)`. The current setting is evaluated when a dispute or P4 settlement callback arrives,
@@ -99,9 +109,20 @@ replacement request. Automatic re-requests reuse the active reward, proposal bon
 the default budget for future initializations and P4 refreshes with `setDefaultRerequestBudget(...)`, and can adjust an
 active unresolved request's current manual budget with `setRequestRerequestBudget(...)`.
 
-Lifecycle events that refer to a specific Managed OO request consistently lead with the external `requestId` and then
-the active OO `requestTimestamp` before actor or outcome fields. This keeps initialization, re-request,
-re-request-gate, rules-update, and resolution logs easy to correlate after a request has been replaced.
+Shared lifecycle events use the canonical request ID (the first ID registered for the tuple), even when the caller
+supplies a duplicate ID. This applies to `RequestInitialized`, `RequestRulesUpdated`, `RequestRewardUpdated`,
+`RequestRerequested`, `RequestRerequestAllowed`, `AutomaticRerequestFailed`, and `RequestRerequestBudgetSet`.
+
+`RequestRegistered`, `RequestResolved`, and the Polymarket callback success/failure events identify individual external
+request IDs. A duplicate does not receive a separate initialization or re-request event. Indexers should map each
+`RequestRegistered` tuple to its canonical ID using `getRequestId(priceIdentifier, requestRules)` and follow that ID's
+shared lifecycle. Shared lifecycle events do not include the caller-supplied alias.
+
+`RequestResolved` records outcome availability, not successful delivery to a module. Each ID is marked initialized
+and emits its resolution event before its callback. A failed or skipped callback preserves those changes and earlier
+successful reports. Operators can use the per-ID `ReportCallbackFailed` events to identify reports to retry through the
+module's permissionless `report(requestId)` function. Reinitializing an already-processed ID does not retry its callback
+or emit another resolution event. Indexers can correlate resolutions by `(reporter address, requestId, requestTimestamp)`.
 
 ## Bond And Liveness Events
 
@@ -188,14 +209,14 @@ Before each external `report` call, the Polymarket integration subtracts that in
 If no callback budget remains, it emits `ReportCallbackFailed` and returns to the loop, which continues emitting all
 remaining resolution events. The reserve must cover the remaining registration writes, resolution/failure events,
 loop overhead, gas spent between measuring and forwarding gas, and the enclosing settlement return path. The budget and
-local real-contract validation are detailed below; audit sign-off remains pending. The base reporter's internal hook is
+local real-contract validation are detailed below. The base reporter's internal hook is
 trusted; derived integrations must use the reserve and catch their own external calls.
 
 Each attempted callback is wrapped in `try/catch`. A successful call emits `ReportCallbackSucceeded`; a reverted or
 skipped call emits `ReportCallbackFailed`. The module's permissionless `report(requestId)`
 entry point can then be retried separately. P4 settlements and stale, unknown, or repeated settlement callbacks do not
-trigger reporting. A newly registered ID for an already-resolved shared request follows the initialization behavior
-described above.
+trigger reporting. A newly registered ID for an already-resolved shared request is immediately readable and can be
+reported permissionlessly by the module; initialization provides the additional callback attempt described above.
 
 The reporter never calls market-side `finalize()`. Any reporting liveness, threshold, payout translation, and
 finalization logic remains enforced by the Polymarket V2 contracts.
@@ -258,8 +279,8 @@ Rules updates do not replace the original registered rules or create a new `(pri
 lookup alias. Consumers should use `requestId` as the stable reporter identity and read canonical update history from the
 Managed OO using the reporter address plus the original `(priceIdentifier, requestRules)` tuple.
 
-The reporter additionally emits a `RequestRulesUpdated` event carrying the requester-facing `requestId` and updater
-address for self-contained logs.
+The reporter additionally emits a `RequestRulesUpdated` event carrying the canonical `requestId` and updater address,
+even when the update was submitted through a duplicate ID.
 
 For a registered request, updates can be forwarded before or after Managed OO initialization. The reporter rejects rules
 updates after the request has resolved.
