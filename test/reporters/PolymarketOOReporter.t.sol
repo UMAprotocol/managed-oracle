@@ -5,6 +5,7 @@ import {PolymarketOOReporter} from "src/reporters/integrations/PolymarketOORepor
 import {IOOReporter, RequestData} from "src/reporters/interfaces/IOOReporter.sol";
 import {MockERC20} from "test/reporters/mocks/MockERC20.sol";
 import {MockOptimisticOracleV2} from "test/reporters/mocks/MockOptimisticOracleV2.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 interface PolymarketReporterVm {
     function prank(address msgSender) external;
@@ -48,6 +49,7 @@ contract MockPolymarketOOReporterModule {
 
     IOOReporter public reporter;
     bool public shouldRevert;
+    bytes32 public gasExhaustingRequestId;
     uint256 public reportCount;
     bytes32 public lastRequestId;
     mapping(bytes32 requestId => bool reported) public reported;
@@ -66,6 +68,10 @@ contract MockPolymarketOOReporterModule {
 
     function setShouldRevert(bool newShouldRevert) external {
         shouldRevert = newShouldRevert;
+    }
+
+    function setGasExhaustingRequestId(bytes32 requestId) external {
+        gasExhaustingRequestId = requestId;
     }
 
     function setReentrantRegistration(
@@ -101,6 +107,11 @@ contract MockPolymarketOOReporterModule {
         lastReporter = msg.sender;
         observedResolved = reporter.isRequestResolved(requestId);
         observedOutcome = reporter.getRequestResolution(requestId);
+        if (requestId == gasExhaustingRequestId) {
+            assembly {
+                for {} 1 {} {}
+            }
+        }
         bytes32 requestIdToRegister = reentrantRequestId;
         if (requestIdToRegister != bytes32(0)) {
             reentrantRequestId = bytes32(0);
@@ -120,7 +131,6 @@ contract PolymarketOOReporterTest {
         PolymarketReporterVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
-    event ResolutionCallbacksFailed(bytes32 indexed requestId, uint256 indexed requestTimestamp);
     event ReportCallbackSucceeded(bytes32 indexed requestId, address indexed reporterModule);
     event ReportCallbackFailed(bytes32 indexed requestId, address indexed reporterModule);
 
@@ -283,8 +293,6 @@ contract PolymarketOOReporterTest {
             vm.expectEmit(address(reporter));
             emit RequestResolved(bytes32(i), request.requestTimestamp, 1 ether);
         }
-        vm.expectEmit(address(reporter));
-        emit ResolutionCallbacksFailed(bytes32(uint256(1)), request.requestTimestamp);
 
         bytes memory settleCall = abi.encodeCall(
             MockOptimisticOracleV2.settle,
@@ -294,7 +302,8 @@ contract PolymarketOOReporterTest {
         (bool success,) = address(optimisticOracle).call{gas: 500_000}(settleCall);
 
         _assertTrue(success, "oracle settlement should survive fan-out exhaustion");
-        _assertEq(module.reportCount(), 0, "failed fan-out should roll back all reports");
+        uint256 automaticReports = module.reportCount();
+        _assertTrue(automaticReports > 0 && automaticReports < linkedRequestCount, "expected partial delivery");
         _assertTrue(reporter.isRequestResolved(bytes32(linkedRequestCount)), "linked request should remain resolved");
         bytes32 requestKey =
             optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
@@ -302,10 +311,64 @@ contract PolymarketOOReporterTest {
 
         for (uint256 i = 1; i <= linkedRequestCount; ++i) {
             bytes32 requestId = bytes32(i);
-            module.report(requestId);
+            if (!module.reported(requestId)) module.report(requestId);
             _assertTrue(module.reported(requestId), "individual report should succeed");
         }
         _assertEq(module.reportCount(), linkedRequestCount, "individual report count mismatch");
+    }
+
+    function test_callbackGasExhaustionPreservesEventsAndEarlierReports(uint8 failureIndex) external {
+        uint256 failedId = uint256(failureIndex) % 10 + 1;
+        bytes memory requestRules = bytes("Will ETH reach 10k?");
+        for (uint256 i = 1; i <= 10; ++i) {
+            module.registerRequest(bytes32(i), BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
+        }
+        vm.prank(oracleInitializer);
+        reporter.initializeRequest(bytes32(uint256(1)), 0, 0, LIVENESS);
+        RequestData memory request = reporter.getRequest(bytes32(uint256(1)));
+        module.setGasExhaustingRequestId(bytes32(failedId));
+
+        Vm recorder = Vm(address(vm));
+        recorder.cool(address(reporter));
+        recorder.cool(address(module));
+        recorder.cool(address(optimisticOracle));
+        recorder.recordLogs();
+        bytes memory settleCall = abi.encodeCall(
+            MockOptimisticOracleV2.settle,
+            (address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules, 1 ether)
+        );
+        (bool success,) = address(optimisticOracle).call{gas: 2_000_000}(settleCall);
+        _assertTrue(success, "callback exhaustion must not revert settlement");
+
+        Vm.Log[] memory logs = recorder.getRecordedLogs();
+        uint256 resolutions;
+        uint256 failures;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter != address(reporter)) continue;
+            if (logs[i].topics[0] == keccak256("RequestResolved(bytes32,uint256,int256)")) {
+                ++resolutions;
+                _assertEq(logs[i].topics[1], bytes32(resolutions), "resolution ID or order mismatch");
+            } else if (logs[i].topics[0] == keccak256("ReportCallbackFailed(bytes32,address)")) {
+                ++failures;
+            }
+        }
+        _assertEq(resolutions, 10, "every resolution event must survive");
+        _assertEq(module.reportCount(), failedId - 1, "earlier reports must survive");
+        _assertEq(failures, 11 - failedId, "failed and skipped callbacks must be observable");
+        bytes32 requestKey =
+            optimisticOracle.requestKey(address(reporter), BINARY_IDENTIFIER, request.requestTimestamp, requestRules);
+        _assertTrue(optimisticOracle.getMockRequest(requestKey).settled, "oracle settlement must survive");
+
+        module.setGasExhaustingRequestId(bytes32(0));
+        for (uint256 i = 1; i <= 10; ++i) {
+            _assertTrue(reporter.isRequestResolved(bytes32(i)), "linked resolution must survive");
+            _assertEq(reporter.getRequestResolution(bytes32(i)), 1 ether, "linked outcome mismatch");
+            if (i >= failedId) {
+                _assertFalse(module.reported(bytes32(i)), "failed or skipped report must not persist");
+                module.report(bytes32(i));
+            }
+        }
+        _assertEq(module.reportCount(), 10, "remaining reports must be retryable");
     }
 
     function test_p4SettlementDoesNotReport() external {

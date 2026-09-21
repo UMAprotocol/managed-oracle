@@ -11,12 +11,18 @@ contract PolymarketOOReporter is OOReporter {
     /// @notice Emitted when automatic reporting returns without reverting.
     event ReportCallbackSucceeded(bytes32 indexed requestId, address indexed reporterModule);
 
-    /// @notice Emitted when automatic reporting fails and the permissionless report must be retried.
+    /// @notice Emitted when automatic reporting fails or is skipped for gas and must be retried permissionlessly.
     event ReportCallbackFailed(bytes32 indexed requestId, address indexed reporterModule);
 
     /// @dev Keeps Managed OO settlement nonblocking when the downstream Polymarket report reverts.
     function _onRequestResolved(bytes32 requestId, address requester) internal override {
-        try IOOReporterModule(requester).report(requestId) {
+        uint256 gasRemaining = gasleft();
+        if (gasRemaining <= CALLBACK_GAS_RESERVE) {
+            emit ReportCallbackFailed(requestId, requester);
+            return;
+        }
+
+        try IOOReporterModule(requester).report{gas: gasRemaining - CALLBACK_GAS_RESERVE}(requestId) {
             emit ReportCallbackSucceeded(requestId, requester);
         } catch {
             emit ReportCallbackFailed(requestId, requester);
