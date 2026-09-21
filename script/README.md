@@ -355,8 +355,9 @@ event ProposalCallFailed(
 ```
 
 `callHash` is `keccak256(calls[index])`, `errorSelector` is the first four revert-data bytes (or
-zero when unavailable), and `revertDataHash` hashes the complete revert data. Full proposal
-calldata, signatures, and revert data are never logged. Successful children continue to emit the
+zero when unavailable), and `revertDataHash` hashes at most the first 256 revert-data bytes. The
+batch copies only that bounded prefix before hashing. Full proposal calldata, signatures, and
+revert data are never logged. Successful children continue to emit the
 existing `ProposalExecuted` and oracle `ProposePrice` events. Consumers should use those events as
 the authoritative success evidence. A `false` result and `ProposalCallFailed` mean only that the
 execution attempt did not complete successfully; they do not prove the proposal itself is invalid.

@@ -19,6 +19,7 @@ abstract contract TryMulticall {
     /// @notice Emitted when a child execution attempt returns unsuccessfully.
     /// @dev Empty failure metadata can mean either an empty revert or an out-of-gas child. This event does not prove
     /// the submitted operation itself is invalid; callers may retry it with a different gas allocation.
+    /// `revertDataHash` hashes at most the first 256 bytes of revert data; larger payloads are truncated before hashing.
     event ProposalCallFailed(
         uint256 indexed index, bytes32 indexed callHash, bytes4 errorSelector, bytes32 revertDataHash
     );
@@ -26,10 +27,12 @@ abstract contract TryMulticall {
     error TryMulticallReentrantCall();
     error TryMulticallInvalidSelector(uint256 index, bytes4 selector);
 
+    uint256 private constant MAX_REVERT_DATA_SIZE = 256;
+
     /**
      * @notice Executes allowed calls independently and returns their execution-attempt success values.
-     * @dev Self-delegatecall preserves the original caller. Ordinary failures emit only bounded metadata. There is no
-     * child gas or revert-data cap. Under EIP-150, an out-of-gas child can return `false` while leaving the outer call
+     * @dev Self-delegatecall preserves the original caller. Failed calls copy and hash at most 256 bytes of revert
+     * data. There is no child gas cap. Under EIP-150, an out-of-gas child can return `false` while leaving the outer call
      * enough gas to continue, but later children may receive too little gas and also return `false`. If the remaining
      * outer gas cannot finish the loop or encode the result, the full batch reverts. A `false` value therefore means
      * only that the corresponding execution attempt failed; it does not prove the submitted operation is invalid.
@@ -50,13 +53,25 @@ abstract contract TryMulticall {
         successes = new bool[](callsLength);
         $.entered = true;
         for (uint256 i; i < callsLength; ++i) {
-            bytes calldata callData = calls[i];
-            (bool success, bytes memory revertData) = address(this).delegatecall(callData);
+            bytes memory callData = calls[i];
+            bool success;
+            bytes4 errorSelector;
+            bytes32 revertDataHash;
+            assembly ("memory-safe") {
+                success := delegatecall(gas(), address(), add(callData, 0x20), mload(callData), 0, 0)
+                if iszero(success) {
+                    let size := returndatasize()
+                    if gt(size, MAX_REVERT_DATA_SIZE) { size := MAX_REVERT_DATA_SIZE }
+                    let data := mload(0x40)
+                    returndatacopy(data, 0, size)
+                    if iszero(lt(size, 4)) { errorSelector := mload(data) }
+                    revertDataHash := keccak256(data, size)
+                }
+            }
             successes[i] = success;
 
             if (!success) {
-                bytes4 errorSelector = revertData.length >= 4 ? bytes4(revertData) : bytes4(0);
-                emit ProposalCallFailed(i, keccak256(callData), errorSelector, keccak256(revertData));
+                emit ProposalCallFailed(i, keccak256(callData), errorSelector, revertDataHash);
             }
         }
         $.entered = false;
