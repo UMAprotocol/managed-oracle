@@ -447,8 +447,9 @@ its requester whitelist, and the downstream module wiring before deploying anyth
 | `EXPECTED_STATE_FINGERPRINT` | Required in verify mode. Copy the fingerprint printed by the final pre-upgrade run. |
 
 The script derives the complete request-ID list from `RequestRegistered` logs instead of accepting a hand-curated list.
-For every event it validates the requester, identifier, rules, liveness range, and tuple lookup against current proxy
-storage, then snapshots the full stored request for the post-upgrade comparison. Log queries are split into configurable
+For every event it validates the requester, identifier, rules, and liveness range against `getRequest(requestId)`, then
+snapshots that canonical request state for the post-upgrade comparison. A registered alias is valid even when the
+tuple's canonical ID differs from the ID in the event. Log queries are split into configurable
 block ranges for RPC compatibility. The script also reconstructs requester and
 oracle-initializer allowlist state from events and requires the expected module and initializer to be the only enabled
 accounts. Active requests are safe because the Managed OO address does not change. Quiesce every reporter mutation from
@@ -517,8 +518,8 @@ forge script script/reporters/UpgradeOOReporter.s.sol:UpgradeOOReporter \
 After either EOA or Safe execution, set `VERIFY_ONLY=true`, set `FINAL_IMPLEMENTATION`, its code hash, and
 `EXPECTED_STATE_FINGERPRINT` from the final pre-upgrade run, then run the script without `--broadcast`. This live,
 rerunnable verification checks the exact final implementation; unchanged Managed OO implementation, Initializable slot,
-owner, reward currency, re-request configuration, requester and initializer access; byte-for-byte ABI encoding and tuple
-lookup of every registered request; zero `pendingOwner`; Managed OO whitelist acceptance; and the module proxy,
+owner, reward currency, re-request configuration, requester and initializer access; byte-for-byte ABI encoding of the
+canonical state returned for every registered request ID; zero `pendingOwner`; Managed OO whitelist acceptance; and the module proxy,
 implementation, and reporter pointer. The immediate checks in Forge's broadcast simulation are not a substitute for this
 post-broadcast run.
 

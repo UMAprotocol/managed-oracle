@@ -684,7 +684,8 @@ contract OOReporter is
         emit RequestRerequestAllowed(requestId, requestTimestamp, trigger);
     }
 
-    /// @dev Returns the canonical request ID shared by requestId and any duplicate registrations, or reverts for unregistered IDs.
+    /// @dev Returns the canonical request ID shared by requestId and any duplicate registrations, or reverts for
+    /// unregistered IDs.
     function _canonicalRequestId(bytes32 requestId) private view returns (bytes32 canonicalRequestId) {
         OOReporterStorage storage $ = _getStorage();
         RequestData storage registration = $.requests[requestId];

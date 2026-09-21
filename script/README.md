@@ -333,6 +333,12 @@ The Permit2 address is initialized in proxy storage. Roles, retained token balan
 
 Future upgrades must preserve the storage layout, including the inherited `TryMulticall` batch lock and `permit2`, and retain the UUPS authorization hook. Validate storage compatibility against the deployed build before upgrading. This deployment change does not retrofit upgradeability onto any previously deployed direct SignedProposer instance; that requires a new proxy deployment and updating integrations to its address.
 
+The integrated layout stores the batch lock in the ERC-7201 namespace `uma.storage.TryMulticall` and `permit2` at
+slot 0, offset 0. This is the layout for the initial proxy deployment. The earlier UUPS proposal with a sequential batch
+lock placed `permit2` at slot 0, offset 1; it is not storage-compatible with this version. Do not upgrade a proxy using
+that earlier layout directly to this implementation. Such a deployment requires a separately reviewed migration or a
+new proxy. The integration does not include a storage migration.
+
 ### Partial-success proposal batches
 
 Delegated proposers can submit ABI-encoded `SignedProposer.propose` calls through
