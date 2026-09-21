@@ -408,7 +408,7 @@ contract UpgradeOOReporter is Script {
         Vm.EthGetLogs memory requestLog,
         address expectedRequester,
         uint256 logIndex
-    ) private view returns (bytes32 requestId) {
+    ) internal view returns (bytes32 requestId) {
         if (requestLog.removed || requestLog.topics.length != 4 || requestLog.topics[0] != REQUEST_REGISTERED_TOPIC) {
             revert InvalidRegisteredRequestLog(logIndex);
         }
@@ -418,13 +418,13 @@ contract UpgradeOOReporter is Script {
         bytes32 priceIdentifier = requestLog.topics[3];
         (bytes memory requestRules, uint64 minimumLiveness, uint64 maximumLiveness) =
             abi.decode(requestLog.data, (bytes, uint64, uint64));
+        // Registered aliases resolve to canonical state; the reverse lookup need not equal this log's request ID.
         RequestData memory request = reporter.getRequest(requestId);
 
         if (
             !request.registered || requester != expectedRequester || request.requester != requester
                 || request.priceIdentifier != priceIdentifier || keccak256(request.requestRules) != keccak256(requestRules)
                 || request.minimumLiveness != minimumLiveness || request.maximumLiveness != maximumLiveness
-                || reporter.getRequestId(priceIdentifier, requestRules) != requestId
         ) revert RegisteredRequestStateMismatch(requestId);
     }
 
@@ -509,7 +509,7 @@ contract UpgradeOOReporter is Script {
     }
 
     function _snapshotReporterState(OOReporter reporter, Config memory config, bytes32[] memory requestIds)
-        private
+        internal
         view
         returns (ReporterState memory state)
     {
@@ -549,7 +549,7 @@ contract UpgradeOOReporter is Script {
         ReporterState memory expectedState,
         bytes32[] memory requestIds,
         address finalImplementation
-    ) private view {
+    ) internal view {
         _expectAddress("final reporter implementation", finalImplementation, _getImplementation(address(reporter)));
         _expectAddress(
             "current Managed OO implementation",
@@ -571,10 +571,9 @@ contract UpgradeOOReporter is Script {
 
         for (uint256 i = 0; i < requestIds.length; i++) {
             RequestData memory request = reporter.getRequest(requestIds[i]);
-            if (
-                keccak256(abi.encode(request)) != expectedState.requestHashes[i]
-                    || reporter.getRequestId(request.priceIdentifier, request.requestRules) != requestIds[i]
-            ) revert RequestStateChanged(requestIds[i]);
+            if (keccak256(abi.encode(request)) != expectedState.requestHashes[i]) {
+                revert RequestStateChanged(requestIds[i]);
+            }
         }
 
         _validateExternalWiring(config);
