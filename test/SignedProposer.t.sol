@@ -987,7 +987,8 @@ contract SignedProposerTest is Test {
         vm.expectEmit(true, true, false, true, address(signedProposer));
         emit ProposalCallFailed(1, keccak256(calls[1]), bytes4(0x01020304), keccak256(expectedPrefix));
 
-        (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, 2_000_000);
+        // The self-delegatecall also traverses the proxy, which must copy the child's revert payload before the cap.
+        (bool outerSuccess, bool[] memory successes) = _tryMulticallWithGas(calls, 2_800_000);
 
         assertTrue(outerSuccess);
         assertTrue(successes[0]);

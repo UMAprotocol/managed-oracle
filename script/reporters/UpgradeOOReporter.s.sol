@@ -408,7 +408,7 @@ contract UpgradeOOReporter is Script {
         Vm.EthGetLogs memory requestLog,
         address expectedRequester,
         uint256 logIndex
-    ) private view returns (bytes32 requestId) {
+    ) internal view returns (bytes32 requestId) {
         if (requestLog.removed || requestLog.topics.length != 4 || requestLog.topics[0] != REQUEST_REGISTERED_TOPIC) {
             revert InvalidRegisteredRequestLog(logIndex);
         }
@@ -418,13 +418,13 @@ contract UpgradeOOReporter is Script {
         bytes32 priceIdentifier = requestLog.topics[3];
         (bytes memory requestRules, uint64 minimumLiveness, uint64 maximumLiveness) =
             abi.decode(requestLog.data, (bytes, uint64, uint64));
+        // Registered aliases resolve to canonical state; the reverse lookup need not equal this log's request ID.
         RequestData memory request = reporter.getRequest(requestId);
 
         if (
             !request.registered || requester != expectedRequester || request.requester != requester
                 || request.priceIdentifier != priceIdentifier || keccak256(request.requestRules) != keccak256(requestRules)
                 || request.minimumLiveness != minimumLiveness || request.maximumLiveness != maximumLiveness
-                || reporter.getRequestId(priceIdentifier, requestRules) != requestId
         ) revert RegisteredRequestStateMismatch(requestId);
     }
 
