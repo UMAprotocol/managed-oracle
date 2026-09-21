@@ -215,6 +215,13 @@ contract PolymarketOOReporterTest {
 
         module.registerRequest(SECOND_REQUEST_ID, BINARY_IDENTIFIER, requestRules, 0, MAXIMUM_LIVENESS);
 
+        _assertTrue(reporter.isRequestResolved(SECOND_REQUEST_ID), "late duplicate should resolve upon registration");
+        _assertEq(
+            reporter.getRequestResolution(SECOND_REQUEST_ID),
+            1 ether,
+            "outcome should be readable before initialization"
+        );
+
         vm.expectEmit(address(reporter));
         emit RequestResolved(SECOND_REQUEST_ID, request.requestTimestamp, 1 ether);
         vm.expectEmit(address(reporter));
