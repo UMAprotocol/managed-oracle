@@ -273,9 +273,12 @@ interface IOOReporter {
     /// @return True if automatic re-requests are enabled.
     function automaticRerequestsEnabled() external view returns (bool);
 
-    /// @notice Registers a requester-defined request ID and its UMA request identity before OO initialization.
+    /// @notice Registers a requester-defined request ID and its UMA request identity.
     /// @dev Up to ten request IDs with matching price identifier, request rules, requester, and liveness values share one
-    /// Managed OO lifecycle. minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness remains a
+    /// Managed OO lifecycle, including any existing final outcome, which is readable immediately upon registration.
+    /// No new oracle round or challenge window is created for a duplicate. Requesters must distinguish questions with
+    /// different resolution semantics in their rules, including observation periods and numerical position mappings.
+    /// minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness remains a
     /// registration-time bound and offchain target that does not cap initialization or re-requests.
     /// @param requestId Requester-defined request ID to bind to the UMA request identity.
     /// @param priceIdentifier UMA price identifier to request.
@@ -310,6 +313,8 @@ interface IOOReporter {
     /// the reward, tops it up to an unbounded approval for the trusted oracle instead of approving per request. A
     /// duplicate ID reuses the shared request; if registered after resolution, its first initialization triggers the
     /// resolution hook immediately, while subsequent initializations are no-ops.
+    /// The shared outcome is already readable upon registration; initialization does not gate reads or permissionless
+    /// reporting by a requester module that has registered the duplicate.
     /// @param requestId Registered request ID.
     /// @param reward Reward offered to a successful OO proposer.
     /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective
@@ -339,11 +344,13 @@ interface IOOReporter {
     function setRequestRerequestBudget(bytes32 requestId, uint256 newManualRerequestsRemaining) external;
 
     /// @notice Returns whether Managed OO settlement has produced a final reporter outcome for requestId.
+    /// @dev A duplicate registered after canonical resolution returns true without another initialization.
     /// @param requestId Registered request ID.
     /// @return True if the reporter has stored a final outcome.
     function isRequestResolved(bytes32 requestId) external view returns (bool);
 
     /// @notice Returns the final raw UMA outcome for requestId after non-P4 trusted resolver settlement.
+    /// @dev A duplicate registered after canonical resolution immediately inherits the stored outcome.
     /// @param requestId Registered request ID.
     /// @return Final raw UMA outcome.
     function getRequestResolution(bytes32 requestId) external view returns (int256);

@@ -43,6 +43,12 @@ register up to ten request IDs with the same tuple and liveness range. Those IDs
 resolution, and automatic re-request state. Registrations from another requester, with a different liveness range, or
 above the ten-ID limit are rejected.
 
+Sharing is intentional, including after settlement: registering another ID immediately exposes the canonical
+request's current state and any stored outcome through that ID. It does not create a fresh oracle round, reward, bond,
+or challenge window. Requesters must use the same tuple only for questions with the same resolution semantics. Rules
+must distinguish any different observation period or numerical outcome-to-position mapping; the reporter does not
+include market IDs, event IDs, or a new request timestamp in the association key or validate that external mappings agree.
+
 ## Responsibilities
 
 `OOReporter` owns:
@@ -78,8 +84,12 @@ receives the current `defaultRerequestBudget` as its manual re-request budget.
 
 Calling `initializeRequest` for an associated duplicate request ID is an idempotent no-op after the shared Managed OO
 request has been initialized but remains unresolved. If the duplicate is registered after the shared request resolves,
-its first initialization immediately attempts `report(requestId)` with the stored outcome; later calls are no-ops. All
-request-ID reads resolve to the shared lifecycle and final outcome.
+`isRequestResolved` and `getRequestResolution` expose the stored outcome as soon as registration completes. Its first
+initialization additionally emits `RequestResolved` and invokes the resolution hook, which attempts `report(requestId)`
+in `PolymarketOOReporter`; later initialization calls are no-ops. Initialization is not an approval checkpoint for reading
+or reporting an inherited outcome: the Polymarket module's permissionless `report(requestId)` can use it once the module
+has registered that ID, without another reporter initialization. A resolved shared request cannot be re-requested; a
+question requiring a new oracle round must use distinct rules.
 
 Automatic re-requests are enabled by default and can be disabled or re-enabled by the owner with
 `setAutomaticRerequestsEnabled(...)`. The current setting is evaluated when a dispute or P4 settlement callback arrives,
@@ -202,8 +212,8 @@ Each callback is wrapped in `try/catch`. If the call returns without reverting, 
 `ReportCallbackSucceeded(requestId, reporterModule)`. If the module reverts, Managed OO settlement still succeeds and
 the reporter emits `ReportCallbackFailed(requestId, reporterModule)`. The module's permissionless `report(requestId)`
 entry point can then be retried separately. P4 settlements and stale, unknown, or repeated settlement callbacks do not
-trigger reporting. A newly registered ID for an already-resolved shared request follows the initialization behavior
-described above.
+trigger reporting. A newly registered ID for an already-resolved shared request is immediately readable and can be
+reported permissionlessly by the module; initialization provides the additional callback attempt described above.
 
 The reporter never calls market-side `finalize()`. Any reporting liveness, threshold, payout translation, and
 finalization logic remains enforced by the Polymarket V2 contracts.
