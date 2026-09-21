@@ -39,6 +39,12 @@ import {TryMulticall} from "../../common/implementation/TryMulticall.sol";
  * - `DEFAULT_ADMIN_ROLE` — manages roles, payments, whitelist ownership, and upgrades.
  * - `DELEGATED_PROPOSER_ROLE` — may call `propose` and `tryMulticall`.
  * - `WHITELIST_ADMIN_ROLE` — may directly add/remove entries on whitelists owned by this contract.
+ *
+ * @dev Inherited `multicall` deliberately accepts any caller and selector and executes atomically. Self-delegatecall
+ * preserves `msg.sender`, so every externally reachable function must enforce its own authorization, including functions
+ * added in future versions. The batching entry point does not provide a reentrancy guard; functions that need one must
+ * apply their own. `tryMulticall` instead restricts the caller to delegated proposers, accepts only `propose`, and rejects
+ * nested partial-success batches. These restrictions do not apply to the atomic `multicall` entry point.
  */
 contract SignedProposer is
     AccessControlUpgradeable,

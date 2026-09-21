@@ -370,8 +370,13 @@ the authoritative success evidence. A `false` result and `ProposalCallFailed` me
 execution attempt did not complete successfully; they do not prove the proposal itself is invalid.
 In particular, empty failure metadata is ambiguous between an empty revert and out-of-gas.
 
-OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. `tryMulticall`
-does not change worker behavior; worker integration must be performed separately.
+OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. It deliberately accepts any caller
+and selector: self-delegatecall preserves the original caller, and each called function enforces its own permissions.
+It has no batch-level reentrancy guard; individual functions must apply any required protection. Future externally
+reachable functions must retain their own authorization because `multicall` does not impose the delegated-proposer,
+`propose`-only, or nesting restrictions of `tryMulticall`.
+
+`tryMulticall` does not change worker behavior; worker integration must be performed separately.
 
 ### Verification
 
