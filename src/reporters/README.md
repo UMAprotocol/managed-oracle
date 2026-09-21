@@ -99,9 +99,21 @@ replacement request. Automatic re-requests reuse the active reward, proposal bon
 the default budget for future initializations and P4 refreshes with `setDefaultRerequestBudget(...)`, and can adjust an
 active unresolved request's current manual budget with `setRequestRerequestBudget(...)`.
 
-Lifecycle events that refer to a specific Managed OO request consistently lead with the external `requestId` and then
-the active OO `requestTimestamp` before actor or outcome fields. This keeps initialization, re-request,
-re-request-gate, rules-update, and resolution logs easy to correlate after a request has been replaced.
+Shared lifecycle events use the canonical request ID (the first ID registered for the tuple), even when the caller
+supplies a duplicate ID. This applies to `RequestInitialized`, `RequestRulesUpdated`, `RequestRewardUpdated`,
+`RequestRerequested`, `RequestRerequestAllowed`, `AutomaticRerequestFailed`, and `RequestRerequestBudgetSet`.
+`ResolutionCallbacksFailed` also identifies the canonical request whose callback batch reverted.
+
+`RequestRegistered`, `RequestResolved`, and the Polymarket callback success/failure events identify individual external
+request IDs. A duplicate does not receive a separate initialization or re-request event. Indexers should map each
+`RequestRegistered` tuple to its canonical ID using `getRequestId(priceIdentifier, requestRules)` and follow that ID's
+shared lifecycle. Shared lifecycle events do not include the caller-supplied alias.
+
+`RequestResolved` records outcome availability, not successful delivery to a module. It has at-least-once semantics:
+after a callback batch reverts, initializing a duplicate whose initialization flag was rolled back can emit it again.
+Consumers should deduplicate resolutions by `(reporter address, requestId, requestTimestamp)`. A
+`ResolutionCallbacksFailed` event means all callback effects and individual callback events in that batch were rolled
+back; operators must check and recover reporting for every linked ID.
 
 ## Bond And Liveness Events
 
@@ -207,8 +219,8 @@ Rules updates do not replace the original registered rules or create a new `(pri
 lookup alias. Consumers should use `requestId` as the stable reporter identity and read canonical update history from the
 Managed OO using the reporter address plus the original `(priceIdentifier, requestRules)` tuple.
 
-The reporter additionally emits a `RequestRulesUpdated` event carrying the requester-facing `requestId` and updater
-address for self-contained logs.
+The reporter additionally emits a `RequestRulesUpdated` event carrying the canonical `requestId` and updater address,
+even when the update was submitted through a duplicate ID.
 
 For a registered request, updates can be forwarded before or after Managed OO initialization. The reporter rejects rules
 updates after the request has resolved.
