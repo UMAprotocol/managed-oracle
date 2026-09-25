@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
 struct RequestData {
     /// @notice Timestamp of the active Managed OO request.
@@ -96,7 +96,7 @@ interface IOOReporter {
     error RequestAlreadyInitialized();
     /// @notice Thrown when registering a request ID that has already been registered.
     error RequestAlreadyRegistered();
-    /// @notice Thrown when registering a duplicate OO request tuple for a different request ID.
+    /// @notice Thrown when a duplicate OO request tuple has a different requester or liveness range.
     error ReporterRequestKeyAlreadyRegistered(bytes32 existingRequestId);
     /// @notice Thrown when an operation targets a request that already has a final outcome.
     error RequestAlreadyResolved();
@@ -150,7 +150,7 @@ interface IOOReporter {
         uint64 minimumLiveness,
         uint64 maximumLiveness
     );
-    /// @notice Emitted when an approved oracle initializer creates the first Managed OO request.
+    /// @notice Emitted under the canonical request ID when the first shared Managed OO request is created.
     /// @dev proposalBond and liveness are reporter-requested parameters. Effective proposal-time values can differ
     /// if Managed OO request-manager preconfigs apply.
     event RequestInitialized(
@@ -165,11 +165,11 @@ interface IOOReporter {
         uint64 liveness,
         uint256 manualRerequestsRemaining
     );
-    /// @notice Emitted when the registering requester posts updated request rules for offchain consumers.
+    /// @notice Emitted under the canonical request ID when the requester posts shared request rules updates.
     event RequestRulesUpdated(
         bytes32 indexed requestId, uint256 indexed timestamp, address indexed updater, bytes updatedRules
     );
-    /// @notice Emitted when an approved oracle initializer updates the active Managed OO request reward.
+    /// @notice Emitted under the canonical request ID when the active shared Managed OO request reward changes.
     event RequestRewardUpdated(
         bytes32 indexed requestId,
         uint256 indexed requestTimestamp,
@@ -179,16 +179,18 @@ interface IOOReporter {
         uint256 newReward
     );
     /// @notice Emitted when a final raw UMA outcome is stored for a request.
+    /// @dev Each linked request ID emits this event before attempting its own resolution callback. This records
+    /// outcome availability, not successful callback delivery; failed or skipped module reports are retried separately.
     event RequestResolved(bytes32 indexed requestId, uint256 indexed requestTimestamp, int256 outcome);
-    /// @notice Emitted when a callback opens the oracle-initializer re-request path.
+    /// @notice Emitted under the canonical request ID when a callback opens the shared manual re-request path.
     event RequestRerequestAllowed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestTrigger indexed trigger
     );
-    /// @notice Emitted when an automatic re-request fails and the callback falls back to the manual gate.
+    /// @notice Emitted under the canonical request ID when an automatic re-request fails and opens the manual gate.
     event AutomaticRerequestFailed(
         bytes32 indexed requestId, uint256 indexed requestTimestamp, RerequestType indexed rerequestType
     );
-    /// @notice Emitted when the reporter creates a replacement Managed OO request.
+    /// @notice Emitted under the canonical request ID when the reporter creates a replacement Managed OO request.
     /// @dev proposalBond and liveness are reporter-requested parameters. Effective proposal-time values can differ
     /// if Managed OO request-manager preconfigs apply.
     event RequestRerequested(
@@ -203,7 +205,8 @@ interface IOOReporter {
         uint64 liveness,
         uint256 manualRerequestsRemaining
     );
-    /// @notice Emitted when the owner updates the remaining re-request budget for one request.
+    /// @notice Emitted under the canonical request ID when the shared remaining re-request budget changes.
+    /// @dev Emitted for owner updates and automatic refills to the default budget on P4 settlement.
     event RequestRerequestBudgetSet(bytes32 indexed requestId, uint256 manualRerequestsRemaining);
     /// @notice Emitted when the owner sweeps ERC20 or native token funds from the reporter.
     event FundsSwept(address indexed token, address indexed recipient, uint256 amount);
@@ -266,13 +269,13 @@ interface IOOReporter {
     /// @return True if automatic re-requests are enabled.
     function automaticRerequestsEnabled() external view returns (bool);
 
-    /// @notice Registers a requester-defined request ID and its UMA request identity before OO initialization.
-    /// @dev The reporter reserves each price identifier and request rules pair globally across approved requesters.
-    /// Enabled requesters share one owner-managed request namespace; the contract does not isolate identical UMA
-    /// request identities per requester. Independent integrations that need the exact same UMA request identity should
-    /// use separate reporter deployments; integrations with similar rules can domain-separate request rules so their
-    /// UMA request identities differ. minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness
-    /// remains a registration-time bound and offchain target that does not cap initialization or re-requests.
+    /// @notice Registers a requester-defined request ID and its UMA request identity.
+    /// @dev Up to ten request IDs with matching price identifier, request rules, requester, and liveness values share one
+    /// Managed OO lifecycle, including any existing final outcome, which is readable immediately upon registration.
+    /// No new oracle round or challenge window is created for a duplicate. Requesters must distinguish questions with
+    /// different resolution semantics in their rules, including observation periods and numerical position mappings.
+    /// minimumLiveness is enforced as an onchain runtime floor, while maximumLiveness remains a
+    /// registration-time bound and offchain target that does not cap initialization or re-requests.
     /// @param requestId Requester-defined request ID to bind to the UMA request identity.
     /// @param priceIdentifier UMA price identifier to request.
     /// @param requestRules Raw UMA request rules supplied by the requester.
@@ -303,7 +306,11 @@ interface IOOReporter {
 
     /// @notice Creates the Managed OO request for a registered request.
     /// @dev Pays the reward from the reporter's reward-currency balance and, when the Managed OO allowance is below
-    /// the reward, tops it up to an unbounded approval for the trusted oracle instead of approving per request.
+    /// the reward, tops it up to an unbounded approval for the trusted oracle instead of approving per request. A
+    /// duplicate ID reuses the shared request; if registered after resolution, its first initialization triggers the
+    /// resolution hook immediately, while subsequent initializations are no-ops.
+    /// The shared outcome is already readable upon registration; initialization does not gate reads or permissionless
+    /// reporting by a requester module that has registered the duplicate.
     /// @param requestId Registered request ID.
     /// @param reward Reward offered to a successful OO proposer.
     /// @param proposalBond Bond requested from OO proposers/disputers, or zero to use the OO default. The effective
@@ -333,11 +340,13 @@ interface IOOReporter {
     function setRequestRerequestBudget(bytes32 requestId, uint256 newManualRerequestsRemaining) external;
 
     /// @notice Returns whether Managed OO settlement has produced a final reporter outcome for requestId.
+    /// @dev A duplicate registered after canonical resolution returns true without another initialization.
     /// @param requestId Registered request ID.
     /// @return True if the reporter has stored a final outcome.
     function isRequestResolved(bytes32 requestId) external view returns (bool);
 
     /// @notice Returns the final raw UMA outcome for requestId after non-P4 trusted resolver settlement.
+    /// @dev A duplicate registered after canonical resolution immediately inherits the stored outcome.
     /// @param requestId Registered request ID.
     /// @return Final raw UMA outcome.
     function getRequestResolution(bytes32 requestId) external view returns (int256);
