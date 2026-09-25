@@ -3,17 +3,20 @@ pragma solidity ^0.8.27;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {Multicall} from "@openzeppelin/contracts/utils/Multicall.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {MulticallUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/MulticallUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {OptimisticOracleV2Interface} from "../interfaces/OptimisticOracleV2Interface.sol";
 import {SignedProposerOracleInterface} from "../interfaces/SignedProposerOracleInterface.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 import {AddressWhitelist} from "../../common/implementation/AddressWhitelist.sol";
 import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelistInterface.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {TryMulticall} from "../../common/implementation/TryMulticall.sol";
 
 /**
  * @title SignedProposer
+ * @custom:security-contact bugs@umaproject.org
  * @notice Allows proposers to sign Permit2 witness proposals off-chain and have them submitted by
  * a delegated relayer. The proposal parameters are embedded as the Permit2 witness so a single
  * signature authorises both the token transfer and the specific proposal.
@@ -30,11 +33,27 @@ import {AddressWhitelistInterface} from "../../common/interfaces/AddressWhitelis
  * spender and the `proposePriceFor` call target, so executing an unintended oracle can spend up to
  * the signer-approved Permit2 amount for that proposal.
  *
+ * Deploy behind an ERC1967Proxy and initialize atomically. The default admin authorizes UUPS
+ * upgrades; the proxy remains the Permit2 spender and whitelist owner across upgrades.
+ *
  * The contract is permissioned:
- * - `DELEGATED_PROPOSER_ROLE` — may call `propose`.
+ * - `DEFAULT_ADMIN_ROLE` — manages roles, payments, whitelist ownership, and upgrades.
+ * - `DELEGATED_PROPOSER_ROLE` — may call `propose` and `tryMulticall`.
  * - `WHITELIST_ADMIN_ROLE` — may directly add/remove entries on whitelists owned by this contract.
+ *
+ * @dev Inherited `multicall` deliberately accepts any caller and selector and executes atomically. Self-delegatecall
+ * preserves `msg.sender`, so every externally reachable function must enforce its own authorization, including functions
+ * added in future versions. The batching entry point does not provide a reentrancy guard; functions that need one must
+ * apply their own. `tryMulticall` instead restricts the caller to delegated proposers, accepts only `propose`, and rejects
+ * nested partial-success batches. These restrictions do not apply to the atomic `multicall` entry point.
  */
-contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
+contract SignedProposer is
+    AccessControlUpgradeable,
+    MulticallUpgradeable,
+    ReentrancyGuardUpgradeable,
+    UUPSUpgradeable,
+    TryMulticall
+{
     using SafeERC20 for IERC20;
 
     // ─── Structs ──────────────────────────────────────────────────────────────────
@@ -65,9 +84,9 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
     string public constant WITNESS_TYPE_STRING =
         "Proposal witness)Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)TokenPermissions(address token,uint256 amount)";
 
-    // ─── Immutables ───────────────────────────────────────────────────────────────
+    // ─── Storage ───────────────────────────────────────────────────────────────
 
-    ISignatureTransfer public immutable permit2;
+    ISignatureTransfer public permit2;
 
     // ─── Events ───────────────────────────────────────────────────────────────────
 
@@ -84,6 +103,7 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
 
     event PaymentWithdrawn(address indexed token, address indexed to, uint256 amount);
 
+    error ZeroAddress();
     error PaymentExceedsMaxPayment();
     error PermitTransferAmountMismatch(uint256 expectedAmount, uint256 receivedAmount);
     error PermitTokenMismatch(address requestCurrency, address permitToken);
@@ -92,10 +112,24 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
 
     // ─── Constructor ──────────────────────────────────────────────────────────────
 
-    constructor(ISignatureTransfer _permit2, address admin) {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /// @notice Initializes the proxy with its Permit2 contract and role/upgrade administrator.
+    function initialize(ISignatureTransfer _permit2, address admin) external initializer {
+        if (address(_permit2) == address(0) || admin == address(0)) revert ZeroAddress();
+        __AccessControl_init();
+        __Multicall_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
         permit2 = _permit2;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
+
+    /// @dev Reuses the existing admin role rather than introducing a separate upgrade authority.
+    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     // ─── Propose ──────────────────────────────────────────────────────────────────
 
@@ -141,6 +175,14 @@ contract SignedProposer is AccessControl, Multicall, ReentrancyGuard {
     }
 
     // ─── Internals ────────────────────────────────────────────────────────────────
+
+    function _checkTryMulticallCaller() internal view override {
+        _checkRole(DELEGATED_PROPOSER_ROLE);
+    }
+
+    function _tryMulticallSelector() internal pure override returns (bytes4) {
+        return SignedProposer.propose.selector;
+    }
 
     function _getRequestCurrency(Proposal calldata proposal) internal view returns (IERC20) {
         OptimisticOracleV2Interface.Request memory request = OptimisticOracleV2Interface(proposal.oracle).getRequest(

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
@@ -9,7 +10,7 @@ import {SignedProposer} from "../src/optimistic-oracle-v2/implementation/SignedP
 
 /**
  * @title Deployment script for SignedProposer
- * @notice Deploys SignedProposer with configurable Permit2 and admin addresses
+ * @notice Deploys a UUPS SignedProposer implementation and atomically initialized ERC1967 proxy
  *
  * Environment variables:
  * - MNEMONIC: Required. The mnemonic phrase for the deployer wallet
@@ -33,12 +34,21 @@ contract DeploySignedProposer is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        signedProposer = new SignedProposer(ISignatureTransfer(permit2Address), admin);
+        SignedProposer implementation = new SignedProposer();
+        signedProposer = SignedProposer(
+            address(
+                new ERC1967Proxy(
+                    address(implementation),
+                    abi.encodeCall(SignedProposer.initialize, (ISignatureTransfer(permit2Address), admin))
+                )
+            )
+        );
 
         vm.stopBroadcast();
 
         console.log("\n=== Deployment Summary ===");
-        console.log("SignedProposer:", address(signedProposer));
+        console.log("SignedProposer proxy:", address(signedProposer));
+        console.log("SignedProposer implementation:", address(implementation));
         console.log("Chain ID:", block.chainid);
         console.log("Deployer:", deployer);
         console.log("Permit2:", permit2Address);

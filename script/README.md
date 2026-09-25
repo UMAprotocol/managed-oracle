@@ -307,7 +307,7 @@ The `ManagedOptimisticOracleV2` contract:
 
 ## SignedProposer Deployment
 
-The `DeploySignedProposer.s.sol` script deploys `SignedProposer` using the canonical Permit2 deployment by default.
+The `DeploySignedProposer.s.sol` script deploys a UUPS `SignedProposer` implementation and an ERC1967 proxy, atomically calling `initialize(permit2, admin)` during proxy construction. It uses the canonical Permit2 deployment by default and logs both addresses. The implementation disables initialization.
 
 ### Environment Variables
 
@@ -315,7 +315,7 @@ The `DeploySignedProposer.s.sol` script deploys `SignedProposer` using the canon
 |----------|----------|-------------|
 | `MNEMONIC` | Yes | The mnemonic phrase for the deployer wallet (uses 0 index address) |
 | `PERMIT2_ADDRESS` | No | Permit2 address; defaults to `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
-| `SIGNED_PROPOSER_ADMIN` | No | Address receiving the default admin role; defaults to the deployer |
+| `SIGNED_PROPOSER_ADMIN` | No | Address receiving the default admin role, including upgrade authority; defaults to the deployer |
 
 ### Usage
 
@@ -323,12 +323,74 @@ The `DeploySignedProposer.s.sol` script deploys `SignedProposer` using the canon
 forge script script/DeploySignedProposer.s.sol --rpc-url "YOUR_RPC_URL" --broadcast
 ```
 
-The script only deploys the contract. The admin configures delegated proposers and any required whitelist ownership separately.
+The script deploys and initializes the proxy. The admin configures delegated proposers and any required whitelist ownership separately. Use the **proxy address** for all relay calls, the Permit2 spender in signatures, whitelist membership, and whitelist ownership.
+
+### Upgradeability
+
+SignedProposer uses the same OpenZeppelin UUPS/ERC1967 mechanism as Managed OO and OOReporter. Its existing `DEFAULT_ADMIN_ROLE` authorizes `upgradeToAndCall(newImplementation, data)` on the proxy; no separate owner, proxy admin contract, or upgrade role is added. Delegated proposers and whitelist admins cannot upgrade unless they also hold the default admin role. Use empty `data` when no migration is needed; do not call `initialize` again.
+
+The Permit2 address is initialized in proxy storage. Roles, retained token balances, whitelist ownership, and the Permit2 spender address survive compatible implementation upgrades. Existing signatures remain usable subject to their original deadlines, nonce usage, and proposal validity. The default admin is trusted to install implementations that can change relay behavior, including how outstanding signatures are handled.
+
+Future upgrades must preserve the storage layout, including the inherited `TryMulticall` batch lock and `permit2`, and retain the UUPS authorization hook. Validate storage compatibility against the deployed build before upgrading. This deployment change does not retrofit upgradeability onto any previously deployed direct SignedProposer instance; that requires a new proxy deployment and updating integrations to its address.
+
+The integrated layout stores the batch lock in the ERC-7201 namespace `uma.storage.TryMulticall` and `permit2` at
+slot 0, offset 0. This is the layout for the initial proxy deployment. The earlier UUPS proposal with a sequential batch
+lock placed `permit2` at slot 0, offset 1; it is not storage-compatible with this version. Do not upgrade a proxy using
+that earlier layout directly to this implementation. Such a deployment requires a separately reviewed migration or a
+new proxy. The integration does not include a storage migration.
+
+### Partial-success proposal batches
+
+Delegated proposers can submit ABI-encoded `SignedProposer.propose` calls through
+`tryMulticall(bytes[])`. There is no contract-level batch-size or per-child gas limit; transaction
+calldata, client transaction-pool policy, and available block gas provide the practical bounds.
+Each valid child executes by self-delegatecall with the original relayer as `msg.sender`. A child
+revert does not roll back successful siblings if the outer call retains enough gas to finish. Under
+EIP-150, a gas-exhausting child can return `false` while preserving 1/64 of the caller's gas, so the
+outer call may continue; however, later children can then be gas-starved and also return `false`.
+If the remaining outer gas is insufficient to finish the loop or encode the result, the entire
+batch reverts and rolls back earlier successes.
+
+Polygon Bor rejects transactions larger than 128 KiB. With the maximum valid OOv2 ancillary data
+of 8,139 non-zero bytes, each encoded `propose` child is 8,804 bytes: 14 children produce 124,612
+bytes of outer calldata; the proxy-based capacity test uses the 53,902,641 gas limit at pinned block `81,683,818`,
+while 15 children produce 133,508 bytes before the signed transaction envelope and are rejected.
+Smaller ancillary data permits larger batches, subject to the same transaction-size and gas bounds.
+
+The function returns a `bool[]` aligned with the submitted calls. A failed child also emits:
+
+```solidity
+event ProposalCallFailed(
+    uint256 indexed index,
+    bytes32 indexed callHash,
+    bytes4 errorSelector,
+    bytes32 revertDataHash
+);
+```
+
+`callHash` is `keccak256(calls[index])`, `errorSelector` is the first four revert-data bytes (or
+zero when unavailable), and `revertDataHash` hashes at most the first 256 revert-data bytes. The
+batch copies only that bounded prefix before hashing. Full proposal calldata, signatures, and
+revert data are never logged. Successful children continue to emit the
+existing `ProposalExecuted` and oracle `ProposePrice` events. Consumers should use those events as
+the authoritative success evidence. A `false` result and `ProposalCallFailed` mean only that the
+execution attempt did not complete successfully; they do not prove the proposal itself is invalid.
+In particular, empty failure metadata is ambiguous between an empty revert and out-of-gas.
+
+OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. It deliberately accepts any caller
+and selector: self-delegatecall preserves the original caller, and each called function enforces its own permissions.
+It has no batch-level reentrancy guard; individual functions must apply any required protection. Future externally
+reachable functions must retain their own authorization because `multicall` does not impose the delegated-proposer,
+`propose`-only, or nesting restrictions of `tryMulticall`.
+
+`tryMulticall` does not change worker behavior; worker integration must be performed separately.
 
 ### Verification
 
+Verify the implementation with no constructor arguments. Verify the ERC1967 proxy separately using its implementation address and encoded `initialize(permit2, admin)` calldata as constructor arguments.
+
 ```bash
-forge verify-contract <SIGNED_PROPOSER_ADDRESS> src/optimistic-oracle-v2/implementation/SignedProposer.sol:SignedProposer --chain-id <CHAIN_ID> --constructor-args $(cast abi-encode "constructor(address,address)" <PERMIT2_ADDRESS> <SIGNED_PROPOSER_ADMIN>) --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
+forge verify-contract <SIGNED_PROPOSER_IMPLEMENTATION_ADDRESS> src/optimistic-oracle-v2/implementation/SignedProposer.sol:SignedProposer --chain-id <CHAIN_ID> --etherscan-api-key <YOUR_ETHERSCAN_API_KEY>
 ```
 
 ## ManagedOptimisticOracleV2 Upgrade
