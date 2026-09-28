@@ -82,6 +82,8 @@ contract SignedProposer is
 
     // ─── Constants ────────────────────────────────────────────────────────────────
 
+    uint256 private constant MAX_BATCH_REVERT_DATA_SIZE = 256;
+
     bytes32 public constant PROPOSAL_TYPEHASH = keccak256(
         "Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)"
     );
@@ -118,6 +120,7 @@ contract SignedProposer is
 
     event PaymentWithdrawn(address indexed token, address indexed to, uint256 amount);
 
+    /// @dev revertDataHash hashes at most the first 256 bytes of child revert data.
     event BatchProposalFailed(
         uint256 indexed index, bytes32 indexed proposalHash, bytes4 errorSelector, bytes32 revertDataHash
     );
@@ -246,12 +249,36 @@ contract SignedProposer is
         uint256 refund = permit.permitted.amount;
         successes = new bool[](length);
         for (uint256 i; i < length; ++i) {
-            try this.executeBatchProposal(proposals[i], proposer, currency, payments[i]) returns (uint256 spent) {
-                successes[i] = true;
+            bytes memory callData =
+                abi.encodeCall(this.executeBatchProposal, (proposals[i], proposer, currency, payments[i]));
+            bool success;
+            uint256 spent;
+            bytes4 errorSelector;
+            bytes32 revertDataHash;
+            // Avoid allocating the complete child revert payload in the parent frame.
+            assembly ("memory-safe") {
+                success := call(gas(), address(), 0, add(callData, 0x20), mload(callData), 0, 0)
+                switch success
+                case 1 {
+                    // The self-only helper returns exactly one uint256; never accept a missing spend value.
+                    if iszero(eq(returndatasize(), 0x20)) { revert(0, 0) }
+                    returndatacopy(0, 0, 0x20)
+                    spent := mload(0)
+                }
+                default {
+                    let size := returndatasize()
+                    if gt(size, MAX_BATCH_REVERT_DATA_SIZE) { size := MAX_BATCH_REVERT_DATA_SIZE }
+                    let data := mload(0x40)
+                    returndatacopy(data, 0, size)
+                    if iszero(lt(size, 4)) { errorSelector := mload(data) }
+                    revertDataHash := keccak256(data, size)
+                }
+            }
+            successes[i] = success;
+            if (success) {
                 refund -= spent;
-            } catch (bytes memory reason) {
-                bytes4 errorSelector = reason.length >= 4 ? bytes4(reason) : bytes4(0);
-                emit BatchProposalFailed(i, hashes[i], errorSelector, keccak256(reason));
+            } else {
+                emit BatchProposalFailed(i, hashes[i], errorSelector, revertDataHash);
             }
         }
         if (refund > 0) currency.safeTransfer(proposer, refund);

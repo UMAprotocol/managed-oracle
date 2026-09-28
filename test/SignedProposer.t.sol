@@ -61,6 +61,10 @@ contract SignedProposerTest is Test {
         uint256 indexed index, bytes32 indexed callHash, bytes4 errorSelector, bytes32 revertDataHash
     );
 
+    event BatchProposalFailed(
+        uint256 indexed index, bytes32 indexed proposalHash, bytes4 errorSelector, bytes32 revertDataHash
+    );
+
     SignedProposer internal signedProposer;
     ManagedOptimisticOracleV2 internal moo;
     MockPermit2 internal mockPermit2;
@@ -332,6 +336,64 @@ contract SignedProposerTest is Test {
         vm.prank(relayer);
         signedProposer.proposeBatch(items, proposer, permit, "", payments);
         assertEq(shortToken.balanceOf(proposer), 100 ether);
+    }
+
+    function test_proposeBatch_boundsRevertDataAndPreservesSiblings() public {
+        uint256[6] memory sizes = [uint256(0), 3, 4, 256, 257, 512 * 1024];
+        for (uint256 i; i < sizes.length; ++i) {
+            _batchWithRevertData(sizes[i]);
+        }
+    }
+
+    function _batchWithRevertData(uint256 revertDataSize) internal {
+        vm.warp(block.timestamp + 2);
+        uint256 firstTimestamp = block.timestamp - 1;
+        uint256 lastTimestamp = block.timestamp;
+        _makeRequest(firstTimestamp, 0);
+        _makeRequest(lastTimestamp, 0);
+        _setBond();
+        _fundAndApproveProposer(TOTAL_BOND * 3);
+        uint256 proposerBalanceBefore = currency.balanceOf(proposer);
+        currency.mint(address(signedProposer), 7 ether);
+        uint256 retainedBalanceBefore = currency.balanceOf(address(signedProposer));
+
+        SignedProposer.BatchProposal[] memory items = new SignedProposer.BatchProposal[](3);
+        items[0] = SignedProposer.BatchProposal(_buildProposal(firstTimestamp, 1 ether), TOTAL_BOND);
+        items[1] = SignedProposer.BatchProposal(
+            _buildRevertingProposal(false, revertDataSize, firstTimestamp, 9 ether), TOTAL_BOND
+        );
+        items[2] = SignedProposer.BatchProposal(_buildProposal(lastTimestamp, 2 ether), TOTAL_BOND);
+        ISignatureTransfer.PermitTransferFrom memory permit = _buildPermit(TOTAL_BOND * 3, 0, block.timestamp + 1 hours);
+        bytes memory prefix = new bytes(revertDataSize > 256 ? 256 : revertDataSize);
+        for (uint256 i; i < prefix.length; ++i) {
+            prefix[i] = bytes1(uint8(i % 251 + 1));
+        }
+        SignedProposer.Proposal memory proposal = items[1].proposal;
+        bytes32 proposalHash = keccak256(
+            abi.encode(
+                signedProposer.PROPOSAL_TYPEHASH(),
+                proposal.oracle,
+                proposal.requester,
+                proposal.identifier,
+                proposal.timestamp,
+                keccak256(proposal.ancillaryData),
+                proposal.proposedPrice,
+                proposal.maxPayment
+            )
+        );
+        bytes32 itemHash = keccak256(abi.encode(signedProposer.BATCH_PROPOSAL_TYPEHASH(), proposalHash, TOTAL_BOND));
+        vm.expectEmit(true, true, false, true, address(signedProposer));
+        emit BatchProposalFailed(1, itemHash, revertDataSize >= 4 ? bytes4(0x01020304) : bytes4(0), keccak256(prefix));
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.proposeBatch(items, proposer, permit, "", new uint256[](3));
+        assertTrue(successes[0]);
+        assertFalse(successes[1]);
+        assertTrue(successes[2]);
+        assertEq(moo.getRequest(requester, IDENTIFIER, firstTimestamp, ANCILLARY).proposedPrice, 1 ether);
+        assertEq(moo.getRequest(requester, IDENTIFIER, lastTimestamp, ANCILLARY).proposedPrice, 2 ether);
+        assertEq(currency.balanceOf(proposer), proposerBalanceBefore - 2 * TOTAL_BOND);
+        assertEq(currency.balanceOf(address(signedProposer)), retainedBalanceBefore);
+        assertEq(currency.allowance(address(signedProposer), address(moo)), 0);
     }
 
     function test_proposeBatch_blocksReentrantSingleProposal() public {
