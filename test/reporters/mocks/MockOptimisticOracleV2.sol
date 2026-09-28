@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IOptimisticOracleV2} from "src/interfaces/IOptimisticOracleV2.sol";
-import {IOptimisticRequester} from "src/interfaces/IOptimisticRequester.sol";
-import {IOOReporter} from "src/interfaces/IOOReporter.sol";
+import {IOptimisticOracleV2} from "src/reporters/interfaces/IOptimisticOracleV2.sol";
+import {IOptimisticRequester} from "src/reporters/interfaces/IOptimisticRequester.sol";
+import {IOOReporter} from "src/reporters/interfaces/IOOReporter.sol";
 
 contract MockOptimisticOracleV2 is IOptimisticOracleV2 {
     struct MockRequest {

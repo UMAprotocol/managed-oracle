@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.34;
+pragma solidity 0.8.30;
 
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {MulticallUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/MulticallUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IOptimisticOracleV2} from "src/interfaces/IOptimisticOracleV2.sol";
-import {IOptimisticRequester} from "src/interfaces/IOptimisticRequester.sol";
+import {IOptimisticOracleV2} from "src/reporters/interfaces/IOptimisticOracleV2.sol";
+import {IOptimisticRequester} from "src/reporters/interfaces/IOptimisticRequester.sol";
 
 /// @dev Frozen pre-callback request layout. Do not replace with the current production struct.
 struct LegacyRequestData {

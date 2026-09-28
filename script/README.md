@@ -333,6 +333,12 @@ The Permit2 address is initialized in proxy storage. Roles, retained token balan
 
 Future upgrades must preserve the storage layout, including the inherited `TryMulticall` batch lock and `permit2`, and retain the UUPS authorization hook. Validate storage compatibility against the deployed build before upgrading. This deployment change does not retrofit upgradeability onto any previously deployed direct SignedProposer instance; that requires a new proxy deployment and updating integrations to its address.
 
+The integrated layout stores the batch lock in the ERC-7201 namespace `uma.storage.TryMulticall` and `permit2` at
+slot 0, offset 0. This is the layout for the initial proxy deployment. The earlier UUPS proposal with a sequential batch
+lock placed `permit2` at slot 0, offset 1; it is not storage-compatible with this version. Do not upgrade a proxy using
+that earlier layout directly to this implementation. Such a deployment requires a separately reviewed migration or a
+new proxy. The integration does not include a storage migration.
+
 ### Partial-success proposal batches
 
 Delegated proposers can submit ABI-encoded `SignedProposer.propose` calls through
@@ -363,15 +369,21 @@ event ProposalCallFailed(
 ```
 
 `callHash` is `keccak256(calls[index])`, `errorSelector` is the first four revert-data bytes (or
-zero when unavailable), and `revertDataHash` hashes the complete revert data. Full proposal
-calldata, signatures, and revert data are never logged. Successful children continue to emit the
+zero when unavailable), and `revertDataHash` hashes at most the first 256 revert-data bytes. The
+batch copies only that bounded prefix before hashing. Full proposal calldata, signatures, and
+revert data are never logged. Successful children continue to emit the
 existing `ProposalExecuted` and oracle `ProposePrice` events. Consumers should use those events as
 the authoritative success evidence. A `false` result and `ProposalCallFailed` mean only that the
 execution attempt did not complete successfully; they do not prove the proposal itself is invalid.
 In particular, empty failure metadata is ambiguous between an empty revert and out-of-gas.
 
-OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. `tryMulticall`
-does not change worker behavior; worker integration must be performed separately.
+OpenZeppelin `multicall(bytes[])` remains available and atomic for compatibility. It deliberately accepts any caller
+and selector: self-delegatecall preserves the original caller, and each called function enforces its own permissions.
+It has no batch-level reentrancy guard; individual functions must apply any required protection. Future externally
+reachable functions must retain their own authorization because `multicall` does not impose the delegated-proposer,
+`propose`-only, or nesting restrictions of `tryMulticall`.
+
+`tryMulticall` does not change worker behavior; worker integration must be performed separately.
 
 ### One-signature proposal batches
 
@@ -392,7 +404,7 @@ The contract pulls the full budget once, verifies the exact token receipt, and a
 permit.permitted.amount - sum(successful actual bonds + successful payments)
 ```
 
-Previously retained payments are excluded from the refund. Successful items emit `ProposalExecuted`; failed items emit `BatchProposalFailed(index, proposalHash, errorSelector, revertDataHash)`, where `proposalHash` is the EIP-712 struct hash of the signed `BatchProposal` item. The function returns a matching `bool[]`, and `BatchExecuted(proposer, token, nonce, spent, refund)` summarizes the batch. Full signatures and ancillary data are not logged by these batch events.
+Previously retained payments are excluded from the refund. Successful items emit `ProposalExecuted`; failed items emit `BatchProposalFailed(index, proposalHash, errorSelector, revertDataHash)`, where `proposalHash` is the EIP-712 struct hash of the signed `BatchProposal` item. The function returns a matching `bool[]`, and `BatchExecuted(proposer, token, nonce, spent, refund)` summarizes the batch. Full signatures and ancillary data are not logged by these batch events. `BatchProposalFailed.revertDataHash` hashes the complete child revert data; the external self-call catch copies that data without a size cap. Large revert payloads can therefore exhaust outer gas. The separate `tryMulticall` entry point caps copied revert data at 256 bytes.
 
 A completed outer transaction consumes the Permit2 nonce **even when every item fails**. Refunds do not restore it: retry failed items using a fresh batch signature and unused nonce. Invalid signatures, malformed batch shape/budgets, a failed Permit2 transfer, or a failed final refund revert the whole transaction, including nonce consumption and any successful proposals. This is a one-shot batch authorization, not an authorization that can be filled over multiple transactions.
 
