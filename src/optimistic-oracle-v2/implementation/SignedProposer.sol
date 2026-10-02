@@ -45,7 +45,11 @@ import {TryMulticall} from "../../common/implementation/TryMulticall.sol";
  * preserves `msg.sender`, so every externally reachable function must enforce its own authorization, including functions
  * added in future versions. The `multicall` entry point does not provide a reentrancy guard; functions that need one must
  * apply their own. `tryMulticall` instead restricts the caller to delegated proposers, accepts only `propose`, and rejects
- * nested partial-success batches. These restrictions do not apply to the atomic `multicall` entry point.
+ * nested partial-success batches. Each `tryMulticall` child uses its own permit and nonce; failed children preserve their
+ * permits. `proposeBatch` restricts the caller to delegated proposers and holds a reentrancy guard across an ordered,
+ * same-token batch for one signer. It funds the batch with one Permit2 signature and nonce, isolates child failures, and
+ * refunds unused funds at completion. A completed batch consumes the shared nonce even if every child fails; retries
+ * require a fresh signature. These restrictions do not apply to the atomic `multicall` entry point.
  */
 contract SignedProposer is
     AccessControlUpgradeable,
