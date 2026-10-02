@@ -38,7 +38,8 @@ import {TryMulticall} from "../../common/implementation/TryMulticall.sol";
  *
  * The contract is permissioned:
  * - `DEFAULT_ADMIN_ROLE` — manages roles, payments, whitelist ownership, and upgrades.
- * - `DELEGATED_PROPOSER_ROLE` — may call `propose`, `proposeBatch`, and `tryMulticall`.
+ * - `DELEGATED_PROPOSER_ROLE` — fully trusted, company-controlled relayers that may call
+ *   `propose`, `proposeBatch`, and `tryMulticall`.
  * - `WHITELIST_ADMIN_ROLE` — may directly add/remove entries on whitelists owned by this contract.
  *
  * @dev Inherited `multicall` deliberately accepts any caller and selector and executes atomically. Self-delegatecall
@@ -210,6 +211,10 @@ contract SignedProposer is
      * successful bonds/payments are charged, and all unused funds are refunded once at the end.
      * A completed batch consumes its nonce even if every child fails. Invalid signatures, invalid
      * batch shape/funding, a failed final refund, or insufficient outer gas revert the whole batch.
+     * Delegated relayers are fully trusted to select per-item payments and supply sufficient gas.
+     * A payment above maxPayment, or one leaving insufficient budget for the bond, fails that item
+     * without reverting the batch. Such failures, including relayer mistakes, consume the shared
+     * nonce on batch completion; unused funds are refunded and retries require a fresh signature.
      * As with tryMulticall, there is no per-child gas cap or guarantee against gas starvation.
      * @param proposals Signed proposal fields and bond-plus-payment budgets, in execution order.
      * @param proposer Signer, token owner, and refund recipient for the entire batch.
