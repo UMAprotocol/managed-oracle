@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.27;
 
+import {Vm} from "forge-std/Vm.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
@@ -239,7 +240,13 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         internal
         returns (bool transactionSucceeded, bool[] memory successes)
     {
-        bytes memory transactionData = abi.encodeCall(TryMulticall.tryMulticall, (calls));
+        return _executeWithinPolygonBlock(abi.encodeCall(TryMulticall.tryMulticall, (calls)));
+    }
+
+    function _executeWithinPolygonBlock(bytes memory transactionData)
+        internal
+        returns (bool transactionSucceeded, bool[] memory successes)
+    {
         uint256 intrinsicGas = _transactionIntrinsicGas(transactionData);
         if (intrinsicGas >= POLYGON_BLOCK_GAS_LIMIT) return (false, successes);
 
@@ -355,6 +362,285 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", IEIP712(permit2Address).DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    function _prepareSignedBatch()
+        internal
+        returns (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        )
+    {
+        vm.warp(block.timestamp + 3);
+        items = new SignedProposer.BatchProposal[](3);
+        payments = new uint256[](3);
+        for (uint256 i; i < 3; ++i) {
+            uint256 timestamp = block.timestamp - i;
+            _makeRequest(timestamp, 0);
+            items[i] = SignedProposer.BatchProposal({
+                proposal: _buildProposal(timestamp, int256(i + 1), 5 ether),
+                maxAmount: TOTAL_BOND + 10 ether
+            });
+            payments[i] = 1 ether;
+        }
+        _setBond();
+        permit = _buildPermit(3 * (TOTAL_BOND + 10 ether), 42, block.timestamp + 1 hours);
+        _fundAndApproveProposer(permit.permitted.amount);
+    }
+
+    function _batchSignature(
+        SignedProposer.BatchProposal[] memory items,
+        ISignatureTransfer.PermitTransferFrom memory permit,
+        address spender
+    ) internal view returns (bytes memory) {
+        // Independently encode the typed array and its nested dependencies, as a wallet would.
+        bytes32 itemTypeHash = keccak256(
+            "BatchProposal(Proposal proposal,uint256 maxAmount)Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)"
+        );
+        bytes32 batchTypeHash = keccak256(
+            "BatchWitness(BatchProposal[] proposals)BatchProposal(Proposal proposal,uint256 maxAmount)Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)"
+        );
+        bytes32[] memory hashes = new bytes32[](items.length);
+        for (uint256 i; i < items.length; ++i) {
+            hashes[i] = keccak256(abi.encode(itemTypeHash, _computeWitnessHash(items[i].proposal), items[i].maxAmount));
+        }
+        bytes32 witness = keccak256(abi.encode(batchTypeHash, keccak256(abi.encodePacked(hashes))));
+        bytes32 permitTypeHash = keccak256(
+            "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,BatchWitness witness)BatchProposal(Proposal proposal,uint256 maxAmount)BatchWitness(BatchProposal[] proposals)Proposal(address oracle,address requester,bytes32 identifier,uint256 timestamp,bytes ancillaryData,int256 proposedPrice,uint256 maxPayment)TokenPermissions(address token,uint256 amount)"
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(
+                permitTypeHash,
+                keccak256(abi.encode(TOKEN_PERMISSIONS_TYPEHASH, permit.permitted)),
+                spender,
+                permit.nonce,
+                permit.deadline,
+                witness
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", IEIP712(permit2Address).DOMAIN_SEPARATOR(), structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(proposerKey, digest);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function test_proposeBatch_oneSignatureAllSuccessAndRefund() public {
+        (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        ) = _prepareSignedBatch();
+        currency.mint(address(signedProposer), 7 ether); // Existing payments must not fund or be refunded by this batch.
+        bytes memory signature = _batchSignature(items, permit, address(signedProposer));
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+        assertEq(successes.length, 3);
+        for (uint256 i; i < 3; ++i) {
+            assertTrue(successes[i]);
+            assertEq(moo.getRequest(requester, IDENTIFIER, items[i].proposal.timestamp, ANCILLARY).proposer, proposer);
+        }
+        assertEq(currency.balanceOf(proposer), 27 ether);
+        assertEq(currency.balanceOf(address(signedProposer)), 10 ether);
+        assertEq(currency.allowance(address(signedProposer), address(moo)), 0);
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 1 << 42);
+        vm.expectRevert(bytes4(keccak256("InvalidNonce()")));
+        vm.prank(relayer);
+        signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+    }
+
+    function test_proposeBatch_collisionRefundsFailedBudgetAndContinues() public {
+        (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        ) = _prepareSignedBatch();
+        defaultProposerWhitelist.removeFromWhitelist(proposer);
+        defaultProposerWhitelist.transferOwnership(address(signedProposer));
+        items[1].proposal = items[0].proposal;
+        bytes memory signature = _batchSignature(items, permit, address(signedProposer));
+        vm.recordLogs();
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+        assertTrue(successes[0]);
+        assertFalse(successes[1]);
+        assertTrue(successes[2]);
+        assertEq(currency.balanceOf(proposer), permit.permitted.amount - 2 * (TOTAL_BOND + 1 ether));
+        assertEq(currency.balanceOf(address(signedProposer)), 2 ether);
+        assertFalse(defaultProposerWhitelist.isOnWhitelist(proposer));
+        assertTrue(defaultProposerWhitelist.isOnWhitelist(address(signedProposer)));
+        assertEq(currency.allowance(address(signedProposer), address(moo)), 0);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 failures;
+        for (uint256 i; i < logs.length; ++i) {
+            if (
+                logs[i].emitter == address(signedProposer)
+                    && logs[i].topics[0] == keccak256("BatchProposalFailed(uint256,bytes32,bytes4,bytes32)")
+            ) {
+                ++failures;
+                assertEq(uint256(logs[i].topics[1]), 1);
+            }
+        }
+        assertEq(failures, 1);
+    }
+
+    function test_proposeBatch_allFailRefundsEverythingButConsumesNonce() public {
+        (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        ) = _prepareSignedBatch();
+        for (uint256 i; i < 3; ++i) {
+            payments[i] = 6 ether;
+        } // Above signed maxPayment.
+        bytes memory signature = _batchSignature(items, permit, address(signedProposer));
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+        for (uint256 i; i < 3; ++i) {
+            assertFalse(successes[i]);
+        }
+        assertEq(currency.balanceOf(proposer), permit.permitted.amount);
+        assertEq(currency.balanceOf(address(signedProposer)), 0);
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 1 << 42);
+    }
+
+    function test_proposeBatch_individualBudgetCannotBorrowFromSibling() public {
+        (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        ) = _prepareSignedBatch();
+        // Keep the aggregate budget unchanged while making the first item unable to fund its bond.
+        items[0].maxAmount -= 20 ether;
+        items[1].maxAmount += 20 ether;
+        bytes memory signature = _batchSignature(items, permit, address(signedProposer));
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+        assertFalse(successes[0]);
+        assertTrue(successes[1]);
+        assertTrue(successes[2]);
+        assertEq(currency.balanceOf(proposer), permit.permitted.amount - 2 * (TOTAL_BOND + 1 ether));
+        assertEq(currency.balanceOf(address(signedProposer)), 2 ether);
+    }
+
+    function test_proposeBatch_wrongCurrencyOnlyFailsThatItem() public {
+        (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        ) = _prepareSignedBatch();
+        ERC20Mock otherCurrency = new ERC20Mock();
+        items[1].proposal.oracle = address(
+            new MaliciousSignedProposerOracle(IERC20(address(otherCurrency)), address(signedProposer), address(this))
+        );
+        bytes memory signature = _batchSignature(items, permit, address(signedProposer));
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+        assertTrue(successes[0]);
+        assertFalse(successes[1]);
+        assertTrue(successes[2]);
+        assertEq(currency.balanceOf(proposer), permit.permitted.amount - 2 * (TOTAL_BOND + 1 ether));
+    }
+
+    function testFuzz_proposeBatch_rejectsSignedItemTampering(uint8 mutation) public {
+        (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        ) = _prepareSignedBatch();
+        bytes memory signature = _batchSignature(items, permit, address(signedProposer));
+        mutation = uint8(bound(mutation, 0, 8));
+        if (mutation == 0) {
+            items[0].proposal.oracle = address(1);
+        } else if (mutation == 1) {
+            items[0].proposal.requester = address(1);
+        } else if (mutation == 2) {
+            items[0].proposal.identifier = bytes32(uint256(1));
+        } else if (mutation == 3) {
+            items[0].proposal.timestamp += 1;
+        } else if (mutation == 4) {
+            items[0].proposal.ancillaryData = hex"1234";
+        } else if (mutation == 5) {
+            items[0].proposal.proposedPrice += 1;
+        } else if (mutation == 6) {
+            items[0].proposal.maxPayment += 1;
+        } else if (mutation == 7) {
+            items[0].maxAmount += 1;
+            items[1].maxAmount -= 1;
+        } else {
+            SignedProposer.BatchProposal memory first = items[0];
+            items[0] = items[1];
+            items[1] = first;
+        }
+        vm.expectRevert(SignatureVerification.InvalidSigner.selector);
+        vm.prank(relayer);
+        signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 0);
+        assertEq(currency.balanceOf(proposer), permit.permitted.amount);
+    }
+
+    function test_proposeBatch_rejectsSignatureForDifferentSpender() public {
+        (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        ) = _prepareSignedBatch();
+        bytes memory signature = _batchSignature(items, permit, address(123));
+        vm.expectRevert(SignatureVerification.InvalidSigner.selector);
+        vm.prank(relayer);
+        signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+    }
+
+    function test_proposeBatch_refundFailureRevertsFundingNonceAndSuccessfulProposals() public {
+        (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        ) = _prepareSignedBatch();
+        bytes memory signature = _batchSignature(items, permit, address(signedProposer));
+        vm.mockCallRevert(address(currency), abi.encodeCall(IERC20.transfer, (proposer, 27 ether)), hex"1234");
+        vm.expectRevert(bytes(hex"1234"));
+        vm.prank(relayer);
+        signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 0);
+        assertEq(currency.balanceOf(proposer), permit.permitted.amount);
+        assertEq(currency.balanceOf(address(signedProposer)), 0);
+        for (uint256 i; i < 3; ++i) {
+            assertEq(moo.getRequest(requester, IDENTIFIER, items[i].proposal.timestamp, ANCILLARY).proposer, address(0));
+        }
+        vm.clearMockedCalls();
+        vm.prank(relayer);
+        bool[] memory successes = signedProposer.proposeBatch(items, proposer, permit, signature, payments);
+        for (uint256 i; i < 3; ++i) {
+            assertTrue(successes[i]);
+        }
+    }
+
+    function test_proposeBatch_gasExhaustingLastChildRollsBackItsTokenPull() public {
+        (
+            SignedProposer.BatchProposal[] memory items,
+            ISignatureTransfer.PermitTransferFrom memory permit,
+            uint256[] memory payments
+        ) = _prepareSignedBatch();
+        MaliciousSignedProposerOracle gasOracle =
+            new MaliciousSignedProposerOracle(IERC20(address(currency)), address(signedProposer), address(this));
+        gasOracle.setBondAmount(TOTAL_BOND);
+        gasOracle.setExhaustGasAfterTransfer(true);
+        items[2].proposal.oracle = address(gasOracle);
+        bytes memory signature = _batchSignature(items, permit, address(signedProposer));
+        vm.prank(relayer);
+        (bool outerSuccess, bytes memory result) = address(signedProposer).call{gas: 30_000_000}(
+            abi.encodeCall(SignedProposer.proposeBatch, (items, proposer, permit, signature, payments))
+        );
+        assertTrue(outerSuccess);
+        bool[] memory successes = abi.decode(result, (bool[]));
+        assertTrue(successes[0]);
+        assertTrue(successes[1]);
+        assertFalse(successes[2]);
+        assertEq(currency.balanceOf(address(gasOracle)), 0);
+        assertEq(currency.allowance(address(signedProposer), address(gasOracle)), 0);
+        assertFalse(gasOracle.whitelist().isOnWhitelist(proposer));
+        assertEq(currency.balanceOf(proposer), permit.permitted.amount - 2 * (TOTAL_BOND + 1 ether));
+        assertEq(currency.balanceOf(address(signedProposer)), 2 ether);
     }
 
     function test_propose_realPermit2Signature() public {
@@ -604,6 +890,74 @@ contract SignedProposerPermit2Test is Test, DeployPermit2 {
         assertEq(currency.allowance(address(signedProposer), address(gasExhaustingOracle)), 0);
         assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposer, proposer);
         assertEq(moo.getRequest(requester, IDENTIFIER, timestamp, ANCILLARY).proposedPrice, 2 ether);
+    }
+
+    function test_proposeBatch_maxAncillaryData_polygonCapacity() public {
+        uint256 maxBatch = 15;
+        bytes memory ancillaryData = _maximallyPricedAncillaryData();
+        assertEq(ancillaryData.length, 8_139);
+        vm.warp(block.timestamp + maxBatch + 1);
+        SignedProposer.BatchProposal[] memory boundary = new SignedProposer.BatchProposal[](maxBatch);
+        SignedProposer.BatchProposal[] memory oversized = new SignedProposer.BatchProposal[](maxBatch + 1);
+        for (uint256 i; i < oversized.length; ++i) {
+            uint256 timestamp = block.timestamp - i;
+            _makeRequest(timestamp, 0, ancillaryData);
+            oversized[i] =
+                SignedProposer.BatchProposal(_buildProposal(timestamp, int256(i + 1), 0, ancillaryData), TOTAL_BOND);
+            if (i < maxBatch) boundary[i] = oversized[i];
+        }
+        _setBond(ancillaryData);
+        _fundAndApproveProposer(TOTAL_BOND * maxBatch);
+        // Include temporary whitelist insertion/removal for every successful item.
+        defaultProposerWhitelist.removeFromWhitelist(proposer);
+        defaultProposerWhitelist.transferOwnership(address(signedProposer));
+
+        ISignatureTransfer.PermitTransferFrom memory permit =
+            _buildPermit(TOTAL_BOND * maxBatch, 43, block.timestamp + 1 hours);
+        bytes memory boundaryData = abi.encodeCall(
+            SignedProposer.proposeBatch,
+            (
+                boundary,
+                proposer,
+                permit,
+                _batchSignature(boundary, permit, address(signedProposer)),
+                new uint256[](maxBatch)
+            )
+        );
+        permit.permitted.amount += TOTAL_BOND;
+        bytes memory oversizedData = abi.encodeCall(
+            SignedProposer.proposeBatch,
+            (
+                oversized,
+                proposer,
+                permit,
+                _batchSignature(oversized, permit, address(signedProposer)),
+                new uint256[](maxBatch + 1)
+            )
+        );
+
+        // For 65-byte EOA signatures: 452 fixed bytes + 8,544 bytes per maximum-sized item.
+        assertEq(boundaryData.length, 128_612);
+        assertEq(oversizedData.length, 137_156);
+        // Leave ample room for an ordinary signed legacy/type-2 envelope without an access list.
+        assertLt(boundaryData.length + 512, BOR_MAX_TRANSACTION_BYTES);
+        // The next batch already exceeds Bor's 128 KiB limit before adding the transaction envelope.
+        assertGt(oversizedData.length, BOR_MAX_TRANSACTION_BYTES);
+        (bool outerSuccess, bool[] memory successes) = _executeWithinPolygonBlock(boundaryData);
+        uint256 executionGas = vm.lastCallGas().gasTotalUsed;
+        assertTrue(_allSucceeded(outerSuccess, successes, maxBatch));
+        assertEq(currency.balanceOf(proposer), 0);
+        assertEq(currency.balanceOf(address(signedProposer)), 0);
+        assertEq(currency.allowance(address(signedProposer), address(moo)), 0);
+        assertFalse(defaultProposerWhitelist.isOnWhitelist(proposer));
+        assertEq(ISignatureTransfer(permit2Address).nonceBitmap(proposer, 0), 1 << 43);
+
+        emit log_named_uint("max ancillary bytes per proposal", ancillaryData.length);
+        emit log_named_uint("largest successful proposal batch", maxBatch);
+        emit log_named_uint("15 proposal calldata bytes", boundaryData.length);
+        emit log_named_uint("batch execution gas (excluding intrinsic gas)", executionGas);
+        emit log_named_uint("16 proposal calldata bytes", oversizedData.length);
+        emit log_named_uint("Polygon block gas limit", POLYGON_BLOCK_GAS_LIMIT);
     }
 
     function test_tryMulticall_maxAncillaryData_polygonBlockCapacity() public {
