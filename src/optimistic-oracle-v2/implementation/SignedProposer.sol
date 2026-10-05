@@ -228,7 +228,7 @@ contract SignedProposer is
         address proposer,
         ISignatureTransfer.PermitTransferFrom calldata permit,
         bytes calldata signature,
-        uint256[] memory payments
+        uint256[] calldata payments
     ) external onlyRole(DELEGATED_PROPOSER_ROLE) nonReentrant returns (bool[] memory successes) {
         uint256 length = proposals.length;
         if (length == 0) revert EmptyBatch();
