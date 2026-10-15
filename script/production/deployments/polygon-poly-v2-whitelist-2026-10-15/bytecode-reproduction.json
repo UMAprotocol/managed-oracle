@@ -1,0 +1,111 @@
+{
+  "chainId": 137,
+  "blockNumber": 95573288,
+  "blockHash": "0xfa7f5ccfc98241b34e95586909c3606e6a7473a1bf142f1938de59541598dd9c",
+  "signedProposerProxy": "0x632dA7EcAD445C090DaFe1B03c24c113bD0edD13",
+  "implementationSlot": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+  "implementation": "0x1307ce44a51af6d84ad2e346d7655f1b7d20d856",
+  "contracts": {
+    "access-manager": {
+      "address": "0xfa6f0ff6c719001cba691ff12ceaa9c49acdcb66",
+      "runtimeBytes": 8768,
+      "rawCompilerRuntimeMatches": true,
+      "immutableReferences": {},
+      "immutableValueRule": "UUPS __self must equal the implementation address; no arbitrary byte masking",
+      "exactRuntimeIncludingMetadataMatches": true,
+      "onchainKeccak256": "0x9bb503f05d0dc3393bdcf782e23b52c70019c828aed9f25a3329d92b3efd8428",
+      "reproducedKeccak256": "0x9bb503f05d0dc3393bdcf782e23b52c70019c828aed9f25a3329d92b3efd8428",
+      "compiler": {
+        "version": "0.8.30+commit.73712a01"
+      },
+      "compilerSettings": {
+        "remappings": [
+          "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+          "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+          "@openzeppelin/foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
+          "@uma/contracts/=lib/protocol/packages/core/contracts/",
+          "ds-test/=lib/permit2/lib/forge-std/lib/ds-test/src/",
+          "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
+          "forge-gas-snapshot/=lib/permit2/lib/forge-gas-snapshot/src/",
+          "forge-std/=lib/forge-std/src/",
+          "halmos-cheatcodes/=lib/openzeppelin-contracts-upgradeable/lib/halmos-cheatcodes/src/",
+          "openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/",
+          "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+          "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
+          "permit2/=lib/permit2/",
+          "protocol/=lib/protocol/",
+          "solmate/=lib/permit2/lib/solmate/"
+        ],
+        "optimizer": {
+          "enabled": true,
+          "runs": 1
+        },
+        "metadata": {
+          "bytecodeHash": "ipfs"
+        },
+        "compilationTarget": {
+          "lib/openzeppelin-contracts/contracts/access/manager/AccessManager.sol": "AccessManager"
+        },
+        "evmVersion": "cancun",
+        "libraries": {},
+        "viaIR": true
+      }
+    },
+    "signed-proposer-implementation": {
+      "address": "0x1307ce44a51af6d84ad2e346d7655f1b7d20d856",
+      "runtimeBytes": 13795,
+      "rawCompilerRuntimeMatches": false,
+      "immutableReferences": {
+        "652": [
+          {
+            "start": 5009,
+            "length": 32
+          },
+          {
+            "start": 5174,
+            "length": 32
+          }
+        ]
+      },
+      "immutableValueRule": "UUPS __self must equal the implementation address; no arbitrary byte masking",
+      "exactRuntimeIncludingMetadataMatches": true,
+      "onchainKeccak256": "0xbc198f557cff5fc69b0d8c3aee31d8cbd8d1c048275259fc291f9ae950453f10",
+      "reproducedKeccak256": "0xbc198f557cff5fc69b0d8c3aee31d8cbd8d1c048275259fc291f9ae950453f10",
+      "compiler": {
+        "version": "0.8.30+commit.73712a01"
+      },
+      "compilerSettings": {
+        "remappings": [
+          "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+          "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+          "@openzeppelin/foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
+          "@uma/contracts/=lib/protocol/packages/core/contracts/",
+          "ds-test/=lib/permit2/lib/forge-std/lib/ds-test/src/",
+          "erc4626-tests/=lib/openzeppelin-contracts-upgradeable/lib/erc4626-tests/",
+          "forge-gas-snapshot/=lib/permit2/lib/forge-gas-snapshot/src/",
+          "forge-std/=lib/forge-std/src/",
+          "halmos-cheatcodes/=lib/openzeppelin-contracts-upgradeable/lib/halmos-cheatcodes/src/",
+          "openzeppelin-contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/",
+          "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+          "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/",
+          "permit2/=lib/permit2/",
+          "protocol/=lib/protocol/",
+          "solmate/=lib/permit2/lib/solmate/"
+        ],
+        "optimizer": {
+          "enabled": true,
+          "runs": 1
+        },
+        "metadata": {
+          "bytecodeHash": "ipfs"
+        },
+        "compilationTarget": {
+          "src/optimistic-oracle-v2/implementation/SignedProposer.sol": "SignedProposer"
+        },
+        "evmVersion": "prague",
+        "libraries": {},
+        "viaIR": true
+      }
+    }
+  }
+}
