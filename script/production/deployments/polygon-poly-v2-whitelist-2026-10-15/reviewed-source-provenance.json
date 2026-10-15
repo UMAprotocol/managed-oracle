@@ -1,0 +1,350 @@
+{
+  "access-manager": {
+    "sourceCount": 13,
+    "allSourceFilesMatch": true,
+    "sourceMatches": [
+      {
+        "path": "lib/openzeppelin-contracts/contracts/access/manager/AccessManager.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "f731720ea832da3c2a3a0f50907edbd503035bb764dddcd265a89067edde7ff3"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/access/manager/IAccessManager.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "d4efe804c460c8cce4d76c777b512e88ff200e14f9c8be884cd5f69cc0d12e35"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/access/manager/IAccessManaged.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "2ef4db4c7c678372fe79af348ce3d60d4cf7136d195daf7a9bc2e434ffcbaacd"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Address.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "73e54e15285455f0e01e136c3663732641537614723ae5dbd820eb3cb036b1fd"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Context.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "847fda5460fee70f56f4200f59b82ae622bb03c79c77e67af010e31b7e2cc5b6"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Multicall.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "bb203e6a32bb3f377e6b0c8269642ca2816f815deb4a533f35ef42eef0beda5c"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/math/Math.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "bdfdbe133991c0c78042957ff5cd97167926fcaf6d15664f3835a076cb066457"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/types/Time.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "8085f943150cce1a10aa843f83519960c3010efe5792a9ee58f87c1993d33472"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/cryptography/Hashes.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "ecdbce11c5ecdf32b306e26b8ab1b878327c08154b4ccd04518b6b64b298cf31"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Errors.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "0704b9d6c032cca8512a3bc3f30f49f86f1f03102d2896a3d23e794b82efea66"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/LowLevelCall.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "e128cbe9c6c406d5a42c26e4079c0a95b369ce552f2d0c3dfd2fcb836c5708f2"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Panic.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "270fc8401c1a13fae6a7a4a2dd6e381b95d658896701e51f0d3e2688acab3dec"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol",
+        "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+        "exactSourceMatch": true,
+        "sha256": "5779bc848bde39f1ad7bc02b4f708a0040888e0083b1a33f119cd94639350134"
+      }
+    ]
+  },
+  "signed-proposer-implementation": {
+    "sourceCount": 41,
+    "allSourceFilesMatch": true,
+    "sourceMatches": [
+      {
+        "path": "src/optimistic-oracle-v2/implementation/SignedProposer.sol",
+        "referenceCommit": "24a5930ba82bb9a91fb3251d8d7ff243b5d95a7a",
+        "exactSourceMatch": true,
+        "sha256": "92576b21a9dbf5e57f92c1d6d0eee1d16b00f16438fc0160f5d64fbfc6a10b52"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "01b6f5c4fa45fd38822b286ecef6daf983d27306dd6362496fa71b3e4600b72c"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "ac1fd9fa99b194a8db8dfa9ae8e3ff44feaa8f16668241fd2b66ae8b47d7c082"
+      },
+      {
+        "path": "lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol",
+        "referenceCommit": "e725abddf1e01cf05ace496e950fc8e243cc7cab",
+        "exactSourceMatch": true,
+        "sha256": "a5dee9f239e3334a7e3149dc9e72e2b0e7421813fb94660695b855384da6191e"
+      },
+      {
+        "path": "lib/openzeppelin-contracts-upgradeable/contracts/utils/MulticallUpgradeable.sol",
+        "referenceCommit": "e725abddf1e01cf05ace496e950fc8e243cc7cab",
+        "exactSourceMatch": true,
+        "sha256": "28874e9eb73a2dcf03367ad26d89fd38d83f08509685c404a618f86435a8dd6d"
+      },
+      {
+        "path": "lib/openzeppelin-contracts-upgradeable/contracts/utils/ReentrancyGuardUpgradeable.sol",
+        "referenceCommit": "e725abddf1e01cf05ace496e950fc8e243cc7cab",
+        "exactSourceMatch": true,
+        "sha256": "11b45418823fd6e961d8db5cf5c2795b08f51f88a66f8e37a38fcd052ee711a4"
+      },
+      {
+        "path": "src/optimistic-oracle-v2/interfaces/OptimisticOracleV2Interface.sol",
+        "referenceCommit": "24a5930ba82bb9a91fb3251d8d7ff243b5d95a7a",
+        "exactSourceMatch": true,
+        "sha256": "caca611f84e16144aebea327a1d787eb2e8807b96c5366a527f92a3b4672cf8c"
+      },
+      {
+        "path": "src/optimistic-oracle-v2/interfaces/SignedProposerOracleInterface.sol",
+        "referenceCommit": "24a5930ba82bb9a91fb3251d8d7ff243b5d95a7a",
+        "exactSourceMatch": true,
+        "sha256": "2a35a39977f0a5e1ec8ededd503542554e41982cfe069c9fef209ecadc372236"
+      },
+      {
+        "path": "lib/permit2/src/interfaces/ISignatureTransfer.sol",
+        "referenceCommit": "cc56ad0f3439c502c246fc5cfcc3db92bb8b7219",
+        "exactSourceMatch": true,
+        "sha256": "8e7f355d7751cf96e81069c17fb97a3ec973c9391fbbb58ad3fb6e75be5cb19b"
+      },
+      {
+        "path": "src/common/implementation/AddressWhitelist.sol",
+        "referenceCommit": "24a5930ba82bb9a91fb3251d8d7ff243b5d95a7a",
+        "exactSourceMatch": true,
+        "sha256": "bcdc89e39b8ad27f8ac5f31c7cccfc35afafe7ccddc60df5befc27df9e36b16b"
+      },
+      {
+        "path": "src/common/interfaces/AddressWhitelistInterface.sol",
+        "referenceCommit": "24a5930ba82bb9a91fb3251d8d7ff243b5d95a7a",
+        "exactSourceMatch": true,
+        "sha256": "4ee8b240ab89f53bdd53c1570612deed03fd5dce1514235767aecb0b4618cf9e"
+      },
+      {
+        "path": "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/UUPSUpgradeable.sol",
+        "referenceCommit": "e725abddf1e01cf05ace496e950fc8e243cc7cab",
+        "exactSourceMatch": true,
+        "sha256": "2d07bcf9728190a5c807cf68defc3f3c52aa098d04770d44af37f30abade38d5"
+      },
+      {
+        "path": "src/common/implementation/TryMulticall.sol",
+        "referenceCommit": "24a5930ba82bb9a91fb3251d8d7ff243b5d95a7a",
+        "exactSourceMatch": true,
+        "sha256": "581fc1ee43985a3aa91a92387e6951a580b927a94b2af9e82f734d4db6a9974a"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/interfaces/IERC1363.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "9c3a75a925a6dac9e88b03cddc58d42fe3131b0aaaad84408521f3f7af2f991b"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/access/IAccessControl.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "140304b7e99d517c57a13f391dfd3b550ca633a507f7b2af130f391b6cd89cc5"
+      },
+      {
+        "path": "lib/openzeppelin-contracts-upgradeable/contracts/utils/ContextUpgradeable.sol",
+        "referenceCommit": "e725abddf1e01cf05ace496e950fc8e243cc7cab",
+        "exactSourceMatch": true,
+        "sha256": "a08e16324da33a9d666dc07a22ae58031c242a3869f6808e55b4b82fc70cb209"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "9055c2994b37dea1a41b7b7926dcb510f05dbe2540b0aafc5fbee9558fffd0ca"
+      },
+      {
+        "path": "lib/openzeppelin-contracts-upgradeable/contracts/utils/introspection/ERC165Upgradeable.sol",
+        "referenceCommit": "e725abddf1e01cf05ace496e950fc8e243cc7cab",
+        "exactSourceMatch": true,
+        "sha256": "d2105a1e3ba533399fb408105267329c2c134fcb18043a9c024d1b6e81982fc9"
+      },
+      {
+        "path": "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol",
+        "referenceCommit": "e725abddf1e01cf05ace496e950fc8e243cc7cab",
+        "exactSourceMatch": true,
+        "sha256": "f527a063813c2bf60c153fb08e38539578935402894fcc36fac42324ca325d3b"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Address.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "f1a9255dbc40cf9ae7c786abed3b022691a9d24bca0c7f05dc60e63421d405ab"
+      },
+      {
+        "path": "lib/protocol/packages/core/contracts/data-verification-mechanism/interfaces/FinderInterface.sol",
+        "referenceCommit": "6a23be19d8a0dbee4475db9ff52ce4d9572212b5",
+        "exactSourceMatch": true,
+        "sha256": "b0ff51388845ed1351066936ad6f80439f8021add0e80b9f823cf09a32ce4863"
+      },
+      {
+        "path": "lib/permit2/src/interfaces/IEIP712.sol",
+        "referenceCommit": "cc56ad0f3439c502c246fc5cfcc3db92bb8b7219",
+        "exactSourceMatch": true,
+        "sha256": "e386407da496dbe874c10a81801c55744fb2922a51389a51c79001422e81e0cd"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "61a2b12c96857aaa35f48aeda67a4281637a42494c0b3795be0ae976aa7b3793"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/access/Ownable.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "38578bd71c0a909840e67202db527cc6b4e6b437e0f39f0c909da32c1e30cb81"
+      },
+      {
+        "path": "lib/protocol/packages/core/contracts/common/implementation/Lockable.sol",
+        "referenceCommit": "6a23be19d8a0dbee4475db9ff52ce4d9572212b5",
+        "exactSourceMatch": true,
+        "sha256": "5269b16b024a4000ef9c5fc33586a56058e40696de18e5dce3bcfb565704ba8d"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/structs/EnumerableSet.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "53507e71995d0e76d29d6dd897d0bcc3f069fd81f03cb431d7342bdfcc0d5345"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/interfaces/draft-IERC1822.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "73653312bc2eda0ec231553a5295242eaef2d4f46a023532d45fe76cbd0f565f"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Utils.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "58c5b19893bf3d7f9e1aa0edc5b908b915eb7af4381800deb425a6e5331f4432"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "0158e2d3e0e28bedd99eec13dcf1a8aa3a70a5b7e4bb2ad709609c95fcc740d1"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/interfaces/IERC165.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "dfb3f56fa928a7c6cae41a7ce2c86b9210fa18d33fa26389099d66a0fa790368"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Errors.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "0704b9d6c032cca8512a3bc3f30f49f86f1f03102d2896a3d23e794b82efea66"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Context.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "847fda5460fee70f56f4200f59b82ae622bb03c79c77e67af010e31b7e2cc5b6"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Arrays.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "8320f75b46c18204dd6f2b3654058129625b849a95c3a55a44ae531f77f0eca9"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/math/Math.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "92fee281fd46a1b058b190cf21d6b1a528f0433a907850ae1c9bcf36c5c0cd98"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/proxy/beacon/IBeacon.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "c1c9726bbb0ec4c540c7c98059dcded69a8586b46c168036672381033ee76239"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/interfaces/IERC1967.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "c4e901318ab6d4963582c62c62ce988a34c68dbae71846b67decacde79e9a317"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/StorageSlot.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "75704538dcb223239280c6726d9a31cf769a7816718517c997fc7d63bdb70778"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Comparators.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "52fb1c8f57967d42a3214bde4a8a414ab25c2e3a844d00e171ca56487024e009"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/SlotDerivation.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "daddbbeb265c87b7172548d58baede96b167cd89c6c7884ff2705676fab69438"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/Panic.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "270fc8401c1a13fae6a7a4a2dd6e381b95d658896701e51f0d3e2688acab3dec"
+      },
+      {
+        "path": "lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol",
+        "referenceCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+        "exactSourceMatch": true,
+        "sha256": "9769274bf53f26a7c7896c526ea1980dc9bea5bf5c2a5fd04870008c4afc1de9"
+      }
+    ]
+  },
+  "signedProposerReviewedDelta": {
+    "reportHead": "621b4d3788e2c2437aee994d1f303b8a3d57ad51",
+    "releaseCommit": "24a5930ba82bb9a91fb3251d8d7ff243b5d95a7a",
+    "codeTokensMatchReportHeadPlusReviewedN03Fix": true,
+    "functionalDelta": "payments memory -> calldata, reviewed as N-03 / PR90 at 38eb19f0ba5e0fbdb12f7e3f844a3bb2e2a0d5cc",
+    "otherDelta": "Documentation changes covered by N-04 / PR91 and accepted L-05 / PR89",
+    "fixRefs": {
+      "N-03": "38eb19f0ba5e0fbdb12f7e3f844a3bb2e2a0d5cc",
+      "N-04": "10b4d1cb2072752bd99864758022cd61f5212e07",
+      "L-05": "1a0a4172efab2f11f35b9f7c6fa3aa3880b1822c"
+    }
+  }
+}

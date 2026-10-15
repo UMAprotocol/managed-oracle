@@ -96,3 +96,7 @@ corresponding production integration or role is not configured at execution time
 
 All commands require an RPC URL supplied at runtime; this runbook and the scripts contain no RPC endpoint
 or signing secret.
+
+## Deployment records
+
+- [Polygon Polymarket V2 custom whitelist, 2026-10-15](deployments/polygon-poly-v2-whitelist-2026-10-15/README.md): deployed address, ownership, sole proxy member, successful receipts and runtime/source provenance.

@@ -1,0 +1,83 @@
+{
+  "status": "verified_pins_ready_not_deployed_not_activated",
+  "verificationDate": "2026-10-15",
+  "chainId": 137,
+  "blockNumber": 95573288,
+  "blockHash": "0xfa7f5ccfc98241b34e95586909c3606e6a7473a1bf142f1938de59541598dd9c",
+  "pins": {
+    "POLYMARKET_V2_INITIALIZER_ACCESS_MANAGER_CODE_HASH": "0x9bb503f05d0dc3393bdcf782e23b52c70019c828aed9f25a3329d92b3efd8428",
+    "POLYMARKET_V2_INITIALIZER_SIGNED_PROPOSER_CODE_HASH": "0xbc198f557cff5fc69b0d8c3aee31d8cbd8d1c048275259fc291f9ae950453f10"
+  },
+  "accessManager": {
+    "address": "0xfa6f0ff6c719001cba691ff12ceaa9c49acdcb66",
+    "reference": "OpenZeppelin Contracts v5.6.1",
+    "referenceCommit": "5fd1781b1454fd1ef8e722282f86f9293cacf256",
+    "verifiedSourceFiles": 13,
+    "canonicalSourceMatches": true,
+    "fullRuntimeIncludingMetadataMatches": true,
+    "compiler": "0.8.30+commit.73712a01",
+    "optimizerRuns": 1,
+    "viaIR": true,
+    "evmVersion": "cancun",
+    "sourceURL": "https://polygonscan.com/address/0xfa6f0ff6c719001cba691ff12ceaa9c49acdcb66#code",
+    "reviewScope": "Unmodified canonical OpenZeppelin release and its 13-source dependency closure; this AccessManager is outside the UMA-specific OOReporter/SignedProposer diff audit."
+  },
+  "signedProposer": {
+    "proxy": "0x632dA7EcAD445C090DaFe1B03c24c113bD0edD13",
+    "implementation": "0x1307ce44a51af6d84ad2e346d7655f1b7d20d856",
+    "implementationSlot": "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+    "releaseCommit": "24a5930ba82bb9a91fb3251d8d7ff243b5d95a7a",
+    "auditedPR79Head": "621b4d3788e2c2437aee994d1f303b8a3d57ad51",
+    "fixReviewRefs": {
+      "N-03": "38eb19f0ba5e0fbdb12f7e3f844a3bb2e2a0d5cc",
+      "N-04": "10b4d1cb2072752bd99864758022cd61f5212e07",
+      "L-05": "1a0a4172efab2f11f35b9f7c6fa3aa3880b1822c"
+    },
+    "verifiedSourceFiles": 41,
+    "releaseAndPinnedDependenciesMatch": true,
+    "codeTokensMatchAuditedHeadPlusReviewedN03Fix": true,
+    "fullRuntimeIncludingMetadataMatches": true,
+    "immutableReferences": {
+      "652": [
+        {
+          "start": 5009,
+          "length": 32
+        },
+        {
+          "start": 5174,
+          "length": 32
+        }
+      ]
+    },
+    "immutableResolution": "Verified each __self slot contains exactly the implementation address; no other bytes masked or normalized.",
+    "compiler": "0.8.30+commit.73712a01",
+    "optimizerRuns": 1,
+    "viaIR": true,
+    "evmVersion": "prague",
+    "openzeppelinContractsVersion": "v5.4.0",
+    "openzeppelinContractsCommit": "c64a1edb67b6e3f4a15cca8909c9482ad33a02b0",
+    "openzeppelinUpgradeableVersion": "v5.4.0",
+    "openzeppelinUpgradeableCommit": "e725abddf1e01cf05ace496e950fc8e243cc7cab",
+    "sourceURL": "https://polygonscan.com/address/0x1307ce44a51af6d84ad2e346d7655f1b7d20d856#code",
+    "auditURL": "https://audits.openzeppelin.com/risk-labs/uma-26-retainer-01-ooreporter-consolidation-and-signedproposer-batching",
+    "auditFindingStatus": {
+      "N-03": "resolved",
+      "N-04": "resolved",
+      "L-05": "acknowledged_not_resolved"
+    },
+    "acceptedAuditBehavior": "L-05 remains acknowledged, not resolved under the previously accepted fully trusted relayer model; no claim that all audit findings were fixed."
+  },
+  "evidenceFiles": {
+    "bytecode-reproduction.json": "7f231090871997071e9698020e09610de2f547b2a5863c22ab131d1bbd55cbce",
+    "reviewed-source-provenance.json": "4e4daddb1cb81597e3133a75060cd126d8ecc8ca9be3c8c74f671f21488560af",
+    "access-manager-standard-input.json": "c8028150715decacf141321b9b52d9bf430abba63d2fa57405245dadd15f0676",
+    "signed-proposer-implementation-standard-input.json": "c0252d74bce4cf867ce629534331ea117a65abfd798eaffc5e9de6768f7ff39a"
+  },
+  "productionChanged": false,
+  "signed": false,
+  "broadcast": false,
+  "limits": [
+    "Verification is tied to the recorded block and implementations. Recheck the implementation slot and runtime pins before activation.",
+    "This is deployment/source provenance verification, not a new audit of the integration or its privileged actors."
+  ]
+}
